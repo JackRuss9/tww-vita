@@ -1,0 +1,165 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 18:55:29 +0100
+Subject: [PATCH] Reason: link every actor module (REL) into the program:
+ nothing to load, the module's constructors run when it is linked, and names
+ two modules both define made local
+
+---
+ src/DynamicLink.cpp           | 40 +++++++++++++++++++++++++++++++++++
+ src/d/actor/d_a_fganon.cpp    |  2 +-
+ src/d/actor/d_a_npc_yw1.cpp   |  2 +-
+ src/d/actor/d_a_shand.cpp     |  2 +-
+ src/f_pc/f_pc_profile_lst.cpp |  6 ++++++
+ 5 files changed, 49 insertions(+), 3 deletions(-)
+
+diff --git a/src/DynamicLink.cpp b/src/DynamicLink.cpp
+index dc0070d7..a3860f92 100644
+--- a/src/DynamicLink.cpp
++++ b/src/DynamicLink.cpp
+@@ -220,6 +220,10 @@ static u32 calcSum2(u16 const* data, u32 size) {
+ 
+ #if VERSION == VERSION_DEMO
+ bool DynamicModuleControl::do_load() {
++#ifdef TARGET_PC
++    // The port links every module into the program: nothing to load.
++    return true;
++#endif
+     if (mModule != NULL) {
+         return true;
+     }
+@@ -260,6 +264,10 @@ bool DynamicModuleControl::do_load() {
+ }
+ #else
+ bool DynamicModuleControl::do_load() {
++#ifdef TARGET_PC
++    // The port links every module into the program: nothing to load.
++    return true;
++#endif
+     if (mModule != NULL) {
+         return true;
+     }
+@@ -355,6 +363,10 @@ bool DynamicModuleControl::do_load() {
+ #endif
+ 
+ BOOL DynamicModuleControl::do_load_async() {
++#ifdef TARGET_PC
++    // The port links every module into the program: nothing to load.
++    return TRUE;
++#endif
+     if (mAsyncLoadCallback == NULL) {
+         if (mModule != NULL) {
+             return true;
+@@ -377,6 +389,10 @@ BOOL DynamicModuleControl::do_load_async() {
+ }
+ 
+ bool DynamicModuleControl::do_unload() {
++#ifdef TARGET_PC
++    // The port links every module into the program: nothing to load.
++    return true;
++#endif
+     if (mModule != NULL) {
+ #if VERSION == VERSION_DEMO
+         JKRRemoveResource(mModule, NULL);
+@@ -399,7 +415,23 @@ void DynamicModuleControl::dump2() {
+ }
+ #endif
+ 
++#ifdef TARGET_PC
++extern void fpcPfLst_ModuleProlog();
++extern "C" int tww_rel_run_ctors(const char* name);
++#endif
++
+ BOOL DynamicModuleControl::do_link() {
++#ifdef TARGET_PC
++    // The port links every module into the program. What linking one did
++    // on the console: run its static constructors (deferred until now,
++    // tools/rel_cc.py), and its prolog, of which only the profile list's
++    // (f_pc_profile_lst.cpp) does anything.
++    tww_rel_run_ctors(mName);
++    if (strcmp(mName, "f_pc_profile_lst") == 0) {
++        fpcPfLst_ModuleProlog();
++    }
++    return TRUE;
++#endif
+     OSGetTime();
+     if (mModule == NULL) {
+         do_load();
+@@ -506,6 +538,10 @@ error:
+ }
+ 
+ bool DynamicModuleControl::do_unlink() {
++#ifdef TARGET_PC
++    // The port links every module into the program: nothing to load.
++    return true;
++#endif
+     OSTime time1 = OSGetTime();
+     ((void (*)())mModule->epilog)();
+     OSTime time2 = OSGetTime();
+@@ -526,6 +562,10 @@ bool DynamicModuleControl::do_unlink() {
+ }
+ 
+ int DynamicModuleControl::getModuleSize() const {
++#ifdef TARGET_PC
++    // The port links every module into the program: nothing to load.
++    return 0;
++#endif
+     if (mModule != NULL) {
+         u32 size = JKRGetMemBlockSize(NULL, mModule);
+         if (mBss != NULL) {
+diff --git a/src/d/actor/d_a_fganon.cpp b/src/d/actor/d_a_fganon.cpp
+index e0360577..8d318932 100644
+--- a/src/d/actor/d_a_fganon.cpp
++++ b/src/d/actor/d_a_fganon.cpp
+@@ -20,7 +20,7 @@
+ #include "f_op/f_op_camera.h"
+ 
+ fganon_class* master;
+-u8 hio_set;
++static u8 hio_set;
+ static daFganon_HIO_c l_HIO;
+ 
+ /* 000000EC-000001A0       .text __ct__14daFganon_HIO_cFv */
+diff --git a/src/d/actor/d_a_npc_yw1.cpp b/src/d/actor/d_a_npc_yw1.cpp
+index e627191a..a09c5ec9 100644
+--- a/src/d/actor/d_a_npc_yw1.cpp
++++ b/src/d/actor/d_a_npc_yw1.cpp
+@@ -52,7 +52,7 @@ static BOOL CheckCreateHeap(fopAc_ac_c*) {
+ }
+ 
+ /* 000006C8-00000740       .text searchActor_Bm1__FPvPv */
+-void searchActor_Bm1(void*, void*) {
++static void searchActor_Bm1(void*, void*) {
+     /* Nonmatching */
+ }
+ 
+diff --git a/src/d/actor/d_a_shand.cpp b/src/d/actor/d_a_shand.cpp
+index 78ddb0d4..d7a8a07e 100644
+--- a/src/d/actor/d_a_shand.cpp
++++ b/src/d/actor/d_a_shand.cpp
+@@ -12,7 +12,7 @@
+ #include "d/d_com_inf_game.h"
+ #include "d/d_s_play.h"
+ 
+-bool hio_set;
++static bool hio_set;
+ static daShand_HIO_c l_HIO;
+ 
+ /* 000000EC-00000114       .text __ct__13daShand_HIO_cFv */
+diff --git a/src/f_pc/f_pc_profile_lst.cpp b/src/f_pc/f_pc_profile_lst.cpp
+index cd1843a8..65ef1658 100644
+--- a/src/f_pc/f_pc_profile_lst.cpp
++++ b/src/f_pc/f_pc_profile_lst.cpp
+@@ -2,6 +2,12 @@
+ #include "REL/executor.h"
+ #include "global.h"
+ 
++#ifdef TARGET_PC
++// Linked into the program: DynamicModuleControl::do_link calls these.
++#define ModuleProlog fpcPfLst_ModuleProlog
++#define ModuleEpilog fpcPfLst_ModuleEpilog
++#endif
++
+ process_profile_definition* g_fpcPfLst_ProfileList[] = {
+     &g_profile_OVERLAP0.base.base,
+     &g_profile_OVERLAP1.base.base,

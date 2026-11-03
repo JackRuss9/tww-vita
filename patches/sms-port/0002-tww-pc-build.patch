@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 18:55:30 +0100
+Subject: [PATCH] Reason: build on 32-bit x86 PCs (the fiber stack dump only
+ where fibers exist)
+
+---
+ platform/os/os_thread.cpp | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/platform/os/os_thread.cpp b/platform/os/os_thread.cpp
+index 4a8a515..7788db7 100644
+--- a/platform/os/os_thread.cpp
++++ b/platform/os/os_thread.cpp
+@@ -997,6 +997,7 @@ extern "C" void port_os_dump_threads(unsigned lo, unsigned hi)
+ 		int n = snprintf(line, sizeof line, "[os] thread %p: entry %p, state %d, priority %d, suspend %d%s; stack:",
+ 		                 (void*)t, (void*)h->func, (int)t->state, (int)t->priority, (int)t->suspend,
+ 		                 t == cur ? " (running)" : "");
++#ifdef PORT_HAVE_FIBERS
+ 		if (g_fibers && t != cur && h->fiber_sp) {
+ 			const u32* p = (const u32*)h->fiber_sp;
+ 			const u32* end = h->fiber_stack ? (const u32*)(h->fiber_stack + kFiberStack) : p + 4096;
+@@ -1011,6 +1012,7 @@ extern "C" void port_os_dump_threads(unsigned lo, unsigned hi)
+ 				}
+ 			}
+ 		}
++#endif
+ 		port_log("%s\n", line);
+ 	}
+ }

@@ -1,0 +1,180 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 18:55:29 +0100
+Subject: [PATCH] Reason: compile with GCC (C++11) for the port: intrinsics, a
+ dependent type name, friend operators found only by MWCC, div/abs overloads,
+ a cast, clock(), inline header specialisations, AT_ADDRESS
+
+---
+ include/JSystem/JGadget/binary.h              |  6 +++---
+ include/JSystem/JParticle/JPAEmitter.h        | 14 +++++++-------
+ include/dolphin/os/OSUtil.h                   |  2 +-
+ include/global.h                              |  2 ++
+ src/JSystem/JStudio/JStudio/functionvalue.cpp |  4 ++--
+ src/d/actor/d_a_npc_zl1.cpp                   |  2 +-
+ src/d/actor/d_a_player_rope.inc               |  2 +-
+ src/d/d_meter.cpp                             |  5 +++++
+ 8 files changed, 22 insertions(+), 15 deletions(-)
+
+diff --git a/include/JSystem/JGadget/binary.h b/include/JSystem/JGadget/binary.h
+index f8a617d4..77339720 100644
+--- a/include/JSystem/JGadget/binary.h
++++ b/include/JSystem/JGadget/binary.h
+@@ -86,7 +86,7 @@ struct TParseValue : public Parser {
+     }
+ 
+     static const void* advance(const void* data, s32 advanceNum) {
+-        return (char*)data + (advanceNum * sizeof(Parser::ParseType));
++        return (char*)data + (advanceNum * sizeof(typename Parser::ParseType));
+     }
+ };
+ 
+@@ -151,7 +151,7 @@ struct TValueIterator_raw : public TValueIterator<TParseValue_raw<T>, sizeof(T)>
+     }
+ 
+     friend bool operator!=(TValueIterator<TParseValue_raw<T>, sizeof(T)> a, TValueIterator<TParseValue_raw<T>, sizeof(T)> b) {
+-        return !operator==(a, b);
++        return a.mBegin != b.mBegin;
+     }
+ 
+     friend TValueIterator<TParseValue_raw<T>, sizeof(T)> operator+(TValueIterator<TParseValue_raw<T>, sizeof(T)> a, s32 b) {
+@@ -181,7 +181,7 @@ struct TValueIterator_misaligned : public TValueIterator<TParseValue_misaligned<
+     }
+ 
+     friend bool operator!=(TValueIterator<TParseValue_misaligned<T>, sizeof(T)> a, TValueIterator<TParseValue_misaligned<T>, sizeof(T)> b) {
+-        return !operator==(a, b);
++        return a.mBegin != b.mBegin;
+     }
+ 
+     friend TValueIterator<TParseValue_misaligned<T>, sizeof(T)> operator+(TValueIterator<TParseValue_misaligned<T>, sizeof(T)> a, s32 b) {
+diff --git a/include/JSystem/JParticle/JPAEmitter.h b/include/JSystem/JParticle/JPAEmitter.h
+index eb45d2e0..959198a6 100644
+--- a/include/JSystem/JParticle/JPAEmitter.h
++++ b/include/JSystem/JParticle/JPAEmitter.h
+@@ -87,13 +87,13 @@ public:
+ };  // Size: 0x04
+ 
+ template<>
+-void JPACallBackBase<JPABaseEmitter*>::init(JPABaseEmitter*) {}
++inline void JPACallBackBase<JPABaseEmitter*>::init(JPABaseEmitter*) {}
+ template<>
+-void JPACallBackBase<JPABaseEmitter*>::execute(JPABaseEmitter*) {}
++inline void JPACallBackBase<JPABaseEmitter*>::execute(JPABaseEmitter*) {}
+ template<>
+-void JPACallBackBase<JPABaseEmitter*>::executeAfter(JPABaseEmitter*) {}
++inline void JPACallBackBase<JPABaseEmitter*>::executeAfter(JPABaseEmitter*) {}
+ template<>
+-void JPACallBackBase<JPABaseEmitter*>::draw(JPABaseEmitter*) {}
++inline void JPACallBackBase<JPABaseEmitter*>::draw(JPABaseEmitter*) {}
+ 
+ template<typename T, typename U>
+ class JPACallBackBase2 {
+@@ -107,11 +107,11 @@ public:
+ };
+ 
+ template<>
+-void JPACallBackBase2<JPABaseEmitter*, JPABaseParticle*>::init(JPABaseEmitter*, JPABaseParticle*) {}
++inline void JPACallBackBase2<JPABaseEmitter*, JPABaseParticle*>::init(JPABaseEmitter*, JPABaseParticle*) {}
+ template<>
+-void JPACallBackBase2<JPABaseEmitter*, JPABaseParticle*>::execute(JPABaseEmitter*, JPABaseParticle*) {}
++inline void JPACallBackBase2<JPABaseEmitter*, JPABaseParticle*>::execute(JPABaseEmitter*, JPABaseParticle*) {}
+ template<>
+-void JPACallBackBase2<JPABaseEmitter*, JPABaseParticle*>::draw(JPABaseEmitter*, JPABaseParticle*) {}
++inline void JPACallBackBase2<JPABaseEmitter*, JPABaseParticle*>::draw(JPABaseEmitter*, JPABaseParticle*) {}
+ 
+ struct JPAEmitterInfo {
+ public:
+diff --git a/include/dolphin/os/OSUtil.h b/include/dolphin/os/OSUtil.h
+index e565be71..fe8f79c4 100644
+--- a/include/dolphin/os/OSUtil.h
++++ b/include/dolphin/os/OSUtil.h
+@@ -10,7 +10,7 @@ extern "C" {
+ // Macro to make it more clear when something is an address, and to prevent intellisense errors.
+ #ifdef __MWERKS__
+ #define AT_ADDRESS(addr) : (addr)
+-#else
++#elif !defined(TARGET_PC) // (the port's types.h defines it)
+ #define AT_ADDRESS(addr)
+ #endif
+ 
+diff --git a/include/global.h b/include/global.h
+index 54b8d228..a5e4505a 100644
+--- a/include/global.h
++++ b/include/global.h
+@@ -55,10 +55,12 @@
+ #endif
+ 
+ // Intrinsics
++#ifndef TARGET_PC
+ extern int __cntlzw(uint);
+ extern int __rlwimi(int, int, int, int, int);
+ extern void __dcbz(void*, int);
+ extern void __sync();
++#endif
+ 
+ #define VERSION_DEMO 0
+ #define VERSION_JPN 1
+diff --git a/src/JSystem/JStudio/JStudio/functionvalue.cpp b/src/JSystem/JStudio/JStudio/functionvalue.cpp
+index 35da9086..e1bb1664 100644
+--- a/src/JSystem/JStudio/JStudio/functionvalue.cpp
++++ b/src/JSystem/JStudio/JStudio/functionvalue.cpp
+@@ -302,7 +302,7 @@ f64 TFunctionValue_composite::composite_index(const JGadget::TVector_pointer<TFu
+         }
+         break;
+     case 1: {
+-        div_t dt = div(index, size - 1);
++        div_t dt = div((int)index, (int)(size - 1));
+         index = dt.rem;
+         if (index < 0) {
+             index = size + index;
+@@ -315,7 +315,7 @@ f64 TFunctionValue_composite::composite_index(const JGadget::TVector_pointer<TFu
+             index = 0;
+         } else {
+             u32 uVar3 = (u32)(size - 2) * 2;
+-            div_t dt2 = div(index, uVar3);
++            div_t dt2 = div((int)index, (int)uVar3);
+             index = dt2.rem;
+             if (index < 0) {
+                 index += uVar3;
+diff --git a/src/d/actor/d_a_npc_zl1.cpp b/src/d/actor/d_a_npc_zl1.cpp
+index bb14ca32..62bef741 100644
+--- a/src/d/actor/d_a_npc_zl1.cpp
++++ b/src/d/actor/d_a_npc_zl1.cpp
+@@ -1072,7 +1072,7 @@ void daNpc_Zl1_c::checkOrder() {
+                     field_0x7D3 = true;
+                     break;
+                 case 2:
+-                    dComIfGs_setRestartRoom(*static_cast<const cXyz*>(a_start_pos), 0x4000, 0);
++                    dComIfGs_setRestartRoom(*reinterpret_cast<const cXyz*>(a_start_pos), 0x4000, 0);
+                     field_0x7C9 = true;
+                     break;
+                 case 3:
+diff --git a/src/d/actor/d_a_player_rope.inc b/src/d/actor/d_a_player_rope.inc
+index a4527eff..d49056bc 100644
+--- a/src/d/actor/d_a_player_rope.inc
++++ b/src/d/actor/d_a_player_rope.inc
+@@ -913,7 +913,7 @@ BOOL daPy_lk_c::procRopeHangWait() {
+ int daPy_lk_c::specialRopeHangUp() {
+     if (DEMO_SELECT(!strcmp(dComIfGp_getStartStageName(), "GanonK"), checkSpecialRope())) {
+         u32 uVar1 = shape_angle.y >= 0x4000 ? 0 : 1;
+-        int iVar2 = abs(uVar1);
++        int iVar2 = abs((int)uVar1);
+         if (iVar2 != 0) {
+             current.pos.z = -15.8f;
+             shape_angle.y = 0;
+diff --git a/src/d/d_meter.cpp b/src/d/d_meter.cpp
+index 030412fe..adfc5064 100644
+--- a/src/d/d_meter.cpp
++++ b/src/d/d_meter.cpp
+@@ -31,6 +31,11 @@
+ #include "m_Do/m_Do_lib.h"
+ #include "stdio.h"
+ 
++#ifdef TARGET_PC
++// (clock() is the host C library's)
++#define clock d_meter_clock
++#endif
++
+ dMeter_info_c dMeter_Info;
+ fopMsgM_pane_class item_parts;
+ dMeter_map_HIO_c g_meter_mapHIO;

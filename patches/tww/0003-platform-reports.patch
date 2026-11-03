@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 18:55:29 +0100
+Subject: [PATCH] Reason: OSReport and OSPanic are the platform layer's (to the
+ log, with a host backtrace)
+
+---
+ src/m_Do/m_Do_printf.cpp | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/m_Do/m_Do_printf.cpp b/src/m_Do/m_Do_printf.cpp
+index 4471eda2..689c8014 100644
+--- a/src/m_Do/m_Do_printf.cpp
++++ b/src/m_Do/m_Do_printf.cpp
+@@ -151,6 +151,7 @@ void OSVReport(const char* fmt, va_list args) {
+     }
+ }
+ 
++#ifndef TARGET_PC // the platform layer's (os_core.cpp): to the log
+ /* 80006950-800069D0       .text OSReport */
+ void OSReport(const char* fmt, ...) {
+     va_list args;
+@@ -159,6 +160,8 @@ void OSReport(const char* fmt, ...) {
+     va_end(args);
+ }
+ 
++#endif
++
+ /* 800069D0-80006A9C       .text OSReport_FatalError */
+ void OSReport_FatalError(const char* fmt, ...) {
+     va_list args;
+@@ -204,6 +207,7 @@ void OSReport_Warning(const char* fmt, ...) {
+     }
+ }
+ 
++#ifndef TARGET_PC // the platform layer's (os_core.cpp): with a host backtrace
+ /* 80006C4C-80006D84       .text OSPanic */
+ void OSPanic(const char* file, s32 line, const char* fmt, ...) {
+     va_list args;
+@@ -228,3 +232,4 @@ void OSPanic(const char* file, s32 line, const char* fmt, ...) {
+     *tmp = tmp2;
+     PPCHalt();
+ }
++#endif

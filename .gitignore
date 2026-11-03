@@ -1,0 +1,8 @@
+# downloaded by build.sh / build-pc.sh
+/tww
+/sms-port
+/deps
+# builds and test runs
+/build*/
+/run-pc/
+/tww-pc.log
