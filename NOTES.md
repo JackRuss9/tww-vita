@@ -372,3 +372,15 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   main thread registered twice in the JKRThread list, not a bad switch.)
   Patch 0022: on PC the anime heaps keep their requested size, with
   diagnostics of size/use/current heap for the first 12.
+- 11 Nov, twenty-seventh run: the title scene finished creating and runs
+  frames (dScnPly_Execute). Crash in the event manager starting the
+  opening cutscene: dRes_control_c::getRes("Demo51", "title.stb") with
+  the archive mounted but mRes NULL (setRes must have failed). No game
+  error lines in any log so far: the game's OSVReport prints with printf
+  and stdout was buffered (lost at a crash). Now: stdout unbuffered (the
+  game's OSReport_Error/Warning show up), getRes logs and returns NULL
+  for an archive not set up (the cutscene falls back to the stage copy),
+  and setRes logs the game heap when it cannot get a heap.
+  Open question: Link's createAnimeHeap dummies for J3DAnmTransformKey and
+  J3DAnmTexPattern used 0 bytes in their heaps (the other two kinds were
+  allocated); the calls are in the object code. Worked around (0022).

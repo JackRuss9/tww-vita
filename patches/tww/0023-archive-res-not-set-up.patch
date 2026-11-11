@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 21:52:13 +0100
+Subject: [PATCH] Reason: an archive whose resources were not set up is not
+ read through NULL
+
+Demo51.arc (the title's opening cutscene) was mounted but its resource
+table was NULL, and dRes_control_c::getRes read through it. On PC it logs
+and returns NULL (the cutscene code then falls back to the stage's copy),
+and setRes's failure to get a heap for an archive's resources is logged
+with the game heap's free and largest-block sizes.
+---
+ include/d/d_resorce.h |  3 +++
+ src/d/d_resorce.cpp   | 14 ++++++++++++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/include/d/d_resorce.h b/include/d/d_resorce.h
+index 99b15b2d..5af98071 100644
+--- a/include/d/d_resorce.h
++++ b/include/d/d_resorce.h
+@@ -22,6 +22,9 @@ public:
+     static void dump(dRes_info_c*, int);
+ 
+     void* getRes(s32 i_index) { return mRes[i_index]; }
++#ifdef TARGET_PC
++    bool tww_resSetUp() const { return mRes != NULL; } // (diagnostics, d_resorce.cpp)
++#endif
+     int getResNum() { return mpArchive->countFile(); }
+     int getCount() { return mCount; }
+     char* getArchiveName() { return mArchiveName; }
+diff --git a/src/d/d_resorce.cpp b/src/d/d_resorce.cpp
+index a7cd7e09..2b65c5f9 100644
+--- a/src/d/d_resorce.cpp
++++ b/src/d/d_resorce.cpp
+@@ -404,6 +404,12 @@ int dRes_info_c::setRes() {
+             mDoExt_adjustSolidHeap(mDataHeap);
+         } else {
+             mDataHeap = mDoExt_createSolidHeapFromGameToCurrent(0, 0);
++#ifdef TARGET_PC
++            if (mDataHeap == NULL)
++                OSReport("[tww] <%s.arc> setRes: no heap for its resources: game heap %p, 0x%x free, largest block 0x%x\n",
++                         mArchiveName, mDoExt_getGameHeap(), mDoExt_getGameHeap()->getFreeSize(),
++                         mDoExt_getGameHeap()->getMaxAllocatableSize(0x10));
++#endif
+             if (mDataHeap == NULL) {
+                 OSReport_Error("<%s.arc> mDMCommandsetRes: can\'t alloc memory\n", this);
+                 return -1;
+@@ -661,6 +667,14 @@ void* dRes_control_c::getRes(char const* pArcName, char const* resName, dRes_inf
+         return resInfo;
+ 
+     s32 fileNum = resInfo->getResNum();
++#ifdef TARGET_PC
++    if (!resInfo->tww_resSetUp()) {
++        // tww-vita: mounted, but its resources were never set up (setRes
++        // failed); the GameCube would read through NULL here.
++        OSReport("[tww] <%s.arc> getRes(%s): archive mounted but its resources are not set up\n", pArcName, resName);
++        return NULL;
++    }
++#endif
+     for (s32 i = 0; i < fileNum; i++) {
+         if (resInfo->getRes(i) != NULL) {
+             JKRArchive::SDirEntry dirEntry;
+-- 
+2.43.0
+

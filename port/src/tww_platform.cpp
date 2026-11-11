@@ -1,6 +1,7 @@
 // Built with the platform layer (the Sunshine decomp's SDK headers): the SDK
 // functions the Wind Waker game calls that the Sunshine port's platform
 // layer does not provide, and the glue between the two.
+#include <stdio.h>
 #include "port_compat.h"
 #include "port_platform.h"
 #include "port_os.h"
@@ -29,6 +30,9 @@ int SMS_main(int argc, const char* argv[]);
 void SMS_main(void)
 {
 	static const char* argv[] = {"tww", NULL};
+	// The game's own reports (OSVReport, OSReport_Error/Warning) print with
+	// printf; unbuffered, so the last of them are not lost in a crash.
+	setvbuf(stdout, NULL, _IONBF, 0);
 	SMS_main(1, argv);
 }
 
