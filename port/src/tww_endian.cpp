@@ -110,15 +110,15 @@ void c_ship(uint8_t* r) { swn(r, 3, 4); sw16(r + 0x0C); }       // position, ang
 void c_2dma(uint8_t* r) { swn(r, 13, 4); }                      // 13 floats, bytes
 void c_dmap(uint8_t* r) { swn(r, 4, 4); }                       // 4 floats
 void c_u32(uint8_t* r) { sw32(r); }                             // MEMA: u32 array
-void c_stag(uint8_t* r)                                         // stage_stag_info_class
+void c_stag(uint8_t* r) // stage_stag_info_class: the file holds its first 0x14 bytes
 {
-	swn(r, 2, 4);
-	sw16(r + 0x0A);
-	swn(r + 0x0C, 5, 4);
+	swn(r, 2, 4);        // near, far
+	sw16(r + 0x0A);      // particle scene number
+	swn(r + 0x0C, 2, 4); // stage type and schbit, schbit enable and far plane
 }
 
 const ChunkType k_chunks[] = {
-	{"STAG", 0x20, c_stag},
+	{"STAG", 0x14, c_stag}, // (the struct is 0x20; 0x14 in the file)
 	{"ACTR", 0x20, c_actor}, {"PLYR", 0x20, c_actor}, {"TGOB", 0x20, c_actor}, {"TRES", 0x20, c_actor},
 	{"ACT0", 0x20, c_actor}, {"ACT1", 0x20, c_actor}, {"ACT2", 0x20, c_actor}, {"ACT3", 0x20, c_actor},
 	{"ACT4", 0x20, c_actor}, {"ACT5", 0x20, c_actor}, {"ACT6", 0x20, c_actor}, {"ACT7", 0x20, c_actor},
@@ -184,6 +184,19 @@ extern "C" int tww_endian_stage(void* data, uint32_t size, const char* name)
 		}
 		if (tag == 0x5254424C /* RTBL */)
 			continue; // handled below (offsets to records)
+		// The room up to the next chunk in the file (or its end): a record
+		// size wrong here would convert a neighbour's bytes.
+		uint32_t next = size;
+		for (uint32_t j = 0; j < n; j++) {
+			uint32_t o = ld32(p + 4 + j * 12 + 8);
+			if (j != i && o > off && o < next)
+				next = o;
+		}
+		if (off && off < next && count && count > (next - off) / t->size) {
+			port_log("[tww] %s: chunk %.4s: %u records of 0x%x bytes do not fit before the next chunk (0x%x bytes there): not converted\n",
+			         name ? name : "stage", (const char*)h, count, t->size, next - off);
+			continue;
+		}
 		if (!off || off > size || count > (size - off) / t->size) {
 			port_log("[tww] %s: chunk %.4s (%u x %u bytes at 0x%x) outside the file (%u bytes): not converted\n",
 			         name ? name : "stage", (const char*)h, count, t->size, off, size);

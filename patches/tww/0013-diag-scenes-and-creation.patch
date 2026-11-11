@@ -1,0 +1,90 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 15:54:02 +0100
+Subject: [PATCH] Reason: diagnostics: scene changes and each process kind's
+ first creation
+
+The boot stops inside the title scene's stage setup; logging every stage
+change and the first creation of each actor kind shows how far it got and
+which actor's code was running.
+---
+ src/c/c_dylink.cpp       | 23 +++++++++++++++++++++++
+ src/d/d_com_inf_game.cpp |  3 +++
+ src/f_pc/f_pc_base.cpp   |  7 +++++++
+ 3 files changed, 33 insertions(+)
+
+diff --git a/src/c/c_dylink.cpp b/src/c/c_dylink.cpp
+index 158848a7..1674815e 100644
+--- a/src/c/c_dylink.cpp
++++ b/src/c/c_dylink.cpp
+@@ -462,6 +462,29 @@ const cDyl_DynamicName_t DynamicNameTable[] = {
+     {0xFFFF, NULL},
+ };
+ 
++#ifdef TARGET_PC
++// Diagnostics: the first creation of each kind of process, with its module
++// name when it has one (so a crash inside an actor shows which).
++void cDyl_NoteCreate(s16 procName) {
++    static u8 seen[0x1000 / 8];
++    u16 n = (u16)procName;
++    if (n < 0x1000) {
++        if (seen[n >> 3] & (1 << (n & 7)))
++            return;
++        seen[n >> 3] |= 1 << (n & 7);
++    }
++    const char* name = "";
++    for (u32 i = 0; i < ARRAY_SIZE(DynamicNameTable); i++) {
++        if (DynamicNameTable[i].mKey == procName) {
++            name = DynamicNameTable[i].name;
++            break;
++        }
++    }
++    OSReport("[tww] create %d %s (first)\n", procName, name);
++}
++#endif
++
++
+ /* 800227A0-800229E0       .text cCc_Init__Fv */
+ BOOL cCc_Init() {
+ #if VERSION > VERSION_DEMO
+diff --git a/src/d/d_com_inf_game.cpp b/src/d/d_com_inf_game.cpp
+index 64bf4367..d31b5044 100644
+--- a/src/d/d_com_inf_game.cpp
++++ b/src/d/d_com_inf_game.cpp
+@@ -666,6 +666,9 @@ stage_arrow_class* dComIfGp_getRoomArrow(int i_roomNo) {
+ /* 800537C8-8005388C       .text dComIfGp_setNextStage__FPCcsScScfUliSc */
+ void dComIfGp_setNextStage(const char* i_stageName, s16 i_point, s8 i_roomNo, s8 i_layer,
+                            f32 i_lastSpeed, u32 i_lastMode, BOOL i_setPoint, s8 i_wipe) {
++#ifdef TARGET_PC
++    OSReport("[tww] next stage %s point %d room %d layer %d wipe %d\n", i_stageName, i_point, i_roomNo, i_layer, i_wipe);
++#endif
+     g_dComIfG_gameInfo.play.setNextStage(i_stageName, i_roomNo, i_point, i_layer, i_wipe);
+ 
+     if (daPy_getPlayerLinkActorClass() != NULL) {
+diff --git a/src/f_pc/f_pc_base.cpp b/src/f_pc/f_pc_base.cpp
+index 2c210f3d..3d4ba9d7 100644
+--- a/src/f_pc/f_pc_base.cpp
++++ b/src/f_pc/f_pc_base.cpp
+@@ -83,12 +83,19 @@ BOOL fpcBs_Delete(base_process_class* i_proc) {
+     return result;
+ }
+ 
++#ifdef TARGET_PC
++void cDyl_NoteCreate(s16 procName); // c_dylink.cpp: logs each kind's first creation
++#endif
++
+ /* 8003CA60-8003CB5C       .text fpcBs_Create__FsUiPv */
+ base_process_class* fpcBs_Create(s16 i_profName, fpc_ProcID i_procID, void* i_data) {
+     process_profile_definition* procProfDef;
+     base_process_class* procClass;
+     u32 size;
+ 
++#ifdef TARGET_PC
++    cDyl_NoteCreate(i_profName);
++#endif
+     procProfDef = (process_profile_definition*)fpcPf_Get(i_profName);
+     size = procProfDef->mSize + procProfDef->mSizeOther;
+     procClass = (base_process_class*)cMl::memalignB(-4, size);
+-- 
+2.43.0
+

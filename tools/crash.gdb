@@ -37,3 +37,10 @@ for i in range(1024):
 end
 echo \n== all threads\n
 thread apply all bt 8
+echo \n== recent disc files and game context\n
+python
+try:
+    gdb.execute("call (void)port_crash_describe_context()")
+except gdb.error as e:
+    print("  (not available: %s)" % e)
+end

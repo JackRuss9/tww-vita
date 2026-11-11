@@ -275,3 +275,11 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   converter logs the size it got, any chunk it skips as outside the file,
   and RTBL's first entries after conversion; patch 0012 logs the entries
   the handler receives.
+- 11 Nov, seventeenth run: RTBL entries were 0x7c010000-style (swapped
+  twice). STAG is 0x14 bytes on disc (the 0x20 struct's tail is runtime
+  only); converting 0x20 ran into the first three RTBL entries at 0xB4.
+  Fix: STAG converts 0x14 bytes, and the converter refuses any chunk whose
+  records would run into the next chunk (logged). Broader boot logging:
+  patch 0013 logs every next-stage request and the first creation of each
+  process kind (with its module name from DynamicNameTable); crash.gdb
+  calls port_crash_describe_context() for the recent disc files.
