@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 14:36:34 +0100
+Subject: [PATCH] Reason: diagnostics for the sound set-up: the AAF's first
+ words before and after conversion, the sound table's counts, SeMgr's
+ parameter allocation and the JAI heap's free space (a clear stop if it fails)
+
+---
+ src/JSystem/JAudio/JAIConst.cpp      |  3 +++
+ src/JSystem/JAudio/JAISeMgr.cpp      | 12 ++++++++++++
+ src/JSystem/JAudio/JAISoundTable.cpp |  7 +++++++
+ 3 files changed, 22 insertions(+)
+
+diff --git a/src/JSystem/JAudio/JAIConst.cpp b/src/JSystem/JAudio/JAIConst.cpp
+index 7f285e56..a2963842 100644
+--- a/src/JSystem/JAudio/JAIConst.cpp
++++ b/src/JSystem/JAudio/JAIConst.cpp
+@@ -52,7 +52,10 @@ void JAInter::loadTmpDVDFile(char* param_1, u8** tmpPointer) {
+     // Read straight from the disc (Sunshine took its AAF from an archive,
+     // converted on fetch): convert it here, by name (.aaf: the init data).
+     else {
++        const u32* w = (const u32*)*tmpPointer;
++        OSReport("[tww] %s: %u bytes, first words %08x %08x %08x %08x (as read)\n", param_1, size, w[0], w[1], w[2], w[3]);
+         port_res_to_native_named(*tmpPointer, size, param_1);
++        OSReport("[tww] %s: first words %08x %08x %08x %08x (after conversion)\n", param_1, w[0], w[1], w[2], w[3]);
+     }
+ #endif
+ }
+diff --git a/src/JSystem/JAudio/JAISeMgr.cpp b/src/JSystem/JAudio/JAISeMgr.cpp
+index 89cee8da..de0178df 100644
+--- a/src/JSystem/JAudio/JAISeMgr.cpp
++++ b/src/JSystem/JAudio/JAISeMgr.cpp
+@@ -69,6 +69,18 @@ void JAInter::SeMgr::init() {
+     }
+     SeParameter* parameterObject = new (JAIBasic::getCurrentJAIHeap(), 0x20) SeParameter[JAIGlobalParameter::getParamSeCategoryMax() * JAIGlobalParameter::getParamSeRegistMax()];
+     JUT_ASSERT_MSG(99, parameterObject, "JAIData::initHeap Cannot Alloc Heap!!\n");
++#ifdef TARGET_PC
++    {
++        JKRHeap* heap = JAIBasic::getCurrentJAIHeap();
++        OSReport("[tww] SeMgr::init: %u categories x %u registered = %u parameters at %p; JAI heap %p, %u bytes free\n",
++                 JAIGlobalParameter::getParamSeCategoryMax(), JAIGlobalParameter::getParamSeRegistMax(),
++                 JAIGlobalParameter::getParamSeCategoryMax() * JAIGlobalParameter::getParamSeRegistMax(),
++                 parameterObject, heap, heap ? (u32)heap->getFreeSize() : 0u);
++        if (!parameterObject) {
++            OSPanic(__FILE__, __LINE__, "SeMgr::init: the sound heap is too small for the sound-effect parameters");
++        }
++    }
++#endif
+     seParameterFreeStartPointer = parameterObject;
+     seParameterUsedEndPointer = NULL;
+     parameterObject[0].field_0x43c = NULL;
+diff --git a/src/JSystem/JAudio/JAISoundTable.cpp b/src/JSystem/JAudio/JAISoundTable.cpp
+index a0a68525..273bb56c 100644
+--- a/src/JSystem/JAudio/JAISoundTable.cpp
++++ b/src/JSystem/JAudio/JAISoundTable.cpp
+@@ -33,6 +33,13 @@ void JAInter::SoundTable::init(u8* param_1, u32 param_2) {
+             mCategotyMax = i + 1;
+         }
+     }
++#ifdef TARGET_PC
++    OSReport("[tww] sound table: %u bytes, version %u, %u categories; counts", param_2, mVersion, mCategotyMax);
++    for (u8 i = 0; i < 18; i++) {
++        OSReport(" %u", mSoundMax[i]);
++    }
++    OSReport("\n");
++#endif
+ }
+ 
+ /* 8029B6FC-8029B8CC       .text getInfoPointer__Q27JAInter10SoundTableFUl */

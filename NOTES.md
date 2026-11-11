@@ -150,3 +150,12 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   (Wind Waker's DSP ucode command set may differ from Sunshine's; watch).
   Not converted yet: whole files read by mDoDvdThd_toMainRam_c
   (m_Do_dvd_thread.cpp:316), by entry number only.
+- 11 Nov, sixth run (defc8be): same crash in SeMgr::init (line 78). The
+  BreakLowerActiveDSPchannel reports are gone, so the AAF conversion
+  changed something. Checked here: sizeof(SeParameter) = 0x444 and
+  sizeof(SeqParameter) = 0x1718 on the PC, as on the console, so not a
+  layout difference. Counts are bounded (u8 categories <= 16, regist 32),
+  so the likely cause is a failed allocation (NULL) from the JAI heap.
+  Patch 0007 logs the AAF's first words before/after conversion, the sound
+  table's counts, and SeMgr's allocation with the heap's free space, and
+  stops clearly if the allocation fails.
