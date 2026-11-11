@@ -1,0 +1,77 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 21:17:38 +0100
+Subject: [PATCH] Reason: a thread switch never leaves the current heap NULL
+
+JKRThreadSwitch::callback makes the next thread's saved heap current; a
+thread that has none saved yet (every JKRThread starts with NULL) made it
+NULL. The demo version kept the current heap then; the retail code relies
+on the switches pairing up so the main thread's heap comes back. On PC it
+did not: after an ARAM read in Link's createHeap the current heap was NULL
+and his next allocation failed. The demo version's check is used on PC,
+and the first switches during Link's first createHeap are logged.
+---
+ src/JSystem/JKernel/JKRThread.cpp | 18 ++++++++++++++++++
+ src/f_op/f_op_actor_mng.cpp       | 10 ++++++++++
+ 2 files changed, 28 insertions(+)
+
+diff --git a/src/JSystem/JKernel/JKRThread.cpp b/src/JSystem/JKernel/JKRThread.cpp
+index 156f116c..cea3be72 100644
+--- a/src/JSystem/JKernel/JKRThread.cpp
++++ b/src/JSystem/JKernel/JKRThread.cpp
+@@ -99,6 +99,10 @@ JKRThreadSwitch* JKRThreadSwitch::createManager(JKRHeap* heap) {
+ }
+ 
+ /* 802B40EC-802B41DC       .text callback__15JKRThreadSwitchFP8OSThreadP8OSThread */
++#ifdef TARGET_PC
++int tww_trace_switches; // diagnostics: log this many heap switches (set by fopAcM_entrySolidHeap)
++#endif
++
+ void JKRThreadSwitch::callback(OSThread* current, OSThread* next) {
+     if (mUserPreCallback) {
+         (*mUserPreCallback)(current, next);
+@@ -126,6 +130,20 @@ void JKRThreadSwitch::callback(OSThread* current, OSThread* next) {
+         if (thread->getThreadRecord() == next) {
+             if (sManager->mSetNextHeap) {
+                 JKRHeap* next_heap = thread->getCurrentHeap();
++#if defined(TARGET_PC) && VERSION != VERSION_DEMO
++                // tww-vita: a thread that has no heap saved yet keeps the
++                // current one, as in the demo version. Without this,
++                // switching to such a thread made the current heap NULL,
++                // and Link's createHeap, resumed after an ARAM read, had no
++                // heap to allocate from.
++                if (!next_heap)
++                    next_heap = JKRHeap::getCurrentHeap();
++                if (tww_trace_switches > 0) {
++                    tww_trace_switches--;
++                    OSReport("[tww] thread switch %p -> %p: heap %p -> %p\n", current, next,
++                             JKRHeap::getCurrentHeap(), next_heap);
++                }
++#endif
+ #if VERSION == VERSION_DEMO
+                 if (!next_heap) {
+                     next_heap = JKRHeap::getCurrentHeap();
+diff --git a/src/f_op/f_op_actor_mng.cpp b/src/f_op/f_op_actor_mng.cpp
+index f43c7fec..7e667912 100644
+--- a/src/f_op/f_op_actor_mng.cpp
++++ b/src/f_op/f_op_actor_mng.cpp
+@@ -363,6 +363,16 @@ bool fopAcM_entrySolidHeap(fopAc_ac_c* i_this, heapCallbackFunc createHeapCB, u3
+     if (heap == NULL) {
+         heap = mDoExt_createSolidHeapFromGameToCurrent(-1, 0x20);
+         JUT_ASSERT(DEMO_SELECT(1103, 1107), heap);
++#ifdef TARGET_PC
++        if (fopAcM_GetName(i_this) == fpcNm_PLAYER_e) {
++            extern int tww_trace_switches;
++            static bool traced;
++            if (!traced) {
++                traced = true;
++                tww_trace_switches = 40; // Link's first createHeap
++            }
++        }
++#endif
+ #ifdef TARGET_PC
+         {
+             static u8 seen2[0x1000 / 8];
+-- 
+2.43.0
+

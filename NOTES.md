@@ -337,3 +337,12 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   switch). Patch 0018 logs failed allocations (heap, type, free, current,
   thread) and the heap each kind's createHeap runs in; crash.gdb prints
   the current/root/system heaps.
+- 11 Nov, twenty-fourth run: the failure is "0x88 bytes with no current
+  heap": JKRHeap::sCurrentHeap was NULL right after the ARAM read in
+  initTextureScroll (Link's heap 0x81603380 had been made current).
+  JKRThreadSwitch::callback (retail) makes the next thread's saved heap
+  current with no NULL check; every JKRThread starts with NULL, and the
+  restore of the main thread's heap evidently did not happen on PC.
+  Patch 0019: the demo version's check (no saved heap: keep the current
+  one) on PC, and the first 40 heap switches of Link's first createHeap
+  logged, to see the sequence if anything else is off.
