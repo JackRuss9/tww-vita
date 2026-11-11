@@ -4,6 +4,7 @@
 // that reads them.
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 
 namespace {
 inline void sw16(uint8_t* p) { uint8_t t = p[0]; p[0] = p[1]; p[1] = t; }
@@ -187,6 +188,16 @@ extern "C" int tww_endian_stage(void* data, uint32_t size, const char* name)
 			continue;
 		for (uint32_t k = 0; k < count; k++)
 			t->conv(p + off + k * t->size);
+	}
+	// What the file holds (diagnostics; one line per file).
+	{
+		char line[512];
+		int len = 0;
+		for (uint32_t i = 0; i < n && len < (int)sizeof(line) - 16; i++) {
+			const uint8_t* h = p + 4 + i * 12;
+			len += snprintf(line + len, sizeof(line) - len, " %.4s:%u", (const char*)h, ld32(h + 4));
+		}
+		port_log("[tww] %s: %u chunks:%s\n", name ? name : "stage", n, line);
 	}
 	// RTBL: u32 offsets to roomRead_data_class {u8 num, u8, u8, pad,
 	// u32 room list offset}; several may share a record.

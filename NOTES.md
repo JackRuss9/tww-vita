@@ -241,3 +241,14 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   tag's bytes with the name strings' (*(int*)"STAG"), so the tags must
   stay in file order. Fix: the converter leaves the 4 tag bytes and swaps
   only count and offset; looks the type up by the big-endian tag.
+- 11 Nov, fourteenth run (4709900): stage chunks handled now; then a jump
+  through a bad pointer: gdb shows JKRExpHeap::createRoot with garbage
+  arguments and a return address on the stack (no usable backtrace).
+  Diagnostics added:
+  - tools/crash.gdb (run-pc.sh): after the backtrace, registers, the code
+    at the crash address (guarded), and every code address found on the
+    stack with its symbol (recovers the callers after a wild jump; checked
+    with a test program calling through a bad function pointer).
+  - The stage converter logs each file's chunks ("[tww] stage.dzs: N
+    chunks: STAG:1 ...").
+  - Patch 0011 logs each stage chunk handler before it runs.

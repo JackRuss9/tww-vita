@@ -16,8 +16,7 @@ mkdir -p run-pc
 cd run-pc
 echo "== tww-vita $(git -C .. rev-parse --short HEAD 2>/dev/null), disc $ISO" > ../tww-pc.log
 if command -v gdb >/dev/null && [[ -z "${TWW_NO_GDB:-}" ]]; then
-  SMS_DISC_IMAGE="$ISO" gdb -q -batch -ex "handle SIGUSR1 SIGUSR2 SIGPIPE nostop noprint" -ex run \
-    -ex "echo \n== crash: backtrace\n" -ex bt -ex "echo \n== all threads\n" -ex "thread apply all bt 8" \
+  SMS_DISC_IMAGE="$ISO" gdb -q -batch -x ../tools/crash.gdb \
     --args ../build-pc/tww 2>&1 | grep -vE "^\[(New Thread|Thread .* exited)" | tee -a ../tww-pc.log
 else
   SMS_DISC_IMAGE="$ISO" ../build-pc/tww 2>&1 | tee -a ../tww-pc.log

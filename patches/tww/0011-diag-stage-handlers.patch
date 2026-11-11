@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 15:25:17 +0100
+Subject: [PATCH] Reason: diagnostics: each stage chunk handler logged before
+ it runs (to find which one a crash follows)
+
+---
+ src/d/d_stage.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/d/d_stage.cpp b/src/d/d_stage.cpp
+index a687605f..36fa79bc 100644
+--- a/src/d/d_stage.cpp
++++ b/src/d/d_stage.cpp
+@@ -2032,6 +2032,9 @@ void dStage_dt_c_decode(void* i_data, dStage_dt_c* i_stage, FuncTable* i_funcTbl
+             for (int j = 0; j < file->m_chunkCount; j++) {
+                 if ((int)p_tno->m_tag == *(int*)nodeFunc->identifier) {
+                     if (nodeFunc->function != NULL) {
++#ifdef TARGET_PC
++                        OSReport("[tww] stage %p: %.4s x %d\n", i_data, (const char*)&p_tno->m_tag, p_tno->m_entryNum);
++#endif
+                         nodeFunc->function(i_stage, p_tno, p_tno->m_entryNum, i_data);
+                     }
+                     break;
