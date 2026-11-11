@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 14:43:51 +0100
+Subject: [PATCH] Reason: endian: the audio init data (JaiInit.aaf) is loaded
+ whole by the DVD thread (mDoDvdThd_toMainRam_c) and handed to JAudio as a
+ pointer: convert it there, before setParamInitDataPointer
+
+---
+ src/m_Do/m_Do_audio.cpp | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/src/m_Do/m_Do_audio.cpp b/src/m_Do/m_Do_audio.cpp
+index 8f2c47e6..fcc86c11 100644
+--- a/src/m_Do/m_Do_audio.cpp
++++ b/src/m_Do/m_Do_audio.cpp
+@@ -152,6 +152,17 @@ void mDoAud_Create() {
+         }
+     }
+     if (l_affCommand->sync() && l_arcCommand->sync()) {
++#ifdef TARGET_PC
++        // Loaded whole by the DVD thread, big-endian: convert it before JAudio
++        // reads it (the platform layer's AAF converter, by name).
++        {
++            const u32* w = (const u32*)l_affCommand->getMemAddress();
++            OSReport("[tww] JaiInit.aaf: %d bytes, first words %08x %08x %08x %08x (as read)\n",
++                     l_affCommand->getMemSize(), w[0], w[1], w[2], w[3]);
++            port_res_to_native_named(l_affCommand->getMemAddress(), l_affCommand->getMemSize(), "/Audiores/JaiInit.aaf");
++            OSReport("[tww] JaiInit.aaf: first words %08x %08x %08x %08x (after conversion)\n", w[0], w[1], w[2], w[3]);
++        }
++#endif
+         JAIGlobalParameter::setParamInitDataPointer(l_affCommand->getMemAddress());
+         JAInter::SequenceMgr::setArchivePointer(l_arcCommand->getArchive());
+         mDoAud_setupStreamBuffer();

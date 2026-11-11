@@ -159,3 +159,11 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   Patch 0007 logs the AAF's first words before/after conversion, the sound
   table's counts, and SeMgr's allocation with the heap's free space, and
   stops clearly if the allocation fails.
+- 11 Nov, seventh run (4a78584): "SeMgr::init: 0 categories x 32"; JAI heap
+  fine (1,085,052 bytes free); no [tww] line from loadTmpDVDFile or
+  SoundTable::init. So the sound table was never set up, and with 0
+  categories the loop bound 0*32-1 wraps around. JaiInit.aaf is not read by
+  loadTmpDVDFile: m_Do_audio.cpp loads it with mDoDvdThd_toMainRam_c and
+  passes the pointer (initLoadFileSw 4, checkInitDataOnMemory). Fix: patch
+  0008 converts it in mDoAud_Create before setParamInitDataPointer (with
+  before/after log lines). Patch 0006's hook stays (harmless, other files).
