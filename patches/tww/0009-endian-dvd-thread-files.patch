@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 14:56:53 +0100
+Subject: [PATCH] Reason: endian: whole files the DVD thread reads straight
+ from the disc (mDoDvdThd_toMainRam_c: the common particle archive, ...) are
+ converted by their magic after loading
+
+---
+ src/m_Do/m_Do_dvd_thread.cpp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/m_Do/m_Do_dvd_thread.cpp b/src/m_Do/m_Do_dvd_thread.cpp
+index 8df17ca8..9c55ceab 100644
+--- a/src/m_Do/m_Do_dvd_thread.cpp
++++ b/src/m_Do/m_Do_dvd_thread.cpp
+@@ -316,6 +316,12 @@ BOOL mDoDvdThd_toMainRam_c::execute() {
+     mData = JKRDvdRipper::loadToMainRAM(mEntryNum, NULL, EXPAND_SWITCH_UNKNOWN1, 0, heap, allocDir, 0, NULL);
+     if (mData != NULL) {
+         mDataSize = heap->getSize(mData);
++#ifdef TARGET_PC
++        // Whole files read straight from the disc (the common particle
++        // archive, ...): converted by their magic. (The AAF, known by its
++        // name only, is converted in mDoAud_Create.)
++        port_res_to_native_named(mData, mDataSize, "");
++#endif
+     }
+ 
+     mIsDone = true;

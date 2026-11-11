@@ -182,3 +182,20 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   converts the count, the 6 offsets, per material the DL {offset, size},
   patching offsets (6 x u16), current mtx (2 x u32), and the names; the
   DL bytes stay big-endian.
+- 11 Nov, ninth run (3c61902): the MDL3 fix worked (models load); sound
+  picks the first scene (sea_T, room 44). Crash leaving the logo scene in
+  JPAResourceManager::swapTexture (pTexRes->registNum bad): the common
+  particle archive, JPAC1-00, not converted (Sunshine has single JEFFjpa1
+  files only). It is loaded whole by the DVD thread (l_particleCommand),
+  not fetched from an archive. Fix:
+  - sms-port 0002: port_endian_jpc (dispatch on "JPAC1-00"): header, each
+    emitter through port_endian_jpa plus its resource ID, and the BEM1,
+    FLD1 and TDB1 blocks, which Wind Waker reads as structs
+    (JPADynamicsBlockArc etc. point at +0x0C; Sunshine stream-reads them);
+    then the TEX1 blocks (size, ResTIMG header at +0x20).
+  - patch 0009: mDoDvdThd_toMainRam_c::execute converts what it loads by
+    magic.
+  Checked here with a synthetic JPAC (one emitter, BEM1/FLD1/TDB1, one
+  TEX1): every field converts to the expected value.
+  Also seen: "resource format not converted: ball128b.i4" (8,192 bytes, a
+  raw 128x128 I4 image; check how d_s_logo uses it if anything looks off).

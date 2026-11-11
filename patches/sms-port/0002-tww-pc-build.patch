@@ -7,14 +7,18 @@ Subject: [PATCH] Reason: build on 32-bit x86 PCs (the fiber stack dump only
  the game's (port_window_title); a read past a file's end returns the whole
  length, zero-filled, as the drive does (Wind Waker's JKRFile::read retries
  until it gets it); J3D: the MDL3 block (BDL material display lists, read by
- Wind Waker's J3D) converted
+ Wind Waker's J3D) converted; JPAC1-00 particle archives (Wind Waker)
+ converted, with the BEM1, FLD1 and TDB1 blocks it reads as structs
 
 ---
- platform/dvd/dvd.cpp            | 11 +++++++++++
- platform/endian/endian_j3d.cpp  | 30 +++++++++++++++++++++++++++++-
- platform/gx/src/gx_platform.cpp | 11 +++++++----
- platform/os/os_thread.cpp       | 18 ++++++++++++++++++
- 4 files changed, 65 insertions(+), 5 deletions(-)
+ platform/dvd/dvd.cpp                | 11 ++++
+ platform/endian/endian_dispatch.cpp |  4 ++
+ platform/endian/endian_j3d.cpp      | 30 ++++++++++-
+ platform/endian/endian_jpa.cpp      | 83 +++++++++++++++++++++++++++++
+ platform/endian/port_endian.h       |  1 +
+ platform/gx/src/gx_platform.cpp     | 11 ++--
+ platform/os/os_thread.cpp           | 18 +++++++
+ 7 files changed, 153 insertions(+), 5 deletions(-)
 
 diff --git a/platform/dvd/dvd.cpp b/platform/dvd/dvd.cpp
 index 138c87c..51e3d6e 100644
@@ -38,6 +42,21 @@ index 138c87c..51e3d6e 100644
  	if (n > 0 && GXPC_MemoryWritten)
  		GXPC_MemoryWritten(addr, (u32)n);
  	return n;
+diff --git a/platform/endian/endian_dispatch.cpp b/platform/endian/endian_dispatch.cpp
+index a729d7b..5942588 100644
+--- a/platform/endian/endian_dispatch.cpp
++++ b/platform/endian/endian_dispatch.cpp
+@@ -55,6 +55,10 @@ static int resource(void* data, uint32_t size, const char* name)
+ 		return port_endian_jpa(data, size) ? PE_FMT_JPA : PE_FMT_UNKNOWN;
+ 	if (magic_rev(d, "JEFF", 4) && magic_rev(d + 4, "jpa1", 4))
+ 		return PE_FMT_ALREADY_NATIVE;
++	if (magic_is(d, "JPAC1-00", 8))
++		return port_endian_jpc(data, size) ? PE_FMT_JPA : PE_FMT_UNKNOWN;
++	if (magic_rev(d, "JPAC", 4) && magic_rev(d + 4, "1-00", 4))
++		return PE_FMT_ALREADY_NATIVE;
+ 	if (magic_is(d, "IBNK", 4))
+ 		return port_endian_ibnk(data, size) ? PE_FMT_BNK : PE_FMT_UNKNOWN;
+ 	if (magic_is(d, "WSYS", 4))
 diff --git a/platform/endian/endian_j3d.cpp b/platform/endian/endian_j3d.cpp
 index e79b55e..87b0505 100644
 --- a/platform/endian/endian_j3d.cpp
@@ -86,6 +105,109 @@ index e79b55e..87b0505 100644
  		default: anm_block(b, tag); break;
  		}
  		pos += bsz;
+diff --git a/platform/endian/endian_jpa.cpp b/platform/endian/endian_jpa.cpp
+index 3c15fc7..fa4d21f 100644
+--- a/platform/endian/endian_jpa.cpp
++++ b/platform/endian/endian_jpa.cpp
+@@ -83,3 +83,86 @@ extern "C" int port_endian_jpa(void* data, uint32_t size)
+ 	}
+ 	return 1;
+ }
++
++// --- JPAC1-00: Wind Waker's particle archives ------------------------------------
++// u32 'JPAC', u32 '1-00', u16 emitter count, u16 texture count, then (from
++// 0x20) the emitters, each a JEFFjpa1 header (0x20: block count at 0x0C,
++// key/field/texture counts as u8 at 0x14, resource ID u16 at 0x18) and its
++// blocks; then the textures, TEX1 blocks one after another
++// (JPAEmitterArchiveLoader_v10). Wind Waker reads the dynamics (BEM1), field
++// (FLD1) and texture-index (TDB1) blocks as structs, not through a stream as
++// Sunshine does: those are converted here too.
++namespace {
++
++void bem1_struct(const Buf& b) // JPADynamicsBlockData at +0x0C
++{
++	const u32 d = 0x0C;
++	if (!b.has(d, 0x80))
++		return;
++	b.swn(d + 0x00, 3, 4); // flags, sweep, min radius
++	b.swn(d + 0x0C, 2, 2); // volume size, division number
++	b.swn(d + 0x10, 2, 4); // rate, rate random
++	b.swn(d + 0x1A, 3, 2); // max frame, start frame, life time
++	b.swn(d + 0x20, 22, 4); // 0x20..0x77: floats and three float vectors
++	b.swn(d + 0x78, 3, 2); // emitter rotation (s16 x 3)
++}
++
++void fld1_struct(const Buf& b) // JPAFieldBlockData at +0x0C
++{
++	const u32 d = 0x0C;
++	if (!b.has(d, 0x45))
++		return;
++	b.swn(d, 17, 4); // flags, then 16 floats; the cycle (u8) at 0x44 stays
++}
++
++void tdb1_struct(const Buf& b) // u16 texture indices from +0x0C
++{
++	if (b.size > 0x0C)
++		b.swn(0x0C, (b.size - 0x0C) / 2, 2);
++}
++
++} // namespace
++
++extern "C" int port_endian_jpc(void* data, uint32_t size)
++{
++	Buf f(data, size);
++	if (!f.has(0, 0x20) || !magic_is(data, "JPAC1-00", 8))
++		return 0;
++	f.swn(0, 2, 4);
++	u16 nemtr = f.sw16(0x08);
++	u16 ntex  = f.sw16(0x0A);
++	u32 offs  = 0x20;
++	for (u32 e = 0; e < nemtr && f.has(offs, 0x20); e++) {
++		if (!magic_is(f.at(offs), "JEFFjpa1", 8))
++			return 1; // stop: not where an emitter should be
++		Buf em = f.sub(offs, f.size - offs);
++		port_endian_jpa(em.at(0), em.size); // header and the blocks it knows
++		em.sw16(0x18);                      // resource ID
++		u32 nblk = ld32(em.at(0x0C));
++		u32 pos  = 0x20;
++		for (u32 i = 0; i < nblk && em.has(pos, 8); i++) {
++			u32 tag = ld32(em.at(pos));
++			u32 sz  = ld32(em.at(pos + 4));
++			if (sz < 8 || !em.has(pos, sz))
++				return 1;
++			Buf blk = em.sub(pos, sz);
++			if (tag == 'BEM1')
++				bem1_struct(blk);
++			else if (tag == 'FLD1')
++				fld1_struct(blk);
++			else if (tag == 'TDB1')
++				tdb1_struct(blk);
++			pos += sz;
++		}
++		offs += pos;
++	}
++	for (u32 t = 0; t < ntex && f.has(offs, 0x40); t++) {
++		u32 sz = f.sw32(offs + 4);
++		f.sw32(offs); // 'TEX1'
++		port_endian_timg_header(f.at(offs + 0x20));
++		if (sz < 8 || !f.has(offs, sz))
++			break;
++		offs += sz;
++	}
++	return 1;
++}
+diff --git a/platform/endian/port_endian.h b/platform/endian/port_endian.h
+index 8f191f1..ba59634 100644
+--- a/platform/endian/port_endian.h
++++ b/platform/endian/port_endian.h
+@@ -47,6 +47,7 @@ int port_endian_timg_header(void* timg);                 /* 0x20-byte ResTIMG he
+ int port_endian_tlut(void* data, uint32_t size);          /* ResTLUT header (.bpl) */
+ int port_endian_ntab(void* ntab, uint32_t size);          /* ResNTAB */
+ int port_endian_jpa(void* data, uint32_t size);
++int port_endian_jpc(void* data, uint32_t size);          /* JPAC1-00 particle archive (Wind Waker) */
+ int port_endian_aaf(void* data, uint32_t size);
+ int port_endian_ibnk(void* data, uint32_t size);
+ int port_endian_wsys(void* data, uint32_t size);
 diff --git a/platform/gx/src/gx_platform.cpp b/platform/gx/src/gx_platform.cpp
 index e47fd0d..85cc68b 100644
 --- a/platform/gx/src/gx_platform.cpp
