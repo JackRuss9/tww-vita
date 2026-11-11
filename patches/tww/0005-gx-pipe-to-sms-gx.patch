@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 12:16:26 +0100
+Subject: [PATCH] Reason: the GPU command pipe writes (GXCmd*, GXFIFO.u8 = ...,
+ used by GF and J3D) go to the port's graphics layer, as Sunshine's GXVert.h
+ does
+
+---
+ include/dolphin/gx/GX.h | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/include/dolphin/gx/GX.h b/include/dolphin/gx/GX.h
+index f12fe1f3..1cb855f5 100644
+--- a/include/dolphin/gx/GX.h
++++ b/include/dolphin/gx/GX.h
+@@ -65,7 +65,15 @@ typedef union {
+ } PPCWGPipe;
+ 
+ #define GXFIFO_ADDR 0xCC008000
++#ifdef TARGET_PC
++// The writes to the GPU's command pipe go to the port's graphics layer
++// (sms_gx): the writers below are its functions, and GXFIFO.u8 = ... style
++// stores (GF, J3D, the GX_WRITE_* macros) call it too.
++#include <sms_gx/gxvert_pc.h>
++#define GXFIFO GXPC_WGPipe
++#else
+ volatile PPCWGPipe GXFIFO AT_ADDRESS(GXFIFO_ADDR);
++#endif
+ 
+ #define GX_CP_LOAD_REG(addr, data)                                                                 \
+     GXFIFO.s8 = GX_FIFO_CMD_LOAD_CP_REG;                                                         \
+@@ -102,6 +110,7 @@ volatile PPCWGPipe GXFIFO AT_ADDRESS(GXFIFO_ADDR);
+         GX_XF_LOAD_REG_HDR(cmd);                                                                   \
+     }
+ 
++#ifndef TARGET_PC
+ // Direct
+ inline void GXCmd1u8(const u8 x) {
+     GXFIFO.u8 = x;
+@@ -231,6 +240,16 @@ inline void GXTexCoord1x16(u16 x) {
+ }
+ 
+ inline void GXEnd() {}
++#else
++// (the others are sms_gx's: sms_gx/gxvert_pc.h)
++inline void GXColor3x8(u8 r, u8 g, u8 b) {
++    GXFIFO.u8 = r;
++    GXFIFO.u8 = g;
++    GXFIFO.u8 = b;
++}
++
++inline void GXEnd() {}
++#endif
+ 
+ #define GX_WRITE_U8(ub)     \
+     GXFIFO.u8 = (u8)(ub)

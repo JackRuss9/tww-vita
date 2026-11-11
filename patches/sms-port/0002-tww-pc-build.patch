@@ -3,12 +3,52 @@ From: Claude <noreply@anthropic.com>
 Date: Tue, 3 Nov 2026 18:55:30 +0100
 Subject: [PATCH] Reason: build on 32-bit x86 PCs (the fiber stack dump only
  where fibers exist); OSSetSwitchThreadCallback, called on every thread switch
- (Wind Waker keeps each thread's current heap with it)
+ (Wind Waker keeps each thread's current heap with it); the window title is
+ the game's (port_window_title)
 
 ---
- platform/os/os_thread.cpp | 18 ++++++++++++++++++
- 1 file changed, 18 insertions(+)
+ platform/gx/src/gx_platform.cpp | 11 +++++++----
+ platform/os/os_thread.cpp       | 18 ++++++++++++++++++
+ 2 files changed, 25 insertions(+), 4 deletions(-)
 
+diff --git a/platform/gx/src/gx_platform.cpp b/platform/gx/src/gx_platform.cpp
+index e47fd0d..85cc68b 100644
+--- a/platform/gx/src/gx_platform.cpp
++++ b/platform/gx/src/gx_platform.cpp
+@@ -5,6 +5,9 @@
+ // surface.  GXInit brings this up automatically if the host has not called
+ // GXPC_Init itself, and every GXCopyDisp presents the XFB to the window.
+ #include "gx_internal.h"
++// The window's title: the game's name (a port of another game defines its
++// own; this one is the default).
++extern "C" __attribute__((weak)) const char* port_window_title = "Super Mario Sunshine";
+ #include "gx_cheat_menu.h"
+ #include "gx_warp_menu.h"
+ #include "gx_quit_prompt.h"
+@@ -397,7 +400,7 @@ bool openWindow(float scale) {
+             layout.h = h;
+         }
+     }
+-    s_window = SDL_CreateWindow("Super Mario Sunshine", layout.x, layout.y, layout.w, layout.h,
++    s_window = SDL_CreateWindow(port_window_title, layout.x, layout.y, layout.w, layout.h,
+                                 SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI |
+                                 SDL_WINDOW_HIDDEN);
+     if (!s_window) {
+@@ -793,11 +796,11 @@ int GXPC_InitAuto(float efbScale) {
+             // still run without a window.
+             char msg[512];
+             snprintf(msg, sizeof msg,
+-                     "Super Mario Sunshine could not open its window (%s).\n\nUpdating your graphics drivers, or "
++                     "%s could not open its window (%s).\n\nUpdating your graphics drivers, or "
+                      "setting SDL_VIDEODRIVER=x11 or =wayland, may help.",
+-                     s_windowError);
++                     port_window_title, s_windowError);
+             logmsg("no window could be opened on this display (%s); exiting", s_windowError);
+-            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Super Mario Sunshine", msg, nullptr);
++            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, port_window_title, msg, nullptr);
+             exit(1);
+         }
+         logmsg("no display (%s), continuing headless", s_windowError);
 diff --git a/platform/os/os_thread.cpp b/platform/os/os_thread.cpp
 index 4a8a515..5b22ca7 100644
 --- a/platform/os/os_thread.cpp

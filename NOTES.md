@@ -114,3 +114,18 @@ The start-up before the first file read can be run in my workspace: an empty
 "disc" folder (`fakedisc/files`, plus `sys/boot.bin` starting GZLE01) as the
 argument, under `xvfb-run` (32-bit Mesa: libgl1-mesa-dri:i386) and gdb.
 Built with -DTWW_PLACEHOLDER_ASSETS=ON.
+- 11 Nov, third run (96ef7fc): no crash; into the logo scene, GBA, memory
+  card and DVD threads running (reading /framework.str); then frozen (the
+  user stopped it). Two bugs:
+  - Alarm deadlock: alarm_thread called OSGetTime() holding s_alarm_lock;
+    OSGetTime runs the interrupt check, which ran alarm_poll, which takes
+    s_alarm_lock. The main thread then waited in arm() forever
+    (JFWGXDrawDoneAutoAbort sets an alarm each frame). Fix: alarm_now()
+    reads port_time_ticks() (no interrupt check).
+  - "unknown FIFO opcode 0x04" every frame: tww's own GX.h writes the GPU
+    pipe through a raw 0xCC008000 union (a write sink here), bypassing
+    sms_gx, so GF's (m_Do_graphic's screen clears, m_Do_ext) and J3DShape's
+    raw commands were lost or misread. Fix: patch 0005, GX.h on TARGET_PC
+    uses sms_gx/gxvert_pc.h and GXFIFO = GXPC_WGPipe (as Sunshine's GXVert.h).
+  - The window said "Super Mario Sunshine": sms_gx's title is now
+    port_window_title (weak default), set by tww_platform.cpp.

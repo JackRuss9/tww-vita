@@ -16,6 +16,9 @@
 
 extern "C" void port_log(const char* fmt, ...);
 
+// The window's title (sms_gx).
+extern "C" const char* port_window_title = "The Legend of Zelda: The Wind Waker";
+
 // --- The game's entry point -------------------------------------------------
 // m_Do_main.cpp's `int main(int, const char**)` (renamed SMS_main by
 // port_compat.h); the Sunshine port's start-up (port_main.cpp) calls
@@ -39,7 +42,10 @@ pthread_cond_t s_alarm_cv = PTHREAD_COND_INITIALIZER;
 std::vector<OSAlarm*> s_alarms;
 bool s_alarm_thread_started = false;
 
-s64 alarm_now() { return (s64)OSGetTime(); }
+// The clock without OSGetTime's interrupt check: the alarm thread asks while
+// holding s_alarm_lock, and the check would run alarm_poll, which takes it
+// (a deadlock: the game froze at the first frame's alarm).
+s64 alarm_now() { return port_time_ticks(); }
 
 void deadline_in(s64 ticks, struct timespec* ts)
 {
