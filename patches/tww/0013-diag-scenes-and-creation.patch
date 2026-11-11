@@ -1,17 +1,17 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 11 Nov 2026 15:54:02 +0100
-Subject: [PATCH] Reason: diagnostics: scene changes and each process kind's
- first creation
+Subject: [PATCH 1/2] Reason: diagnostics: scene changes and each process
+ kind's first creation
 
 The boot stops inside the title scene's stage setup; logging every stage
 change and the first creation of each actor kind shows how far it got and
 which actor's code was running.
 ---
  src/c/c_dylink.cpp       | 23 +++++++++++++++++++++++
- src/d/d_com_inf_game.cpp |  3 +++
+ src/d/d_com_inf_game.cpp | 11 +++++++++++
  src/f_pc/f_pc_base.cpp   |  7 +++++++
- 3 files changed, 33 insertions(+)
+ 3 files changed, 41 insertions(+)
 
 diff --git a/src/c/c_dylink.cpp b/src/c/c_dylink.cpp
 index 158848a7..1674815e 100644
@@ -48,15 +48,23 @@ index 158848a7..1674815e 100644
  BOOL cCc_Init() {
  #if VERSION > VERSION_DEMO
 diff --git a/src/d/d_com_inf_game.cpp b/src/d/d_com_inf_game.cpp
-index 64bf4367..d31b5044 100644
+index 64bf4367..3f2dd2d0 100644
 --- a/src/d/d_com_inf_game.cpp
 +++ b/src/d/d_com_inf_game.cpp
-@@ -666,6 +666,9 @@ stage_arrow_class* dComIfGp_getRoomArrow(int i_roomNo) {
+@@ -666,6 +666,17 @@ stage_arrow_class* dComIfGp_getRoomArrow(int i_roomNo) {
  /* 800537C8-8005388C       .text dComIfGp_setNextStage__FPCcsScScfUliSc */
  void dComIfGp_setNextStage(const char* i_stageName, s16 i_point, s8 i_roomNo, s8 i_layer,
                             f32 i_lastSpeed, u32 i_lastMode, BOOL i_setPoint, s8 i_wipe) {
 +#ifdef TARGET_PC
-+    OSReport("[tww] next stage %s point %d room %d layer %d wipe %d\n", i_stageName, i_point, i_roomNo, i_layer, i_wipe);
++    {
++        static char last[0x40];
++        char now[0x40];
++        snprintf(now, sizeof(now), "%s point %d room %d layer %d wipe %d", i_stageName, i_point, i_roomNo, i_layer, i_wipe);
++        if (strcmp(now, last) != 0) {
++            strcpy(last, now);
++            OSReport("[tww] next stage %s\n", now);
++        }
++    }
 +#endif
      g_dComIfG_gameInfo.play.setNextStage(i_stageName, i_roomNo, i_point, i_layer, i_wipe);
  

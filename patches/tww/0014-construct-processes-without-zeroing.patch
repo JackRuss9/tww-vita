@@ -1,0 +1,116 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 19:14:47 +0100
+Subject: [PATCH 2/2] Reason: construct actors and effect processes without
+ zeroing them
+
+`new (p) T()` on a class without a constructor of its own value-initialises
+it: GCC zero-fills the whole object first (the GameCube compiler did not),
+wiping the process header the framework set up (its method table), so
+deleting an actor whose create failed crashed (the title scene's ship).
+`new (p) T` runs the same constructors without the zero fill; the framework
+already cleared the memory.
+---
+ include/f_op/f_op_actor_mng.h | 2 +-
+ src/d/d_ky_thunder.cpp        | 2 +-
+ src/d/d_s_name.cpp            | 2 +-
+ src/d/d_water_mark.cpp        | 2 +-
+ src/d/d_wind_arrow.cpp        | 2 +-
+ src/d/d_wpillar.cpp           | 2 +-
+ src/d/d_wpot_water.cpp        | 2 +-
+ 7 files changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/include/f_op/f_op_actor_mng.h b/include/f_op/f_op_actor_mng.h
+index b585603a..f4c8478d 100644
+--- a/include/f_op/f_op_actor_mng.h
++++ b/include/f_op/f_op_actor_mng.h
+@@ -14,7 +14,7 @@
+ // The name of this macro is official and comes from a TP debug assert: "fopAcM_ct No Call !!"
+ #define fopAcM_ct(ptr, ClassName)                                                                  \
+     if (!fopAcM_CheckCondition(ptr, fopAcCnd_INIT_e)) {                                            \
+-        new (ptr) ClassName();                                                                     \
++        new (ptr) ClassName;                                                                       \
+         fopAcM_OnCondition(ptr, fopAcCnd_INIT_e);                                                  \
+     }
+ 
+diff --git a/src/d/d_ky_thunder.cpp b/src/d/d_ky_thunder.cpp
+index 5cbcb3b9..5840b23b 100644
+--- a/src/d/d_ky_thunder.cpp
++++ b/src/d/d_ky_thunder.cpp
+@@ -112,7 +112,7 @@ cPhs_State dThunder_c::create() {
+     dScnKy_env_light_c& envLight = dKy_getEnvlight();
+     camera_process_class *pCamera = (camera_process_class*)dComIfGp_getCamera(0);
+ 
+-    new (this) dThunder_c();
++    new (this) dThunder_c; // tww-vita: no "()", GCC would zero the process header
+     J3DModelData* modelData = (J3DModelData*)dComIfG_getObjectRes("Always", dRes_INDEX_ALWAYS_BDL_YTHDR00_e);
+     JUT_ASSERT(DEMO_SELECT(111, 110), modelData != NULL);
+ 
+diff --git a/src/d/d_s_name.cpp b/src/d/d_s_name.cpp
+index 12e1b54a..432706de 100644
+--- a/src/d/d_s_name.cpp
++++ b/src/d/d_s_name.cpp
+@@ -1524,7 +1524,7 @@ static BOOL dScnName_Delete(dScnName_c* i_this) {
+ 
+ /* 802323A8-802323F8       .text dScnName_Create__FP11scene_class */
+ static cPhs_State dScnName_Create(scene_class* i_scn) {
+-    dScnName_c* i_this = new (i_scn) dScnName_c();
++    dScnName_c* i_this = new (i_scn) dScnName_c; // tww-vita: no "()", GCC would zero the process header
+     return i_this->create();
+ }
+ 
+diff --git a/src/d/d_water_mark.cpp b/src/d/d_water_mark.cpp
+index ab26954a..cf387710 100644
+--- a/src/d/d_water_mark.cpp
++++ b/src/d/d_water_mark.cpp
+@@ -119,7 +119,7 @@ static cPhs_State dWaterMark_Create(kankyo_class* kankyo) {
+ 
+ /* 8023DFA0-8023E29C       .text create__12dWaterMark_cFv */
+ cPhs_State dWaterMark_c::create() {
+-    new (this) dWaterMark_c();
++    new (this) dWaterMark_c; // tww-vita: no "()", GCC would zero the process header
+     
+     field_0x12e = mParam >> 0x10;
+     mParam &= 0xFFFF;
+diff --git a/src/d/d_wind_arrow.cpp b/src/d/d_wind_arrow.cpp
+index 23ba9395..60611aea 100644
+--- a/src/d/d_wind_arrow.cpp
++++ b/src/d/d_wind_arrow.cpp
+@@ -109,7 +109,7 @@ static BOOL dWindArrow_Delete(dWindArrow_c* i_this) {
+ }
+ 
+ cPhs_State dWindArrow_c::create() {
+-    new (this) dWindArrow_c();
++    new (this) dWindArrow_c; // tww-vita: no "()", GCC would zero the process header
+     
+     J3DModelData* modelData = (J3DModelData*)dComIfG_getObjectRes("Always", dRes_INDEX_ALWAYS_BDL_YA_e);
+     JUT_ASSERT(0x56, modelData != NULL);
+diff --git a/src/d/d_wpillar.cpp b/src/d/d_wpillar.cpp
+index 9306f8ad..cdf6b1c7 100644
+--- a/src/d/d_wpillar.cpp
++++ b/src/d/d_wpillar.cpp
+@@ -128,7 +128,7 @@ static BOOL dWpillar_Delete(dWpillar_c* i_this) {
+ 
+ /* 8023EE28-8023F5B0       .text create__10dWpillar_cFv */
+ cPhs_State dWpillar_c::create() {
+-    new (this) dWpillar_c();
++    new (this) dWpillar_c; // tww-vita: no "()", GCC would zero the process header
+ 
+     J3DModelData* modelData;
+     BOOL is_anm_init;
+diff --git a/src/d/d_wpot_water.cpp b/src/d/d_wpot_water.cpp
+index 0929b962..63038ee9 100644
+--- a/src/d/d_wpot_water.cpp
++++ b/src/d/d_wpot_water.cpp
+@@ -61,7 +61,7 @@ static BOOL dWpotWater_Delete(dWpotWater_c* i_this) {
+ }
+ 
+ cPhs_State dWpotWater_c::create() {
+-    new (this) dWpotWater_c();
++    new (this) dWpotWater_c; // tww-vita: no "()", GCC would zero the process header
+     dComIfGp_particle_set(dPa_name::ID_IT_SN_WPOT_BITYA, &mPos);
+     dComIfGp_particle_set(dPa_name::ID_IT_SN_WPOT_SHIBUKI, &mPos);
+     emtr = dComIfGp_particle_set(dPa_name::ID_IT_SN_WPOT_YUKA, &mPos, NULL, NULL, 0xAA, &dWpotWater_c::mEcallback);
+-- 
+2.43.0
+

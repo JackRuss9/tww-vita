@@ -283,3 +283,12 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   patch 0013 logs every next-stage request and the first creation of each
   process kind (with its module name from DynamicNameTable); crash.gdb
   calls port_crash_describe_context() for the recent disc files.
+- 11 Nov, eighteenth run: the stage file now loads completely (all 13
+  chunk kinds handled, RTBL right). The title scene created its first
+  actors; the ship (d_a_ship, 167) returns an error on the title (the
+  MET_KORL event flag is not set) and deleting it crashed: its process
+  header (method table) was zero. Cause: fopAcM_ct does `new (p) T()`;
+  for a class with no constructor of its own GCC value-initialises, i.e.
+  zero-fills the whole object first (MWCC did not). Patch 0014 drops the
+  "()" there and in the five effect processes / one scene doing the same.
+  The stage-change log now prints only when the request changes.
