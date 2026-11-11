@@ -184,7 +184,12 @@ extern "C" int tww_endian_stage(void* data, uint32_t size, const char* name)
 		}
 		if (tag == 0x5254424C /* RTBL */)
 			continue; // handled below (offsets to records)
-		if (!t->conv || !off || off > size || count > (size - off) / t->size)
+		if (!off || off > size || count > (size - off) / t->size) {
+			port_log("[tww] %s: chunk %.4s (%u x %u bytes at 0x%x) outside the file (%u bytes): not converted\n",
+			         name ? name : "stage", (const char*)h, count, t->size, off, size);
+			continue;
+		}
+		if (!t->conv)
 			continue;
 		for (uint32_t k = 0; k < count; k++)
 			t->conv(p + off + k * t->size);
@@ -197,7 +202,7 @@ extern "C" int tww_endian_stage(void* data, uint32_t size, const char* name)
 			const uint8_t* h = p + 4 + i * 12;
 			len += snprintf(line + len, sizeof(line) - len, " %.4s:%u", (const char*)h, ld32(h + 4));
 		}
-		port_log("[tww] %s: %u chunks:%s\n", name ? name : "stage", n, line);
+		port_log("[tww] %s (%u bytes at %p): %u chunks:%s\n", name ? name : "stage", size, data, n, line);
 	}
 	// RTBL: u32 offsets to roomRead_data_class {u8 num, u8, u8, pad,
 	// u32 room list offset}; several may share a record.
@@ -206,8 +211,11 @@ extern "C" int tww_endian_stage(void* data, uint32_t size, const char* name)
 		if (be32v(h) != 0x5254424C)
 			continue;
 		uint32_t count = ld32(h + 4), off = ld32(h + 8);
-		if (!off || off > size || count > (size - off) / 4)
+		if (!off || off > size || count > (size - off) / 4) {
+			port_log("[tww] %s: RTBL (%u at 0x%x) outside the file (%u bytes): not converted\n",
+			         name ? name : "stage", count, off, size);
 			continue;
+		}
 		uint32_t done[64];
 		uint32_t ndone = 0;
 		for (uint32_t k = 0; k < count; k++) {
@@ -221,6 +229,11 @@ extern "C" int tww_endian_stage(void* data, uint32_t size, const char* name)
 			sw32(p + rec + 4);
 			if (ndone < 64)
 				done[ndone++] = rec;
+		}
+		for (uint32_t k = 0; k < count && k < 3; k++) {
+			uint32_t rec = ld32(p + off + k * 4);
+			port_log("[tww] %s: RTBL[%u] -> record 0x%x (rooms %u, list at 0x%x)\n", name ? name : "stage", k, rec,
+			         rec + 8 <= size ? p[rec] : 0, rec + 8 <= size ? ld32(p + rec + 4) : 0);
 		}
 	}
 	return 1;

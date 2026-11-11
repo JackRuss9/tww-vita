@@ -266,3 +266,12 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   the patches (future patches are made the same way).
   Also seen: stage.dzs for sea_T has 13 chunks (STAG RTBL EVNT MULT EnvR
   Colo Pale Virt RPAT RPPN ACTR RCAM RARO), all handled.
+- 11 Nov, sixteenth run (96fba9a): the stub fix worked (past phase_3 into
+  phase_4, dStage_Create). Handlers STAG, MULT, RCAM, ACTR ran; crash in
+  dStage_roomReadInit (RTBL) writing entry->m_rooms: the entry pointer is
+  bad. offsetToPtr runs once for the stage (only roomLoader repeats it, on
+  room files). Suspect: the converter's RTBL pass skipped (a size it was
+  given smaller than the file?) or wrong values. Diagnostics: the stage
+  converter logs the size it got, any chunk it skips as outside the file,
+  and RTBL's first entries after conversion; patch 0012 logs the entries
+  the handler receives.

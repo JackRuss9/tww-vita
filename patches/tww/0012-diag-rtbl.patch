@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 15:44:25 +0100
+Subject: [PATCH] Reason: diagnostics: the room table (RTBL) entries the stage
+ loader receives
+
+---
+ src/d/d_stage.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/d/d_stage.cpp b/src/d/d_stage.cpp
+index 36fa79bc..60f488cf 100644
+--- a/src/d/d_stage.cpp
++++ b/src/d/d_stage.cpp
+@@ -1734,6 +1734,10 @@ int dStage_roomReadInit(dStage_dt_c* i_stage, void* i_data, int i_num, void* i_f
+     roomRead_class* rtbl = (roomRead_class*)((int*)i_data + 1);
+     roomRead_data_class** rtbl_entries = rtbl->m_entries;
+     i_stage->setRoom(rtbl);
++#ifdef TARGET_PC
++    OSReport("[tww] RTBL: %d entries at %p (file %p): %08x %08x %08x\n", rtbl->num, rtbl_entries, i_file,
++             (u32)(uintptr_t)rtbl_entries[0], (u32)(uintptr_t)rtbl_entries[1], (u32)(uintptr_t)rtbl_entries[2]);
++#endif
+ 
+     for (int i = 0; i < rtbl->num; i++) {
+         rtbl_entries[i] = (roomRead_data_class*)((uintptr_t)i_file + (uintptr_t)rtbl_entries[i]);
