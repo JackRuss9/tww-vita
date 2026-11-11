@@ -304,3 +304,51 @@ extern "C" int tww_endian_event_list(void* data, uint32_t size)
 	}
 	return 1;
 }
+
+// Collision files (*.dzb, cBgD_t, c_bg_w.h): a 0x34-byte header of six
+// {s32 count, u32 offset} pairs and a u32 flag, then the tables: vertices
+// (3 f32), triangles (5 u16), blocks (u16), tree nodes (10 u16), groups
+// (0x34: u32 name offset, 3 f32 scale, 3 s16 rotation + pad, 3 f32
+// translation, 6 u16, u32 info), and triangle infos (4 u32). Offsets are
+// from the file start; cBgS::ConvDzb turns them into pointers afterwards.
+extern "C" int tww_endian_dzb(void* data, uint32_t size, const char* name)
+{
+	uint8_t* b = (uint8_t*)data;
+	if (size < 0x34)
+		return 0;
+	// The first table usually follows the header; in host order this
+	// offset would read as a huge number.
+	uint32_t first = be32v(b + 0x04) ? be32v(b + 0x04) : be32v(b + 0x0C);
+	if (first < 0x34 || first > size) {
+		if (ld32(b + 0x04) >= 0x34 && ld32(b + 0x04) <= size)
+			return 1; // already converted
+		port_log("[tww] %s: not a collision file (first table at 0x%x)\n", name ? name : "dzb", first);
+		return 0;
+	}
+	static const struct { uint32_t rec, width, n; } tbl[6] = {
+		{12, 4, 3}, {10, 2, 5}, {2, 2, 1}, {20, 2, 10}, {0x34, 0, 0}, {16, 4, 4}};
+	swn(b, 13, 4);
+	for (int t = 0; t < 6; t++) {
+		uint32_t cnt = ld32(b + t * 8), off = ld32(b + t * 8 + 4);
+		if (cnt == 0 || off == 0)
+			continue;
+		if (off >= size || (uint64_t)cnt * tbl[t].rec > size - off) {
+			port_log("[tww] %s: table %d (%u x 0x%x at 0x%x) runs past the end (0x%x): not converted\n",
+			         name ? name : "dzb", t, cnt, tbl[t].rec, off, size);
+			continue;
+		}
+		for (uint32_t i = 0; i < cnt; i++) {
+			uint8_t* r = b + off + i * tbl[t].rec;
+			if (t == 4) { // group
+				swn(r, 4, 4);         // name, scale
+				swn(r + 0x10, 3, 2);  // rotation
+				swn(r + 0x18, 3, 4);  // translation
+				swn(r + 0x24, 6, 2);
+				sw32(r + 0x30);
+			} else {
+				swn(r, tbl[t].n, tbl[t].width);
+			}
+		}
+	}
+	return 1;
+}

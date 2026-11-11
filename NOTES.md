@@ -292,3 +292,9 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   zero-fills the whole object first (MWCC did not). Patch 0014 drops the
   "()" there and in the five effect processes / one scene doing the same.
   The stage-change log now prints only when the request changes.
+- 11 Nov, nineteenth run: the ship fix worked; the title scene created
+  more actors and started loading Room44, crashing in cBgS::ConvDzb: the
+  room's collision file (room.dzb) was still big-endian. Added
+  tww_endian_dzb (header, vertices, triangles, blocks, tree, groups,
+  triangle infos), dispatched for any *.dzb through port_endian_game;
+  synthetic test passes.
