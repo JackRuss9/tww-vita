@@ -1,0 +1,263 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 20:31:20 +0100
+Subject: [PATCH] Reason: keep each actor's process header at the actor's
+ address
+
+Under GCC (the Itanium C++ ABI) a class with virtual functions whose base
+has none gets its vtable pointer at offset 0, with the base after it; MWCC
+put the pointer at the end. 51 actor classes (Link, NPCs, items, moving
+platforms...) add virtual functions to fopAc_ac_c, so their fopAc_ac_c
+part, and the process header the framework reads through void* and casts,
+sat 4 bytes after the object (Link's creation crashed in fpcPi_Change).
+
+On PC, base_process_class carries the vtable slot (one empty virtual
+function), and leafdraw_class and fopAc_ac_c inherit their headers rather
+than holding them as a first member, so every actor's vtable pointer
+shares that slot and the header stays at the actor's address. Processes
+without virtual functions leave the slot null. The few places that named
+the old members (base.base.mBsPcId, i_leaf->base.*) use the inherited
+fields.
+---
+ include/f_op/f_op_actor.h       | 10 ++++++++++
+ include/f_pc/f_pc_base.h        |  8 ++++++++
+ include/f_pc/f_pc_leaf.h        |  5 +++++
+ src/d/actor/d_a_obj_hlift.cpp   |  6 +++---
+ src/d/actor/d_a_obj_ladder.cpp  |  2 +-
+ src/d/actor/d_a_obj_movebox.cpp |  8 ++++----
+ src/d/actor/d_a_stone.cpp       |  2 +-
+ src/d/actor/d_a_stone2.cpp      |  2 +-
+ src/d/actor/d_a_tsubo.cpp       |  2 +-
+ src/f_pc/f_pc_leaf.cpp          |  8 ++++----
+ 10 files changed, 38 insertions(+), 15 deletions(-)
+
+diff --git a/include/f_op/f_op_actor.h b/include/f_op/f_op_actor.h
+index 6b651095..7ae3fb23 100644
+--- a/include/f_op/f_op_actor.h
++++ b/include/f_op/f_op_actor.h
+@@ -265,9 +265,15 @@ public:
+     /* 0xC */ cXyz max;
+ };
+ 
++#ifdef TARGET_PC
++// The process header is a base class here, not a member (see base_process_class).
++class fopAc_ac_c : public leafdraw_class {
++public:
++#else
+ class fopAc_ac_c {
+ public:
+     /* 0x000 */ leafdraw_class base;
++#endif
+     /* 0x0C0 */ int actor_type;
+     /* 0x0C4 */ create_tag_class actor_tag;
+     /* 0x0D8 */ create_tag_class draw_tag;
+@@ -318,7 +324,9 @@ public:
+     static void setStopStatus(u32 status) { stopStatus = status; }
+ };  // Size: 0x290
+ 
++#ifndef TARGET_PC // (4 bytes larger: the vtable slot)
+ STATIC_ASSERT(sizeof(fopAc_ac_c) == 0x290);
++#endif
+ 
+ class fopEn_enemy_c : public fopAc_ac_c {
+ public:
+@@ -366,7 +374,9 @@ public:
+     /* 0x2A9 */ u8 field_2A9[0x2AC - 0x2A9];
+ };  // Size: 0x2AC
+ 
++#ifndef TARGET_PC
+ STATIC_ASSERT(sizeof(fopEn_enemy_c) == 0x2AC);
++#endif
+ 
+ BOOL fopAc_IsActor(void* actor);
+ 
+diff --git a/include/f_pc/f_pc_base.h b/include/f_pc/f_pc_base.h
+index 1f4a40af..9d2d2928 100644
+--- a/include/f_pc/f_pc_base.h
++++ b/include/f_pc/f_pc_base.h
+@@ -11,6 +11,14 @@
+ typedef unsigned int fpc_ProcID;
+ 
+ typedef struct base_process_class {
++#ifdef TARGET_PC
++    // tww-vita: actor classes with virtual functions get their vtable pointer
++    // at offset 0 under GCC (MWCC put it at the end), which shifted the
++    // actor's process header by 4 bytes. Every process starts with this
++    // slot instead (left null for processes without virtual functions), so
++    // the derived classes share it and keep the header at their address.
++    virtual void tww_vtable_slot() {}
++#endif
+     /* 0x00 */ int mBsType;
+     /* 0x04 */ fpc_ProcID mBsPcId;
+     /* 0x08 */ s16 mProcName;
+diff --git a/include/f_pc/f_pc_leaf.h b/include/f_pc/f_pc_leaf.h
+index cb28c5b6..efe70b71 100644
+--- a/include/f_pc/f_pc_leaf.h
++++ b/include/f_pc/f_pc_leaf.h
+@@ -13,8 +13,13 @@ typedef struct leafdraw_method_class {
+     /* 0x10 */ process_method_func mpDrawFunc;
+ } leafdraw_method_class;
+ 
++#ifdef TARGET_PC
++// The header is a base class here, not a member (see base_process_class).
++typedef struct leafdraw_class : base_process_class {
++#else
+ typedef struct leafdraw_class {
+     /* 0x00 */ base_process_class base;
++#endif
+     /* 0xB8 */ leafdraw_method_class* mpDrawMtd;
+     /* 0xBC */ s8 mbUnk0;
+     /* 0xBD */ u8 mbUnk1;
+diff --git a/src/d/actor/d_a_obj_hlift.cpp b/src/d/actor/d_a_obj_hlift.cpp
+index f53913de..aa2fa38b 100644
+--- a/src/d/actor/d_a_obj_hlift.cpp
++++ b/src/d/actor/d_a_obj_hlift.cpp
+@@ -62,7 +62,7 @@ BOOL daObjHlift::Act_c::Create() {
+         151.0f
+     );
+     if (M_control_id == fpcM_ERROR_PROCESS_ID_e) {
+-        M_control_id = base.base.mBsPcId;
++        M_control_id = mBsPcId;
+     }
+     return TRUE;
+ }
+@@ -87,7 +87,7 @@ cPhs_State daObjHlift::Act_c::Mthd_Create() {
+ 
+ /* 00000408-00000430       .text Delete__Q210daObjHlift5Act_cFv */
+ BOOL daObjHlift::Act_c::Delete() {
+-    if (M_control_id == base.base.mBsPcId) {
++    if (M_control_id == mBsPcId) {
+         M_control_id = fpcM_ERROR_PROCESS_ID_e;
+     }
+     return TRUE;
+@@ -280,7 +280,7 @@ bool daObjHlift::Act_c::chk_demo_end() {
+ 
+ /* 00000DE8-00000E74       .text se_whole__Q210daObjHlift5Act_cFv */
+ void daObjHlift::Act_c::se_whole() {
+-    if (M_control_id == base.base.mBsPcId && M_lift_move_flag != 0) {
++    if (M_control_id == mBsPcId && M_lift_move_flag != 0) {
+         mDoAud_seStart(JA_SE_OBJ_PRT_LIFT_WORK);
+         M_lift_move_flag = 0;
+     }
+diff --git a/src/d/actor/d_a_obj_ladder.cpp b/src/d/actor/d_a_obj_ladder.cpp
+index 7e92c06c..38f3e845 100644
+--- a/src/d/actor/d_a_obj_ladder.cpp
++++ b/src/d/actor/d_a_obj_ladder.cpp
+@@ -84,7 +84,7 @@ BOOL daObjLadder::Act_c::Create() {
+     mDoMtx_stack_c::pop();
+ 
+     mGndChk.SetPos(&pos);
+-    mGndChk.SetActorPid(base.base.mBsPcId);
++    mGndChk.SetActorPid(mBsPcId);
+     mGndY = dComIfG_Bgsp()->GroundCross(&mGndChk);
+     unk346 = 0;
+ 
+diff --git a/src/d/actor/d_a_obj_movebox.cpp b/src/d/actor/d_a_obj_movebox.cpp
+index 84bb6128..3d6544c3 100644
+--- a/src/d/actor/d_a_obj_movebox.cpp
++++ b/src/d/actor/d_a_obj_movebox.cpp
+@@ -127,7 +127,7 @@ void Bgc_c::gnd_pos(const Act_c* movebox, const BgcSrc_c* bgcSrc, int bgcSrcCoun
+         cXyz pos;
+         mDoMtx_stack_c::multVec(&offset, &pos);
+         M_gnd_work[i].SetPos(&pos);
+-        M_gnd_work[i].SetActorPid(movebox->base.base.mBsPcId);
++        M_gnd_work[i].SetActorPid(movebox->mBsPcId);
+         mGroundY[i] = dComIfG_Bgsp()->GroundCross(&M_gnd_work[i]);
+         if (mGroundY[i] > maxGroundY) {
+             fopAc_ac_c* groundActor = dComIfG_Bgsp()->GetActorPointer(M_gnd_work[i]);
+@@ -183,7 +183,7 @@ void Bgc_c::wall_pos(const Act_c* movebox, const BgcSrc_c* bgcSrc, int bgcSrcCou
+         startPos += movebox->current.pos;
+         endPos = startPos + temp_20;
+         M_wall_work[i].Set(&startPos, &endPos, const_cast<Act_c*>(movebox));
+-        M_wall_work[i].SetActorPid(movebox->base.base.mBsPcId);
++        M_wall_work[i].SetActorPid(movebox->mBsPcId);
+         if (dComIfG_Bgsp()->LineCross(&M_wall_work[i])) {
+             mWallPos[i] = M_wall_work[i].GetCross();
+             f32 dist_sq = startPos.abs2(mWallPos[i]);
+@@ -272,7 +272,7 @@ bool Bgc_c::chk_wall_touch(const Act_c* movebox, const BgcSrc_c* bgcSrc, s16 dir
+     startPos += movebox->current.pos;
+     endPos = startPos + direction;
+     
+-    touch_work.SetActorPid(movebox->base.base.mBsPcId);
++    touch_work.SetActorPid(movebox->mBsPcId);
+     touch_work.Set(&startPos, &endPos, const_cast<Act_c*>(movebox));
+     return dComIfG_Bgsp()->LineCross(&touch_work);
+ }
+@@ -1725,7 +1725,7 @@ void Act_c::sound_break() {
+     cXyz centerPos(current.pos.x, current.pos.y + 100.0f, current.pos.z);
+     dBgS_ObjGndChk gndChk;
+     gndChk.SetPos(&centerPos);
+-    gndChk.SetActorPid(base.base.mBsPcId);
++    gndChk.SetActorPid(mBsPcId);
+     dComIfG_Bgsp()->GroundCross(&gndChk);
+     int bgIndex = gndChk.GetBgIndex();
+     s32 mtrlSndId = 0;
+diff --git a/src/d/actor/d_a_stone.cpp b/src/d/actor/d_a_stone.cpp
+index d9ab7dea..8e36ad73 100644
+--- a/src/d/actor/d_a_stone.cpp
++++ b/src/d/actor/d_a_stone.cpp
+@@ -909,7 +909,7 @@ void Act_c::set_senv(int arg1, int arg2) const {
+ /* 00003124-0000315C       .text cam_lockoff__Q27daStone5Act_cCFv */
+ void Act_c::cam_lockoff() const {
+     camera_process_class* camera = dComIfGp_getCamera(0);
+-    camera->mCamera.ForceLockOff(base.base.mBsPcId);
++    camera->mCamera.ForceLockOff(mBsPcId);
+ }
+ 
+ /* 0000315C-00003358       .text _execute__Q27daStone5Act_cFv */
+diff --git a/src/d/actor/d_a_stone2.cpp b/src/d/actor/d_a_stone2.cpp
+index 9d6506f4..0178d67d 100644
+--- a/src/d/actor/d_a_stone2.cpp
++++ b/src/d/actor/d_a_stone2.cpp
+@@ -480,7 +480,7 @@ void Act_c::set_senv(int arg1, int arg2) const {
+ /* 00001B7C-00001BB4       .text cam_lockoff__Q28daStone25Act_cCFv */
+ void Act_c::cam_lockoff() const {
+     camera_process_class* camera = dComIfGp_getCamera(0);
+-    camera->mCamera.ForceLockOff(base.base.mBsPcId);
++    camera->mCamera.ForceLockOff(mBsPcId);
+ }
+ 
+ /* 00001BB4-00001BE4       .text mode_wait_init__Q28daStone25Act_cFv */
+diff --git a/src/d/actor/d_a_tsubo.cpp b/src/d/actor/d_a_tsubo.cpp
+index fe8ebfa0..ba01e324 100644
+--- a/src/d/actor/d_a_tsubo.cpp
++++ b/src/d/actor/d_a_tsubo.cpp
+@@ -3482,7 +3482,7 @@ void Act_c::set_senv(int arg1, int arg2) const {
+ 
+ /* 00007840-00007878       .text cam_lockoff__Q27daTsubo5Act_cCFv */
+ void Act_c::cam_lockoff() const {
+-    dComIfGp_getCamera(0)->mCamera.ForceLockOff(base.base.mBsPcId);
++    dComIfGp_getCamera(0)->mCamera.ForceLockOff(mBsPcId);
+ }
+ 
+ /* 00007878-00007B08       .text _execute__Q27daTsubo5Act_cFv */
+diff --git a/src/f_pc/f_pc_leaf.cpp b/src/f_pc/f_pc_leaf.cpp
+index f9613b49..03a230bb 100644
+--- a/src/f_pc/f_pc_leaf.cpp
++++ b/src/f_pc/f_pc_leaf.cpp
+@@ -37,7 +37,7 @@ BOOL fpcLf_IsDelete(leafdraw_class* i_leaf) {
+ BOOL fpcLf_Delete(leafdraw_class* i_leaf) {
+     BOOL ret = fpcMtd_Delete(&i_leaf->mpDrawMtd->base, i_leaf);
+     if (ret == TRUE) {
+-        i_leaf->base.mSubType = 0;
++        i_leaf->mSubType = 0;
+     }
+     return ret;
+ }
+@@ -47,10 +47,10 @@ int g_fpcLf_type;
+ /* 8003DD8C-8003DE00       .text fpcLf_Create__FP14leafdraw_class */
+ cPhs_State fpcLf_Create(leafdraw_class* i_leaf) {
+     leaf_process_profile_definition* profDef;
+-    if (i_leaf->base.mInitState == 0) {
+-        profDef = (leaf_process_profile_definition*)i_leaf->base.mpProf;
++    if (i_leaf->mInitState == 0) {
++        profDef = (leaf_process_profile_definition*)i_leaf->mpProf;
+         i_leaf->mpDrawMtd = profDef->sub_method;
+-        i_leaf->base.mSubType = fpcBs_MakeOfType(&g_fpcLf_type);
++        i_leaf->mSubType = fpcBs_MakeOfType(&g_fpcLf_type);
+         fpcDwPi_Init(&i_leaf->mDwPi, profDef->mPriority);
+         i_leaf->mbUnk0 = 0;
+     }
+-- 
+2.43.0
+

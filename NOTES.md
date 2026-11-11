@@ -298,3 +298,16 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   tww_endian_dzb (header, vertices, triangles, blocks, tree, groups,
   triangle infos), dispatched for any *.dzb through port_endian_game;
   synthetic test passes.
+- 11 Nov, twentieth run: room.dzb converted fine; more actors created,
+  then Link's creation (daPy_lk_c phase_1) crashed in fpcPi_Change: his
+  `this` was 4 bytes before the process pointer. GCC (Itanium ABI) puts a
+  derived class's vtable pointer at offset 0 when its base (fopAc_ac_c)
+  has no virtual functions; MWCC put it at the end. A DWARF scan of the
+  actor objects found 51 such classes (all offset 4: Link, NPCs, items,
+  shop items, moving platforms...), none in the other process families.
+  Patch 0015: on PC base_process_class has one empty virtual function
+  (the vtable slot), and leafdraw_class / fopAc_ac_c inherit their headers
+  instead of holding them as a first member, so the vtable pointer of
+  every actor shares that slot. Re-scan: 0 of 305 offset; gdb confirms
+  base_process_class and fopAc_ac_c at the daPy_lk_c address. Only 15
+  source lines named the old members.
