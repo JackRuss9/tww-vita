@@ -320,3 +320,11 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   cluster files (skin deform data; they went through the J3D converter
   with the block left as it was); synthetic test passes, shared index
   arrays swapped once.
+- 11 Nov, twenty-second run: Link's skin setup passed; then his heap
+  (GameCube estimate 0xB0000) ran out in initTextureScroll: `new
+  J3DAnmTextureSRTKey` returned NULL and GCC constructed into it anyway
+  (it assumes operator new never returns NULL unless -fcheck-new; MWCC
+  checked). Fixes: -fcheck-new for the game code; patch 0017 skips the
+  estimated heap on PC for the game's own max-then-shrink fallback, and
+  logs each kind's first heap use vs the GameCube estimate (to see how
+  much bigger PC allocations are, and why).

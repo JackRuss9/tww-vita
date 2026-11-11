@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 21:04:05 +0100
+Subject: [PATCH] Reason: actor heaps sized by what the PC build actually uses
+
+Actors reserve a solid heap of a hand-measured GameCube size; on PC what
+their code allocates differs a little, and Link's ran out (new returned
+NULL inside J3DAnmLoaderDataBase::load). On PC the estimate is skipped for
+the game's own fallback: the largest free heap, shrunk to what was used.
+The first heap of each kind logs its use against the GameCube estimate.
+---
+ src/f_op/f_op_actor_mng.cpp | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/src/f_op/f_op_actor_mng.cpp b/src/f_op/f_op_actor_mng.cpp
+index bd937c3d..dd4f13a3 100644
+--- a/src/f_op/f_op_actor_mng.cpp
++++ b/src/f_op/f_op_actor_mng.cpp
+@@ -311,6 +311,14 @@ namespace fopAcM {
+ bool fopAcM_entrySolidHeap(fopAc_ac_c* i_this, heapCallbackFunc createHeapCB, u32 estimatedHeapSize) {
+     const char * pProcNameString = fopAcM_getProcNameString(i_this);
+     JKRSolidHeap * heap = NULL;
++#ifdef TARGET_PC
++    // tww-vita: what the game's code allocates differs a little in size on
++    // PC, and code that assumes its allocations fit (Link's) would crash
++    // with the GameCube's estimates. Take the game's own fallback instead:
++    // the largest heap free, shrunk to what was used afterwards.
++    u32 pcEstimate = estimatedHeapSize;
++    estimatedHeapSize = 0;
++#endif
+ 
+     if (estimatedHeapSize != 0) {
+         heap = mDoExt_createSolidHeapFromGameToCurrent(estimatedHeapSize, 0x20);
+@@ -371,6 +379,18 @@ bool fopAcM_entrySolidHeap(fopAc_ac_c* i_this, heapCallbackFunc createHeapCB, u3
+     }
+ 
+     if (heap != NULL) {
++#ifdef TARGET_PC
++        {
++            // Each kind's first heap: what it used against the GameCube estimate.
++            static u8 seen[0x1000 / 8];
++            u16 n = (u16)fopAcM_GetName(i_this);
++            if (n < 0x1000 && !(seen[n >> 3] & (1 << (n & 7)))) {
++                seen[n >> 3] |= 1 << (n & 7);
++                OSReport("[tww] heap %d %s: used 0x%x, GameCube estimate 0x%x\n", n, pProcNameString,
++                         heap->getHeapSize() - heap->getFreeSize(), pcEstimate);
++            }
++        }
++#endif
+         if (!fopAcM::HeapAdjustEntry) {
+             mDoExt_adjustSolidHeap(heap);
+             i_this->heap = heap;
+-- 
+2.43.0
+

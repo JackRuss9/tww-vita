@@ -25,7 +25,7 @@ set(TWW_FLAGS
   -w -fno-strict-aliasing -fwrapv -fsigned-char
   -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -fno-stack-protector
   -ffp-contract=off
-  $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++11 -Wno-narrowing -fno-gnu-keywords -fpermissive -fno-threadsafe-statics -fno-rtti -fno-exceptions>
+  $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++11 -Wno-narrowing -fno-gnu-keywords -fpermissive -fno-threadsafe-statics -fno-rtti -fno-exceptions -fcheck-new>
   $<$<COMPILE_LANGUAGE:C>:-std=gnu99 -fcommon>
   -include ${ROOT}/port/include/tww_compat.h)
 # port/include first (its dolphin/types.h replaces the decomp's), then the
