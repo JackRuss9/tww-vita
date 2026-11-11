@@ -2,17 +2,38 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 3 Nov 2026 18:55:30 +0100
 Subject: [PATCH] Reason: build on 32-bit x86 PCs (the fiber stack dump only
- where fibers exist)
+ where fibers exist); OSSetSwitchThreadCallback, called on every thread switch
+ (Wind Waker keeps each thread's current heap with it)
 
 ---
- platform/os/os_thread.cpp | 2 ++
- 1 file changed, 2 insertions(+)
+ platform/os/os_thread.cpp | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
 
 diff --git a/platform/os/os_thread.cpp b/platform/os/os_thread.cpp
-index 4a8a515..7788db7 100644
+index 4a8a515..5b22ca7 100644
 --- a/platform/os/os_thread.cpp
 +++ b/platform/os/os_thread.cpp
-@@ -997,6 +997,7 @@ extern "C" void port_os_dump_threads(unsigned lo, unsigned hi)
+@@ -588,10 +588,19 @@ void fiber_forget(Host* h)
+ #endif
+ }
+ 
++// OSSetSwitchThreadCallback: called on every switch, on the outgoing thread
++// before `next` runs. JSystem's JKRThreadSwitch keeps each thread's current
++// heap with it (Wind Waker's DVD thread sets its own to NULL); Sunshine set
++// none.
++typedef void (*SwitchThreadCallback)(OSThread* from, OSThread* to);
++SwitchThreadCallback g_switch_cb;
++
+ // Hand the CPU to `next` (already chosen). Returns once `self` owns the CPU
+ // again, or never if `self` is exiting.
+ void switch_to(OSThread* self, OSThread* next, bool exiting)
+ {
++	if (g_switch_cb && self != next)
++		g_switch_cb(self == &g_default_thread ? NULL : self, next == &g_default_thread ? NULL : next);
+ #ifdef PORT_HAVE_FIBERS
+ 	if (g_fibers) {
+ 		fiber_switch(self, next, exiting);
+@@ -997,6 +1006,7 @@ extern "C" void port_os_dump_threads(unsigned lo, unsigned hi)
  		int n = snprintf(line, sizeof line, "[os] thread %p: entry %p, state %d, priority %d, suspend %d%s; stack:",
  		                 (void*)t, (void*)h->func, (int)t->state, (int)t->priority, (int)t->suspend,
  		                 t == cur ? " (running)" : "");
@@ -20,7 +41,7 @@ index 4a8a515..7788db7 100644
  		if (g_fibers && t != cur && h->fiber_sp) {
  			const u32* p = (const u32*)h->fiber_sp;
  			const u32* end = h->fiber_stack ? (const u32*)(h->fiber_stack + kFiberStack) : p + 4096;
-@@ -1011,6 +1012,7 @@ extern "C" void port_os_dump_threads(unsigned lo, unsigned hi)
+@@ -1011,6 +1021,7 @@ extern "C" void port_os_dump_threads(unsigned lo, unsigned hi)
  				}
  			}
  		}
@@ -28,3 +49,14 @@ index 4a8a515..7788db7 100644
  		port_log("%s\n", line);
  	}
  }
+@@ -1473,3 +1484,10 @@ extern "C" PORT_ASM_CALLED void port_fiber_entry(void* thread)
+ 	void* ret = h->func(h->arg);
+ 	OSExitThread((OSThread*)ret);
+ }
++
++extern "C" void* OSSetSwitchThreadCallback(void* callback)
++{
++	SwitchThreadCallback prev = g_switch_cb;
++	g_switch_cb = (SwitchThreadCallback)callback;
++	return (void*)prev;
++}

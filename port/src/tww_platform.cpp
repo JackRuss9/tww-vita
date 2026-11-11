@@ -214,7 +214,6 @@ extern "C" s32 CARDGetSerialNo(s32 chan, u64* serialNo)
 extern "C" void OSSetStringTable(const void* table) { (void)table; }
 extern "C" void OSSetSaveRegion(void* start, void* end) { (void)start; (void)end; }
 extern "C" s32 OSCheckActiveThreads(void) { return 1; }
-extern "C" void* OSSetSwitchThreadCallback(void* callback) { (void)callback; return NULL; }
 extern "C" void OSClearContext(OSContext* context) { (void)context; }
 extern "C" void OSSetCurrentContext(OSContext* context) { (void)context; }
 static u32 s_fake_stack_word;

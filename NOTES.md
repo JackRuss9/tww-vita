@@ -97,3 +97,20 @@ measurement and decision goes here.
   spawning, by profile name, from tww_stubs.txt).
 - The camera's empty parts (talk camera etc.) will misbehave until the
   decomp fills them.
+- 11 Nov, second run (0b88bb0): the font is fine; crash in
+  JFWDisplay::createManager, the current heap NULL. Found here with a
+  watchpoint: mDoDvdThd::main sets its own thread's current heap to NULL
+  (`heap->becomeCurrentHeap()` with heap NULL, as on the console). On the
+  console JKRThreadSwitch's switch callback gives each thread its own current
+  heap back; the port had OSSetSwitchThreadCallback as a stub, so the DVD
+  thread wiped the main thread's. Fix: sms-port patch 0002 calls the callback
+  in switch_to on every switch (the default thread passed as NULL). The game
+  then reaches the logo scene (dScnLogo phase_0) here, stopping where it
+  mounts "System" (no files on my stand-in disc).
+
+## Testing here without the disc
+
+The start-up before the first file read can be run in my workspace: an empty
+"disc" folder (`fakedisc/files`, plus `sys/boot.bin` starting GZLE01) as the
+argument, under `xvfb-run` (32-bit Mesa: libgl1-mesa-dri:i386) and gdb.
+Built with -DTWW_PLACEHOLDER_ASSETS=ON.
