@@ -346,3 +346,19 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   Patch 0019: the demo version's check (no saved heap: keep the current
   one) on PC, and the first 40 heap switches of Link's first createHeap
   logged, to see the sequence if anything else is off.
+- 11 Nov, twenty-fifth run: Link was created (used 0x26060 of the
+  0xb0000 estimate) and d_a_title started; crash in
+  daTitle_proc_c::proc_init2D (title_logo.blo panes NULL). Two findings:
+  1. The heap-switch log showed the main thread coming back with the
+     ARAM thread's heap: JKRThreadSwitch::callback saves and restores in
+     one pass over the thread list, so when the next thread is listed
+     first the current thread saves the already-switched heap. (Link's
+     allocations after the ARAM read went to the wrong heap.) Patch 0020
+     saves first in its own pass.
+  2. .blo screens stay big-endian (dispatcher PE_FMT_KEEP_BE, for
+     Sunshine's patched J2D); Wind Waker's J2D reads whole headers raw.
+     Patch 0021 converts them (J2D_BE32/16). Same story ahead for
+     messages: MESGbmg1 is kept big-endian and f_op_msg_mng reads INF1
+     entries and the text's control codes natively; to do when text
+     shows up (file select). sms-port's decomp-patches/endian-* are a
+     checklist of formats like these (endian-14 was the skin-deform one).

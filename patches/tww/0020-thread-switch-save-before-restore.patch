@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 21:27:39 +0100
+Subject: [PATCH 1/2] Reason: save the outgoing thread's heap before switching
+ to the next one's
+
+JKRThreadSwitch::callback walks the thread list once, saving the current
+thread's heap and making the next thread's current as it meets them. When
+the next thread comes first in the list, its heap is made current before
+the current thread's is saved, so the current thread saves the new heap as
+its own: the main thread came back from an ARAM read in Link's createHeap
+with the ARAM thread's heap (the heap-switch log showed it). On PC the
+outgoing thread's heap is saved in a pass of its own first.
+---
+ src/JSystem/JKernel/JKRThread.cpp | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/src/JSystem/JKernel/JKRThread.cpp b/src/JSystem/JKernel/JKRThread.cpp
+index cea3be72..3ebf4261 100644
+--- a/src/JSystem/JKernel/JKRThread.cpp
++++ b/src/JSystem/JKernel/JKRThread.cpp
+@@ -120,12 +120,24 @@ void JKRThreadSwitch::callback(OSThread* current, OSThread* next) {
+ 
+     JSUList<JKRThread>& threadList = JKRThread::getList();
+     JSUListIterator<JKRThread> iterator;
++#ifdef TARGET_PC
++    // tww-vita: save the outgoing thread's heap before any thread's heap is
++    // made current. In one pass, a next thread listed before the current one
++    // switched heaps first and the current thread then saved the new heap
++    // as its own (the main thread came back with another thread's heap).
++    for (iterator = threadList.getFirst(); iterator != threadList.getEnd(); ++iterator) {
++        if (iterator.getObject()->getThreadRecord() == current)
++            iterator.getObject()->setCurrentHeap(JKRHeap::getCurrentHeap());
++    }
++#endif
+     for (iterator = threadList.getFirst(); iterator != threadList.getEnd(); ++iterator) {
+         JKRThread* thread = iterator.getObject();
+ 
++#ifndef TARGET_PC // (saved above)
+         if (thread->getThreadRecord() == current) {
+             thread->setCurrentHeap(JKRHeap::getCurrentHeap());
+         }
++#endif
+ 
+         if (thread->getThreadRecord() == next) {
+             if (sManager->mSetNextHeap) {
+-- 
+2.43.0
+

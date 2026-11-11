@@ -1,0 +1,136 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 21:27:39 +0100
+Subject: [PATCH 2/2] Reason: read .blo screen headers big-endian (J2D)
+
+.blo screens stay big-endian on PC (the stream's typed reads convert); the
+J2D loaders' whole-struct reads (the SCRN signature, INF1 header, block
+and pane headers) did not, so the title logo's screen was empty and its
+panes NULL. They convert with J2D_BE32/J2D_BE16 (identity on the GameCube).
+---
+ include/JSystem/J2DGraph/J2DPane.h  | 10 ++++++++++
+ src/JSystem/J2DGraph/J2DPane.cpp    |  4 ++--
+ src/JSystem/J2DGraph/J2DPicture.cpp |  4 ++--
+ src/JSystem/J2DGraph/J2DScreen.cpp  |  9 +++++++++
+ src/JSystem/J2DGraph/J2DTextBox.cpp |  4 ++--
+ src/JSystem/J2DGraph/J2DWindow.cpp  |  4 ++--
+ 6 files changed, 27 insertions(+), 8 deletions(-)
+
+diff --git a/include/JSystem/J2DGraph/J2DPane.h b/include/JSystem/J2DGraph/J2DPane.h
+index 49dacd67..67665923 100644
+--- a/include/JSystem/J2DGraph/J2DPane.h
++++ b/include/JSystem/J2DGraph/J2DPane.h
+@@ -31,6 +31,16 @@ struct J2DPaneHeader {
+     /* 0x4 */ u32 mSize;
+ };
+ 
++// tww-vita: .blo screens stay big-endian on PC (the stream's typed reads
++// convert); the few whole-struct reads of the J2D loaders convert here.
++#ifdef TARGET_PC
++inline u32 J2D_BE32(u32 v) { return __builtin_bswap32(v); }
++inline u16 J2D_BE16(u16 v) { return __builtin_bswap16(v); }
++#else
++inline u32 J2D_BE32(u32 v) { return v; }
++inline u16 J2D_BE16(u16 v) { return v; }
++#endif
++
+ class J2DPane {
+ public:
+     struct J2DScrnBlockHeader {
+diff --git a/src/JSystem/J2DGraph/J2DPane.cpp b/src/JSystem/J2DGraph/J2DPane.cpp
+index 8403d6ef..3a9a4884 100644
+--- a/src/JSystem/J2DGraph/J2DPane.cpp
++++ b/src/JSystem/J2DGraph/J2DPane.cpp
+@@ -65,8 +65,8 @@ J2DPane::J2DPane(J2DPane* pParentPane, JSURandomInputStream* pStream) : mPaneTre
+ 
+     int pos = pStream->getPosition();
+     pStream->read(&header, sizeof(header));
+-    mMagic = header.mMagic;
+-    pos += header.mSize;
++    mMagic = J2D_BE32(header.mMagic);
++    pos += J2D_BE32(header.mSize);
+     makePaneStream(pParentPane, pStream);
+     pStream->seek(pos, JSUStreamSeekFrom_SET);
+ }
+diff --git a/src/JSystem/J2DGraph/J2DPicture.cpp b/src/JSystem/J2DGraph/J2DPicture.cpp
+index 8dbcaded..4cbd3aba 100644
+--- a/src/JSystem/J2DGraph/J2DPicture.cpp
++++ b/src/JSystem/J2DGraph/J2DPicture.cpp
+@@ -27,8 +27,8 @@ J2DPicture::J2DPicture(J2DPane* parent, JSURandomInputStream* stream) : mpPalett
+ 
+     s32 pos = stream->getPosition();
+     stream->read(&header, sizeof(J2DPaneHeader));
+-    mMagic = header.mMagic;
+-    pos += header.mSize;
++    mMagic = J2D_BE32(header.mMagic);
++    pos += J2D_BE32(header.mSize);
+ 
+     makePaneStream(parent, stream);
+     JUTResReference ref;
+diff --git a/src/JSystem/J2DGraph/J2DScreen.cpp b/src/JSystem/J2DGraph/J2DScreen.cpp
+index 1f3a927f..d6f251a7 100644
+--- a/src/JSystem/J2DGraph/J2DScreen.cpp
++++ b/src/JSystem/J2DGraph/J2DScreen.cpp
+@@ -38,6 +38,8 @@ s32 J2DScreen::makeHierarchyPanes(J2DPane* pParent, JSURandomInputStream* pStrea
+     while (true) {
+         J2DPane::J2DScrnBlockHeader header;
+         pStream->peek(&header, 8);
++        header.mMagic = J2D_BE32(header.mMagic);
++        header.mSize = J2D_BE32(header.mSize);
+ 
+         switch (header.mMagic) {
+         case 'EXT1':
+@@ -107,6 +109,8 @@ bool J2DScreen::set(JSURandomInputStream* pStream) {
+ bool J2DScreen::checkSignature(JSURandomInputStream* pStream) {
+     u32 header[8];
+     pStream->read(header, sizeof(header));
++    header[0] = J2D_BE32(header[0]);
++    header[1] = J2D_BE32(header[1]);
+     if (header[0] != 'SCRN' || header[1] != 'blo1') {
+         JUT_WARN(0xd9, "%s", "SCRN resource is broken.\n");
+         return false;
+@@ -126,6 +130,11 @@ bool J2DScreen::getScreenInformation(JSURandomInputStream* pStream) {
+     } header;
+ 
+     pStream->read(&header, sizeof(header));
++    header.mMagic = J2D_BE32(header.mMagic);
++    header.mSize = J2D_BE32(header.mSize);
++    header.mWidth = J2D_BE16(header.mWidth);
++    header.mHeight = J2D_BE16(header.mHeight);
++    header.mColor = J2D_BE32(header.mColor);
+ 
+     if (header.mMagic != 'INF1') {
+         JUT_WARN(0xf2, "%s", "SCRN resource is broken.\n");
+diff --git a/src/JSystem/J2DGraph/J2DTextBox.cpp b/src/JSystem/J2DGraph/J2DTextBox.cpp
+index cd17b990..8c95fbef 100644
+--- a/src/JSystem/J2DGraph/J2DTextBox.cpp
++++ b/src/JSystem/J2DGraph/J2DTextBox.cpp
+@@ -26,8 +26,8 @@ J2DTextBox::J2DTextBox(J2DPane* parent, JSURandomInputStream* stream) : mpFont(N
+     s32 endPos;
+     u8 num;
+     stream->read(&header, sizeof(header));
+-    mMagic = header.mMagic;
+-    endPos = streamPos + header.mSize;
++    mMagic = J2D_BE32(header.mMagic);
++    endPos = streamPos + J2D_BE32(header.mSize);
+     makePaneStream(parent, stream);
+     JUTResReference resRef;
+     num = stream->readU8();
+diff --git a/src/JSystem/J2DGraph/J2DWindow.cpp b/src/JSystem/J2DGraph/J2DWindow.cpp
+index 32fe3cb7..5d50f952 100644
+--- a/src/JSystem/J2DGraph/J2DWindow.cpp
++++ b/src/JSystem/J2DGraph/J2DWindow.cpp
+@@ -24,8 +24,8 @@ J2DWindow::J2DWindow(J2DPane* param_0, JSURandomInputStream* param_1)
+     s32 local_188 = param_1->getPosition();
+     u32 header[2];
+     param_1->read(header, 8);
+-    mMagic = header[0];
+-    s32 end = local_188 + header[1];
++    mMagic = J2D_BE32(header[0]);
++    s32 end = local_188 + J2D_BE32(header[1]);
+     makePaneStream(param_0, param_1);
+     JUTResReference stack_178;
+     u8 r27 = param_1->readU8();
+-- 
+2.43.0
+
