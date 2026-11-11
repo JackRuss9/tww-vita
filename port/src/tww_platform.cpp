@@ -4,6 +4,7 @@
 #include "port_compat.h"
 #include "port_platform.h"
 #include "port_os.h"
+#include "endian/port_endian.h"
 #include <dolphin/os.h>
 #include <dolphin/os/OSAlarm.h>
 #include <dolphin/gx.h>
@@ -12,6 +13,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <cstring>
+#include <strings.h>
 #include <vector>
 
 extern "C" void port_log(const char* fmt, ...);
@@ -331,10 +333,25 @@ extern "C" void port_warp_request(int) {}
 extern "C" int port_warp_want_list(void) { return 0; }
 // Sunshine's own file formats' byte order (platform/endian/endian_game.cpp):
 // Wind Waker's are added as the game reads them.
+// Wind Waker's own formats, by name (port/src/tww_endian.cpp). Returns a
+// PortEndianFormat: PE_FMT_GAME when converted, PE_FMT_UNKNOWN otherwise.
+extern "C" int tww_endian_stage(void* data, uint32_t size, const char* name);
+extern "C" int tww_endian_event_list(void* data, uint32_t size);
+static bool ends_with(const char* s, const char* suffix)
+{
+	if (!s)
+		return false;
+	size_t n = strlen(s), m = strlen(suffix);
+	return n >= m && strcasecmp(s + n - m, suffix) == 0;
+}
 extern "C" int port_endian_game(void* data, uint32_t size, const char* name)
 {
-	(void)data; (void)size; (void)name;
-	return 0;
+	const int PE_FMT_UNKNOWN_ = PE_FMT_UNKNOWN, PE_FMT_GAME_ = PE_FMT_GAME;
+	if (ends_with(name, ".dzs") || ends_with(name, ".dzr"))
+		return tww_endian_stage(data, size, name) ? PE_FMT_GAME_ : PE_FMT_UNKNOWN_;
+	if (ends_with(name, "event_list.dat"))
+		return tww_endian_event_list(data, size) ? PE_FMT_GAME_ : PE_FMT_UNKNOWN_;
+	return PE_FMT_UNKNOWN_;
 }
 // Sunshine's HD cutscene pack (platform/thp).
 extern "C" const char* port_hd_cutscene_directory(void) { return NULL; }

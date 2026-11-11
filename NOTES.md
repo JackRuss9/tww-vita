@@ -219,3 +219,19 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   port/src/tww_endian.cpp converters, called in dScnLogo_Delete before the
   tables are handed over (patch 0010; the fmap has no magic, so not by
   format). Checked with stand-in tables.
+- 11 Nov, twelfth run (0c01f81): **the logo scene ends cleanly**; the play
+  scene for the title (sea_T, room 44) starts; crash in
+  dStage_dt_c_offsetToPtr: stage.dzs not converted ('....STAG', 4,608
+  bytes), and event_list.dat next (227,804 bytes). Both come from
+  archives, so by name through port_endian_game (was a stub).
+  - Stage/room files (.dzs/.dzr): s32 chunk count, {tag, count, offset}
+    per chunk; per chunk type a record size and its fields, from d_stage.h
+    (actor records 0x20 with fopAcM_prmBase_class at +8, TGSC 0x24, STAG,
+    AROB/RARO, FILI, Pale, Colo, Virt, LGHT/LGTV, PATH/RPAT, PPNT/RPPN,
+    SOND, FLOR, MULT, SHIP, 2DMA, DMAP, MEMA; byte-only ones listed as
+    such; RTBL's offsets to shared room records). Unknown tags are logged
+    ("[tww] ...: chunk 'XXXX' not converted"). Converted before = the
+    big-endian count reads huge, so not converted twice.
+  - event_list.dat: 0x40 header (7 x {offset, count}), event (0xB0), staff
+    (0x50), cut (0x50), data (0x40) records, f32/s32 arrays, strings.
+  Both checked here on synthetic files.
