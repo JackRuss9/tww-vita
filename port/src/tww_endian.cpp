@@ -169,8 +169,10 @@ extern "C" int tww_endian_stage(void* data, uint32_t size, const char* name)
 	sw32(p);
 	for (uint32_t i = 0; i < n; i++) {
 		uint8_t* h = p + 4 + i * 12;
-		swn(h, 3, 4);
-		uint32_t tag = ld32(h), count = ld32(h + 4), off = ld32(h + 8);
+		// The tag stays as its four characters: the loaders compare its
+		// bytes with the chunk names' (dStage_dt_c_decode, actor_node_names).
+		swn(h + 4, 2, 4);
+		uint32_t tag = be32v(h), count = ld32(h + 4), off = ld32(h + 8);
 		const ChunkType* t = find_chunk(tag);
 		if (!t) {
 			static int warned;
@@ -190,7 +192,7 @@ extern "C" int tww_endian_stage(void* data, uint32_t size, const char* name)
 	// u32 room list offset}; several may share a record.
 	for (uint32_t i = 0; i < n; i++) {
 		uint8_t* h = p + 4 + i * 12;
-		if (ld32(h) != 0x5254424C)
+		if (be32v(h) != 0x5254424C)
 			continue;
 		uint32_t count = ld32(h + 4), off = ld32(h + 8);
 		if (!off || off > size || count > (size - off) / 4)

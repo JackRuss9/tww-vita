@@ -235,3 +235,9 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   - event_list.dat: 0x40 header (7 x {offset, count}), event (0xB0), staff
     (0x50), cut (0x50), data (0x40) records, f32/s32 arrays, strings.
   Both checked here on synthetic files.
+- 11 Nov, thirteenth run (1aa7bcc): stage.dzs converted, but crash in
+  dStage_stagInfo_GetParticleNo (stage info NULL): no chunk handler ran.
+  dStage_dt_c_decode (and the actor loader's actor_node_names) compare the
+  tag's bytes with the name strings' (*(int*)"STAG"), so the tags must
+  stay in file order. Fix: the converter leaves the 4 tag bytes and swaps
+  only count and offset; looks the type up by the big-endian tag.
