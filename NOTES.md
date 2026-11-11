@@ -209,3 +209,13 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   offsets from the block start), ESP1 (0x60), SSP1 (0x48), ETX1 (0x24),
   KFA1 (f32 keys from 0x20), BEM1 (0x80), FLD1, TDB1 (u16), TEX1. Checked
   with a synthetic JPAC containing every block type.
+- 11 Nov, eleventh run (21a1300): particles fine. Crash in dADM::SetData
+  (dScnLogo_Delete): the actor data table is big-endian. With it, two more
+  of Wind Waker's own tables read whole by the DVD thread and flagged "not
+  converted" in the log: item_table.bin ('ITEM_TABLE', s16 count at 0x0A)
+  and FmapDat.bin (u32 last index, 8-byte entries with two s16; 396 = 4 +
+  49 x 8). ActorDat.bin: s32 block count, {u32 tag, count, offset} per
+  block, ACFN/ACNA u32 string-offset arrays, ACDS bytes. Fix:
+  port/src/tww_endian.cpp converters, called in dScnLogo_Delete before the
+  tables are handed over (patch 0010; the fmap has no magic, so not by
+  format). Checked with stand-in tables.

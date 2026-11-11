@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 15:08:19 +0100
+Subject: [PATCH] Reason: endian: Wind Waker's item table, actor data and
+ field-map tables (read whole by the DVD thread) converted where the logo
+ scene hands them to the game (port/src/tww_endian.cpp)
+
+---
+ src/d/d_s_logo.cpp | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/src/d/d_s_logo.cpp b/src/d/d_s_logo.cpp
+index b0c411a8..57aaed61 100644
+--- a/src/d/d_s_logo.cpp
++++ b/src/d/d_s_logo.cpp
+@@ -33,6 +33,13 @@
+ #include "string.h"
+ #include "stdio.h"
+ 
++#ifdef TARGET_PC
++// port/src/tww_endian.cpp
++extern "C" void tww_endian_item_table(void*, u32);
++extern "C" void tww_endian_actor_data(void*, u32);
++extern "C" void tww_endian_fmap_data(void*, u32);
++#endif
++
+ mDoDvdThd_mountXArchive_c * l_anmCommand;
+ mDoDvdThd_mountXArchive_c * l_fmapCommand;
+ mDoDvdThd_mountXArchive_c * l_itemResCommand;
+@@ -583,6 +590,15 @@ static BOOL dScnLogo_Delete(dScnLogo_c* i_this) {
+     }
+ #endif
+ 
++#ifdef TARGET_PC
++    // Wind Waker's own small tables, read whole from the disc, big-endian
++    // (port/src/tww_endian.cpp).
++    {
++        tww_endian_item_table(l_itemTableCommand->getMemAddress(), l_itemTableCommand->getMemSize());
++        tww_endian_actor_data(l_ActorDataCommand->getMemAddress(), l_ActorDataCommand->getMemSize());
++        tww_endian_fmap_data(l_FmapDataCommand->getMemAddress(), l_FmapDataCommand->getMemSize());
++    }
++#endif
+     dComIfGp_setItemTable(l_itemTableCommand->getMemAddress());
+     delete l_itemTableCommand;
+ 
