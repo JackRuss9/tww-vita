@@ -137,3 +137,16 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   that starts inside a file and runs past its end returns the whole length,
   the rest zero-filled (the drive reads whole blocks). Checked here with a
   1,000-byte stand-in: on to JaiInit.aaf and System.arc.
+- 11 Nov, fifth run (e48010d): past framework.str; sound up (SDL 32 kHz,
+  DSP HLE mixer, 64 voices). Crash in JAInter::SeMgr::init writing
+  SeParameter: the category/regist counts come from the sound table in
+  /Audiores/JaiInit.aaf, read raw (big-endian) by SoundTable::init.
+  Sunshine took its AAF from an archive (converted on fetch by name); Wind
+  Waker reads it straight from the disc (JAInter::loadTmpDVDFile). Fix:
+  patch 0006 converts it there with port_res_to_native_named (the
+  platform's AAF converter: sound table, IBNK, WSYS, seq archive header,
+  scene tables; same command set 1..8 as tww's checkInitDataOnMemory).
+  Note also: "[audio] DSP: unknown command 0x8d00000a (2 words)" at boot
+  (Wind Waker's DSP ucode command set may differ from Sunshine's; watch).
+  Not converted yet: whole files read by mDoDvdThd_toMainRam_c
+  (m_Do_dvd_thread.cpp:316), by entry number only.

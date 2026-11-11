@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 14:18:32 +0100
+Subject: [PATCH] Reason: endian: the audio init data (.aaf), read straight
+ from the disc by loadTmpDVDFile, converted after loading (the platform
+ layer's AAF converter, by name)
+
+---
+ src/JSystem/JAudio/JAIConst.cpp | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/JSystem/JAudio/JAIConst.cpp b/src/JSystem/JAudio/JAIConst.cpp
+index 2c565d3e..7f285e56 100644
+--- a/src/JSystem/JAudio/JAIConst.cpp
++++ b/src/JSystem/JAudio/JAIConst.cpp
+@@ -48,6 +48,13 @@ void JAInter::loadTmpDVDFile(char* param_1, u8** tmpPointer) {
+     if (!JKRDvdRipper::loadToMainRAM(param_1, *tmpPointer, EXPAND_SWITCH_UNKNOWN0, 0, NULL, JKRDvdRipper::ALLOC_DIRECTION_FORWARD, 0, NULL)) {
+         *tmpPointer = NULL;
+     }
++#ifdef TARGET_PC
++    // Read straight from the disc (Sunshine took its AAF from an archive,
++    // converted on fetch): convert it here, by name (.aaf: the init data).
++    else {
++        port_res_to_native_named(*tmpPointer, size, param_1);
++    }
++#endif
+ }
+ 
+ /* 802918CC-802918FC       .text deleteTmpDVDFile__7JAInterFPPUc */
