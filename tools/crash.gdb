@@ -44,3 +44,11 @@ try:
 except gdb.error as e:
     print("  (not available: %s)" % e)
 end
+echo \n== heaps\n
+python
+for e in ("JKRHeap::sCurrentHeap", "JKRHeap::sRootHeap", "JKRHeap::sSystemHeap"):
+    try:
+        print("  %s = %s" % (e, gdb.parse_and_eval(e)))
+    except gdb.error as err:
+        print("  %s: %s" % (e, err))
+end

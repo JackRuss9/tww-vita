@@ -328,3 +328,12 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   estimated heap on PC for the game's own max-then-shrink fallback, and
   logs each kind's first heap use vs the GameCube estimate (to see how
   much bigger PC allocations are, and why).
+- 11 Nov, twenty-third run: with the max heap Link still gets NULL from
+  `new J3DAnmTextureSRTKey` in initTextureScroll, right after
+  JKRReadIdxResource from LkAnm.arc (an ARAM archive: the read goes
+  through the ARAM thread). Other kinds' heaps used at or below the
+  GameCube estimates (sea 0x4204 of 0xa000), so PC sizes are not the
+  issue. Suspect: the current heap changes across that read (thread
+  switch). Patch 0018 logs failed allocations (heap, type, free, current,
+  thread) and the heap each kind's createHeap runs in; crash.gdb prints
+  the current/root/system heaps.

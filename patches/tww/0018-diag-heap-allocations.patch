@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 21:13:34 +0100
+Subject: [PATCH] Reason: diagnostics: failed heap allocations and actor heaps
+
+Allocation failures are silent in this build; Link's createHeap gets NULL
+from new even with the largest heap free. Each failure is logged (size,
+alignment, heap, its type and free size, the current/root/system heaps and
+the thread), and so is the heap each actor kind's createHeap runs in.
+---
+ src/JSystem/JKernel/JKRHeap.cpp | 18 ++++++++++++++++++
+ src/f_op/f_op_actor_mng.cpp     | 15 +++++++++++++--
+ 2 files changed, 31 insertions(+), 2 deletions(-)
+
+diff --git a/src/JSystem/JKernel/JKRHeap.cpp b/src/JSystem/JKernel/JKRHeap.cpp
+index 022c8e02..69154d21 100644
+--- a/src/JSystem/JKernel/JKRHeap.cpp
++++ b/src/JSystem/JKernel/JKRHeap.cpp
+@@ -128,6 +128,9 @@ void* JKRHeap::alloc(u32 size, int alignment, JKRHeap* heap) {
+         return sCurrentHeap->alloc(size, alignment);
+     }
+ 
++#ifdef TARGET_PC
++    OSReport("[tww] alloc failed: 0x%x bytes with no current heap\n", size);
++#endif
+     return NULL;
+ }
+ 
+@@ -140,7 +143,22 @@ void* JKRHeap::alloc(u32 size, int alignment) {
+     if (mInitFlag) {
+         JUT_WARN(308, "alloc %x byte in heap %x", size, this);
+     }
++#ifdef TARGET_PC
++    // tww-vita diagnostics: failed allocations (silent in this build).
++    void* p = do_alloc(size, alignment);
++    if (p == NULL) {
++        static int n;
++        if (n++ < 40) {
++            u32 t = getHeapType();
++            OSReport("[tww] alloc failed: 0x%x bytes (align %d) in heap %p '%c%c%c%c' (%s): 0x%x free of 0x%x; current %p, root %p, system %p; thread %p\n",
++                     size, alignment, this, t >> 24, t >> 16, t >> 8, t, this == sCurrentHeap ? "current" : "given",
++                     getFreeSize(), getHeapSize(), sCurrentHeap, sRootHeap, sSystemHeap, OSGetCurrentThread());
++        }
++    }
++    return p;
++#else
+     return do_alloc(size, alignment);
++#endif
+ }
+ 
+ /* 802B0518-802B0560       .text free__7JKRHeapFPvP7JKRHeap */
+diff --git a/src/f_op/f_op_actor_mng.cpp b/src/f_op/f_op_actor_mng.cpp
+index dd4f13a3..f43c7fec 100644
+--- a/src/f_op/f_op_actor_mng.cpp
++++ b/src/f_op/f_op_actor_mng.cpp
+@@ -363,6 +363,17 @@ bool fopAcM_entrySolidHeap(fopAc_ac_c* i_this, heapCallbackFunc createHeapCB, u3
+     if (heap == NULL) {
+         heap = mDoExt_createSolidHeapFromGameToCurrent(-1, 0x20);
+         JUT_ASSERT(DEMO_SELECT(1103, 1107), heap);
++#ifdef TARGET_PC
++        {
++            static u8 seen2[0x1000 / 8];
++            u16 n = (u16)fopAcM_GetName(i_this);
++            if (n < 0x1000 && !(seen2[n >> 3] & (1 << (n & 7)))) {
++                seen2[n >> 3] |= 1 << (n & 7);
++                OSReport("[tww] heap %d %s: made %p (0x%x bytes), current heap %p\n", n, pProcNameString, heap,
++                         heap ? heap->getHeapSize() : 0, JKRHeap::getCurrentHeap());
++            }
++        }
++#endif
+ 
+         bool result = createHeapCB(i_this);
+         mDoExt_restoreCurrentHeap();
+@@ -386,8 +397,8 @@ bool fopAcM_entrySolidHeap(fopAc_ac_c* i_this, heapCallbackFunc createHeapCB, u3
+             u16 n = (u16)fopAcM_GetName(i_this);
+             if (n < 0x1000 && !(seen[n >> 3] & (1 << (n & 7)))) {
+                 seen[n >> 3] |= 1 << (n & 7);
+-                OSReport("[tww] heap %d %s: used 0x%x, GameCube estimate 0x%x\n", n, pProcNameString,
+-                         heap->getHeapSize() - heap->getFreeSize(), pcEstimate);
++                OSReport("[tww] heap %d %s: used 0x%x, GameCube estimate 0x%x (heap %p)\n", n, pProcNameString,
++                         heap->getHeapSize() - heap->getFreeSize(), pcEstimate, heap);
+             }
+         }
+ #endif
+-- 
+2.43.0
+
