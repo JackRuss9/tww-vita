@@ -71,6 +71,17 @@ measurement and decision goes here.
 - 3 Nov: everything compiles (host gcc -m32) and links into a 32-bit Linux
   program (build-pc/tww). It starts, maps MEM1 and stops at "no game" here
   (no disc in my workspace). Next: the first run with the disc (run-pc.sh).
+- 11 Nov, first run with the disc (a0080e2, GZLE01.ciso, WSL, llvmpipe):
+  the disc image opens (2391 entries), ARAM is set up, the GL thread runs;
+  crash in JFWSystem::init → JUTResFont::countBlock ("Unknown data block"):
+  the system font is embedded in the program, big-endian and const.
+  Fix (patch 0004): a converted copy (port_res_to_native_named, BFN). Same
+  patch, ahead of the next crashes: RARC headers/tables converted when any
+  of the four archive kinds opens (Mem, Aram, Dvd, Comp; Sunshine only
+  needed Mem), each resource when first fetched (as sms 0011), the Yaz0
+  length (as 0012), JSUInputStream's typed reads (as 0013).
+  Not converted yet, by design: the platform layer logs each unknown
+  resource magic once, which will list Wind Waker's own formats.
 
 ## What the first runs will most likely hit
 

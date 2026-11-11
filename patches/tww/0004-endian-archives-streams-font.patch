@@ -1,0 +1,347 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 11:42:10 +0100
+Subject: [PATCH] Reason: endian: the disc's big-endian data read in place:
+ RARC headers and tables when an archive (memory, ARAM, DVD, compressed) is
+ opened, each resource when first fetched (port_res_to_native_named, as in the
+ Sunshine port's 0011), the Yaz0 length, the JSU stream's typed reads (as
+ 0013), and a converted copy of the embedded system font
+
+---
+ include/JSystem/JSupport/JSUInputStream.h | 37 +++++++++++++++++------
+ src/JSystem/JFramework/JFWSystem.cpp      | 11 +++++++
+ src/JSystem/JKernel/JKRAram.cpp           |  2 +-
+ src/JSystem/JKernel/JKRAramArchive.cpp    |  4 +++
+ src/JSystem/JKernel/JKRCompArchive.cpp    |  7 +++++
+ src/JSystem/JKernel/JKRDvdAramRipper.cpp  |  2 +-
+ src/JSystem/JKernel/JKRDvdArchive.cpp     |  4 +++
+ src/JSystem/JKernel/JKRDvdRipper.cpp      |  2 +-
+ src/JSystem/JKernel/JKRMemArchive.cpp     |  4 +++
+ 9 files changed, 60 insertions(+), 13 deletions(-)
+
+diff --git a/include/JSystem/JSupport/JSUInputStream.h b/include/JSystem/JSupport/JSUInputStream.h
+index 46cf4cc4..9fa8e1dc 100644
+--- a/include/JSystem/JSupport/JSUInputStream.h
++++ b/include/JSystem/JSupport/JSUInputStream.h
+@@ -12,33 +12,50 @@ public:
+     /* vt[4] */ virtual s32 skip(s32);
+     /* vt[5] */ virtual u32 readData(void*, s32) = 0;
+ 
++#ifdef TARGET_PC
++    // The streams carry the disc's big-endian data: the typed reads of
++    // 16- and 32-bit values convert to host order.
++    s32 readBE(void* buf, s32 size) {
++        s32 r = read(buf, size);
++        u8* b = (u8*)buf;
++        for (s32 i = 0; i < size / 2; i++) {
++            u8 c = b[i];
++            b[i] = b[size - 1 - i];
++            b[size - 1 - i] = c;
++        }
++        return r;
++    }
++#else
++    s32 readBE(void* buf, s32 size) { return read(buf, size); }
++#endif
++
+     u32 readU32() {
+         u32 val;
+-        this->read(&val, sizeof(val));
++        this->readBE(&val, sizeof(val));
+         return val;
+     }
+ 
+     u32 read32b() {
+         u32 val;
+-        this->read(&val, sizeof(val));
++        this->readBE(&val, sizeof(val));
+         return val;
+     }
+ 
+     s32 readS32() {
+         s32 val;
+-        this->read(&val, sizeof(val));
++        this->readBE(&val, sizeof(val));
+         return val;
+     }
+ 
+     s16 readS16() {
+         s16 val;
+-        this->read(&val, sizeof(val));
++        this->readBE(&val, sizeof(val));
+         return val;
+     }
+ 
+     u16 readU16() {
+         u16 val;
+-        this->read(&val, sizeof(val));
++        this->readBE(&val, sizeof(val));
+         return val;
+     }
+ 
+@@ -56,17 +73,17 @@ public:
+ 
+     u16 read16b() {
+         u16 val;
+-        this->read(&val, sizeof(val));
++        this->readBE(&val, sizeof(val));
+         return val;
+     }
+ 
+     JSUInputStream& operator>>(u32& dest) {
+-        read(&dest, 4);
++        readBE(&dest, 4);
+         return *this;
+     }
+ 
+     JSUInputStream& operator>>(u16& dest) {
+-        read(&dest, 2);
++        readBE(&dest, 2);
+         return *this;
+     }
+ 
+@@ -76,7 +93,7 @@ public:
+     }
+ 
+     JSUInputStream& operator>>(s16& dest) {
+-        read(&dest, 2);
++        readBE(&dest, 2);
+         return *this;
+     }
+ 
+@@ -89,7 +106,7 @@ public:
+ 
+     s32 read(u8& val) { return read(&val, sizeof(u8)); }
+ 
+-    s32 read(u32& param_0) { return read(&param_0, 4); }
++    s32 read(u32& param_0) { return readBE(&param_0, 4); }
+ 
+     // TODO: return value probably wrong
+     s32 read(void*, s32);
+diff --git a/src/JSystem/JFramework/JFWSystem.cpp b/src/JSystem/JFramework/JFWSystem.cpp
+index b9480c39..39100697 100644
+--- a/src/JSystem/JFramework/JFWSystem.cpp
++++ b/src/JSystem/JFramework/JFWSystem.cpp
+@@ -80,6 +80,17 @@ void JFWSystem::init() {
+     JUTAssertion::create();
+     JUTException::create(dirPrint);
+ 
++#ifdef TARGET_PC
++    // The font is embedded big-endian and read-only: convert a copy.
++    {
++        const u8* res = (const u8*)CSetUpParam::systemFontRes;
++        const u32 size = port_be32(res + 8);
++        void* copy = JKRAllocFromSysHeap(size, 32);
++        memcpy(copy, res, size);
++        port_res_to_native_named(copy, size, "system font");
++        CSetUpParam::systemFontRes = (ResFONT*)copy;
++    }
++#endif
+     systemFont = new JUTResFont(CSetUpParam::systemFontRes, 0);
+ 
+     debugPrint = JUTDbPrint::start(0, 0);
+diff --git a/src/JSystem/JKernel/JKRAram.cpp b/src/JSystem/JKernel/JKRAram.cpp
+index c2a93c68..261e3a12 100644
+--- a/src/JSystem/JKernel/JKRAram.cpp
++++ b/src/JSystem/JKernel/JKRAram.cpp
+@@ -393,7 +393,7 @@ static int decompSZS_subroutine(u8 *src, u8 *dest) {
+     }
+ 
+     SYaz0Header *header = (SYaz0Header *)src;
+-    endPtr = dest + (header->length - fileOffset);
++    endPtr = dest + (port_be32(&header->length) - fileOffset);
+     if (endPtr > dest + maxDest) {
+         endPtr = dest + maxDest;
+     }
+diff --git a/src/JSystem/JKernel/JKRAramArchive.cpp b/src/JSystem/JKernel/JKRAramArchive.cpp
+index 07df7863..7cde82a0 100644
+--- a/src/JSystem/JKernel/JKRAramArchive.cpp
++++ b/src/JSystem/JKernel/JKRAramArchive.cpp
+@@ -93,6 +93,7 @@ bool JKRAramArchive::open(s32 entryNum) {
+         mMountMode = 0;
+     } else {
+         JKRDvdToMainRam(entryNum, (u8 *)mem, EXPAND_SWITCH_UNKNOWN1, 32, NULL, JKRDvdRipper::ALLOC_DIRECTION_FORWARD, 0, &mCompression);
++        port_rarc_header_to_native(mem);
+         int alignment = mMountDirection == MOUNT_DIRECTION_HEAD ? 32 : -32;
+         u32 alignedSize = ALIGN_NEXT(mem->file_data_offset, 32);
+         mArcInfoBlock = (SArcDataInfo *)JKRAllocFromHeap(mHeap, alignedSize, alignment);
+@@ -100,6 +101,7 @@ bool JKRAramArchive::open(s32 entryNum) {
+             mMountMode = 0;
+         } else {
+             JKRDvdToMainRam(entryNum, (u8 *)mArcInfoBlock, EXPAND_SWITCH_UNKNOWN1, alignedSize, NULL, JKRDvdRipper::ALLOC_DIRECTION_FORWARD, 32, NULL);
++            port_rarc_info_to_native(mArcInfoBlock);
+ 
+             mNodes = (SDIDirEntry *)((u8 *)mArcInfoBlock + mArcInfoBlock->node_offset);
+             mFiles = (SDIFileEntry *)((u8 *)mArcInfoBlock + mArcInfoBlock->file_entry_offset);
+@@ -179,6 +181,7 @@ void* JKRAramArchive::fetchResource(SDIFileEntry* pEntry, u32* pOutSize) {
+         }
+ 
+         pEntry->data = outBuf;
++        port_res_to_native_named(outBuf, size, mStringTable + pEntry->getNameOffset());
+         if (compression == COMPRESSION_YAZ0) {
+             this->setExpandSize(pEntry, *pOutSize);
+         }
+@@ -205,6 +208,7 @@ void* JKRAramArchive::fetchResource(void* buffer, u32 bufferSize, SDIFileEntry*
+         bufferSize = (s32)ALIGN_PREV(bufferSize, 0x20);
+         size = JKRAramArchive::fetchResource_subroutine(pEntry->data_offset + mBlock->getAddress(),
+                                                         size, (u8*)buffer, bufferSize, compression);
++        port_res_to_native_named(buffer, size, mStringTable + pEntry->getNameOffset());
+     } else {
+         if (compression == COMPRESSION_YAZ0) {
+             u32 expandSize = this->getExpandSize(pEntry);
+diff --git a/src/JSystem/JKernel/JKRCompArchive.cpp b/src/JSystem/JKernel/JKRCompArchive.cpp
+index 71e33ea1..f43a952a 100644
+--- a/src/JSystem/JKernel/JKRCompArchive.cpp
++++ b/src/JSystem/JKernel/JKRCompArchive.cpp
+@@ -101,6 +101,7 @@ bool JKRCompArchive::open(s32 entryNum) {
+         int alignment;
+ 
+         JKRDvdToMainRam(entryNum, (u8 *)arcHeader, EXPAND_SWITCH_UNKNOWN1, 32, NULL, JKRDvdRipper::ALLOC_DIRECTION_FORWARD, 0, &mCompression);
++        port_rarc_header_to_native(arcHeader);
+ 
+         mSizeOfMemPart = arcHeader->field_0x14;
+         mSizeOfAramPart = arcHeader->field_0x18;
+@@ -120,6 +121,7 @@ bool JKRCompArchive::open(s32 entryNum) {
+             {
+                 JKRDvdToMainRam(entryNum, (u8 *)mArcInfoBlock, EXPAND_SWITCH_UNKNOWN1, (uintptr_t)arcHeader->file_data_offset + mSizeOfMemPart,
+                                 NULL, JKRDvdRipper::ALLOC_DIRECTION_FORWARD, 0x20, NULL);
++                port_rarc_info_to_native(mArcInfoBlock);
+                 field_0x64 = (uintptr_t)mArcInfoBlock + arcHeader->file_data_offset;
+ 
+                 if (mSizeOfAramPart != 0) {
+@@ -158,6 +160,7 @@ bool JKRCompArchive::open(s32 entryNum) {
+                 else {
+                     arcHeader = (SArcHeader *)mem;
+                     JKRDecompress((u8 *)buf, (u8 *)mem, expandSize, 0);
++                    port_rarc_to_native(mem);
+                     JKRFreeToSysHeap(buf);
+ 
+                     mArcInfoBlock = (SArcDataInfo *)JKRAllocFromHeap(mHeap, arcHeader->file_data_offset + mSizeOfMemPart, alignment);
+@@ -245,11 +248,13 @@ void* JKRCompArchive::fetchResource(SDIFileEntry* fileEntry, u32* pSize) {
+         if(flag & 0x10) {
+             fileEntry->data = (void *)(field_0x64 + fileEntry->data_offset);
+             *pSize = size;
++            port_res_to_native_named(fileEntry->data, size, mStringTable + fileEntry->getNameOffset());
+         }
+         else if (flag & 0x20) {
+             u8 *data;
+             *pSize = JKRAramArchive::fetchResource_subroutine(fileEntry->data_offset + mAramPart->getAddress() - mSizeOfMemPart, size, mHeap, compression, &data);
+             fileEntry->data = data;
++            port_res_to_native_named(data, *pSize, mStringTable + fileEntry->getNameOffset());
+             if(compression == COMPRESSION_YAZ0) {
+                 setExpandSize(fileEntry, *pSize);
+             }
+@@ -261,6 +266,7 @@ void* JKRCompArchive::fetchResource(SDIFileEntry* fileEntry, u32* pSize) {
+                 *pSize = resSize;
+             }
+             fileEntry->data = data;
++            port_res_to_native_named(data, resSize, mStringTable + fileEntry->getNameOffset());
+             if (compression == COMPRESSION_YAZ0) {
+                 setExpandSize(fileEntry, *pSize);
+             }
+@@ -313,6 +319,7 @@ void* JKRCompArchive::fetchResource(void* data, u32 compressedSize, SDIFileEntry
+         } else {
+             OSPanic(__FILE__, 756, ":::CompArchive: bad mode.");
+         }
++        port_res_to_native_named(data, size, mStringTable + fileEntry->getNameOffset());
+     }
+ 
+     if(pSize != NULL) {
+diff --git a/src/JSystem/JKernel/JKRDvdAramRipper.cpp b/src/JSystem/JKernel/JKRDvdAramRipper.cpp
+index 21453470..3034c402 100644
+--- a/src/JSystem/JKernel/JKRDvdAramRipper.cpp
++++ b/src/JSystem/JKernel/JKRDvdAramRipper.cpp
+@@ -307,7 +307,7 @@ static int decompSZS_subroutine(u8* src, u32 dest) {
+     }
+ 
+     SYaz0Header* header = (SYaz0Header*)src;
+-    endAddr = dest + (header->length - fileOffset);
++    endAddr = dest + (port_be32(&header->length) - fileOffset);
+     if (endAddr > dest + maxDest) {
+         endAddr = dest + maxDest;
+     }
+diff --git a/src/JSystem/JKernel/JKRDvdArchive.cpp b/src/JSystem/JKernel/JKRDvdArchive.cpp
+index e7c5a871..6462d9eb 100644
+--- a/src/JSystem/JKernel/JKRDvdArchive.cpp
++++ b/src/JSystem/JKernel/JKRDvdArchive.cpp
+@@ -90,6 +90,7 @@ bool JKRDvdArchive::open(s32 entryNum) {
+ 
+     JKRDvdToMainRam(entryNum, (u8*)arcHeader, EXPAND_SWITCH_UNKNOWN1, sizeof(SArcHeader), NULL,
+                     JKRDvdRipper::ALLOC_DIRECTION_FORWARD, 0, &mCompression);
++    port_rarc_header_to_native(arcHeader);
+ 
+     alignment = mMountDirection == MOUNT_DIRECTION_HEAD ? 0x20 : -0x20;
+ 
+@@ -102,6 +103,7 @@ bool JKRDvdArchive::open(s32 entryNum) {
+     JKRDvdToMainRam(entryNum, (u8*)mArcInfoBlock, EXPAND_SWITCH_UNKNOWN1,
+                     arcHeader->file_data_offset, NULL, JKRDvdRipper::ALLOC_DIRECTION_FORWARD,
+                     sizeof(SArcHeader), NULL);
++    port_rarc_info_to_native(mArcInfoBlock);
+ 
+     mNodes = (SDIDirEntry*)((int)&mArcInfoBlock->num_nodes + mArcInfoBlock->node_offset);
+     mFiles = (SDIFileEntry*)((int)&mArcInfoBlock->num_nodes + mArcInfoBlock->file_entry_offset);
+@@ -169,6 +171,7 @@ void* JKRDvdArchive::fetchResource(SDIFileEntry* fileEntry, u32* returnSize) {
+         }
+ 
+         fileEntry->data = resourcePtr;
++        port_res_to_native_named(resourcePtr, resourceSize, mStringTable + fileEntry->getNameOffset());
+         if (fileCompression == COMPRESSION_YAZ0) {
+             setExpandSize(fileEntry, *returnSize);
+         }
+@@ -196,6 +199,7 @@ void* JKRDvdArchive::fetchResource(void* buffer, u32 bufferSize, SDIFileEntry* f
+         size = fetchResource_subroutine(mEntryNum, mDataOffset + fileEntry->data_offset,
+                                         fileEntry->data_size, (u8*)buffer, bufferSize, fileCompression,
+                                         mCompression);
++        port_res_to_native_named(buffer, size, mStringTable + fileEntry->getNameOffset());
+     } else {
+         if (fileCompression == COMPRESSION_YAZ0) {
+             expandSize = getExpandSize(fileEntry);
+diff --git a/src/JSystem/JKernel/JKRDvdRipper.cpp b/src/JSystem/JKernel/JKRDvdRipper.cpp
+index 0de584e5..8e3aeef7 100644
+--- a/src/JSystem/JKernel/JKRDvdRipper.cpp
++++ b/src/JSystem/JKernel/JKRDvdRipper.cpp
+@@ -278,7 +278,7 @@ static int decompSZS_subroutine(u8* src, u8* dest) {
+     }
+ 
+     SYaz0Header *header = (SYaz0Header *)src;
+-    endPtr = dest + (header->length - fileOffset);
++    endPtr = dest + (port_be32(&header->length) - fileOffset);
+     if (endPtr > dest + maxDest) {
+         endPtr = dest + maxDest;
+     }
+diff --git a/src/JSystem/JKernel/JKRMemArchive.cpp b/src/JSystem/JKernel/JKRMemArchive.cpp
+index cfde5a60..c075586e 100644
+--- a/src/JSystem/JKernel/JKRMemArchive.cpp
++++ b/src/JSystem/JKernel/JKRMemArchive.cpp
+@@ -113,6 +113,7 @@ bool JKRMemArchive::open(s32 entryNum, JKRArchive::EMountDirection mountDirectio
+     if (!mArcHeader) {
+         mMountMode = UNKNOWN_MOUNT_MODE;
+     } else {
++        port_rarc_to_native(mArcHeader);
+         JUT_ASSERT(418, mArcHeader->signature =='RARC');
+         mArcInfoBlock = (SArcDataInfo *)((u8 *)mArcHeader + mArcHeader->header_length);
+         mNodes = (SDIDirEntry *)((u8 *)&mArcInfoBlock->num_nodes + mArcInfoBlock->node_offset);
+@@ -133,6 +134,7 @@ bool JKRMemArchive::open(s32 entryNum, JKRArchive::EMountDirection mountDirectio
+ /* 802B9A90-802B9B90       .text open__13JKRMemArchiveFPvUl15JKRMemBreakFlag */
+ bool JKRMemArchive::open(void* buffer, u32 bufferSize, JKRMemBreakFlag flag) {
+     mArcHeader = (SArcHeader *)buffer;
++    port_rarc_to_native(mArcHeader);
+     JUT_ASSERT(471, mArcHeader->signature =='RARC');
+     mArcInfoBlock = (SArcDataInfo *)((uintptr_t)mArcHeader + mArcHeader->header_length);
+     mNodes = (SDIDirEntry *)((uintptr_t)&mArcInfoBlock->num_nodes + mArcInfoBlock->node_offset);
+@@ -150,6 +152,7 @@ void* JKRMemArchive::fetchResource(SDIFileEntry* fileEntry, u32* resourceSize) {
+     JUT_ASSERT(535, isMounted());
+     if (!fileEntry->data) {
+         fileEntry->data = mArchiveData + fileEntry->data_offset;
++        port_res_to_native_named(fileEntry->data, fileEntry->data_size, mStringTable + fileEntry->getNameOffset());
+     }
+ 
+     if (resourceSize) {
+@@ -174,6 +177,7 @@ void* JKRMemArchive::fetchResource(void* buffer, u32 bufferSize, SDIFileEntry* f
+         void* data = mArchiveData + fileEntry->data_offset;
+         srcLength =
+             fetchResource_subroutine((u8*)data, srcLength, (u8*)buffer, bufferSize, compression);
++        port_res_to_native_named(buffer, srcLength, mStringTable + fileEntry->getNameOffset());
+     }
+ 
+     if (resourceSize) {
