@@ -362,3 +362,13 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
      entries and the text's control codes natively; to do when text
      shows up (file select). sms-port's decomp-patches/endian-* are a
      checklist of formats like these (endian-14 was the skin-deform one).
+- 11 Nov, twenty-sixth run: past the title logo: d_a_title, Agb, Bg and
+  ~20 island actors created (ikada, wood, grass, bridge, tsubo, pig,
+  kanban, kamome, kani, palm, knob...); heap use at or under the
+  GameCube estimates everywhere. Crash: Link's procWait_init ->
+  getAnimeResource: "alloc failed 0x2c in 'SLID' heap 0x0 free of 0x0":
+  createAnimeHeap's heap had been shrunk to nothing (its sizing object
+  was not allocated in it). (The doubled "-> main" switch lines are the
+  main thread registered twice in the JKRThread list, not a bad switch.)
+  Patch 0022: on PC the anime heaps keep their requested size, with
+  diagnostics of size/use/current heap for the first 12.

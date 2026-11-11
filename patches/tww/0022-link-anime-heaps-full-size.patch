@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 21:35:25 +0100
+Subject: [PATCH] Reason: Link's animation heaps keep their requested size on
+ PC
+
+createAnimeHeap sizes each small solid heap by allocating one animation
+object in it and shrinking it to that; Link's first animation then found
+its heap 0 bytes long (nothing had been allocated in it) and the
+animation's allocation failed. On PC the heap keeps its requested size,
+and the first few log their size, use and the current heap.
+---
+ src/d/actor/d_a_player_main.cpp | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/src/d/actor/d_a_player_main.cpp b/src/d/actor/d_a_player_main.cpp
+index 5e4d7980..b1df282c 100644
+--- a/src/d/actor/d_a_player_main.cpp
++++ b/src/d/actor/d_a_player_main.cpp
+@@ -11989,8 +11989,23 @@ void daPy_lk_c::createAnimeHeap(JKRSolidHeap** pHeap, daPy_HEAP_TYPE heapType) {
+         JUT_ASSERT(VERSION_SELECT(21129, 21236, 21316, 21316), tmp_tk != NULL);
+     }
+     
++#ifdef TARGET_PC
++    // tww-vita: these heaps are sized by the one object allocated above and
++    // shrunk to it; Link's first animation then found one 0 bytes long (the
++    // object had not gone into it). Diagnostics for the first few, and on PC
++    // the heap keeps its full requested size (a few bytes more each).
++    {
++        static int n;
++        if (n++ < 12)
++            OSReport("[tww] Link anime heap %d (type %d): %p size 0x%x, used 0x%x, current heap %p\n", n, heapType,
++                     *pHeap, (*pHeap)->getHeapSize(), (*pHeap)->getHeapSize() - (*pHeap)->getFreeSize(),
++                     JKRHeap::getCurrentHeap());
++    }
++    mDoExt_restoreCurrentHeap();
++#else
+     mDoExt_restoreCurrentHeap();
+     mDoExt_adjustSolidHeap(*pHeap);
++#endif
+ }
+ 
+ /* 80124A40-80124B30       .text initModel__9daPy_lk_cFPP8J3DModeliUl */
+-- 
+2.43.0
+
