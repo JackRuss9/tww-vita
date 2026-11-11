@@ -8,17 +8,18 @@ Subject: [PATCH] Reason: build on 32-bit x86 PCs (the fiber stack dump only
  length, zero-filled, as the drive does (Wind Waker's JKRFile::read retries
  until it gets it); J3D: the MDL3 block (BDL material display lists, read by
  Wind Waker's J3D) converted; JPAC1-00 particle archives (Wind Waker)
- converted, with the BEM1, FLD1 and TDB1 blocks it reads as structs
+ converted with Wind Waker's own JParticle block layouts (BSP1, ESP1, SSP1,
+ ETX1, KFA1, BEM1, FLD1, TDB1, TEX1)
 
 ---
- platform/dvd/dvd.cpp                | 11 ++++
- platform/endian/endian_dispatch.cpp |  4 ++
- platform/endian/endian_j3d.cpp      | 30 ++++++++++-
- platform/endian/endian_jpa.cpp      | 83 +++++++++++++++++++++++++++++
- platform/endian/port_endian.h       |  1 +
- platform/gx/src/gx_platform.cpp     | 11 ++--
- platform/os/os_thread.cpp           | 18 +++++++
- 7 files changed, 153 insertions(+), 5 deletions(-)
+ platform/dvd/dvd.cpp                |  11 +++
+ platform/endian/endian_dispatch.cpp |   4 +
+ platform/endian/endian_j3d.cpp      |  30 +++++-
+ platform/endian/endian_jpa.cpp      | 138 ++++++++++++++++++++++++++++
+ platform/endian/port_endian.h       |   1 +
+ platform/gx/src/gx_platform.cpp     |  11 ++-
+ platform/os/os_thread.cpp           |  18 ++++
+ 7 files changed, 208 insertions(+), 5 deletions(-)
 
 diff --git a/platform/dvd/dvd.cpp b/platform/dvd/dvd.cpp
 index 138c87c..51e3d6e 100644
@@ -106,10 +107,10 @@ index e79b55e..87b0505 100644
  		}
  		pos += bsz;
 diff --git a/platform/endian/endian_jpa.cpp b/platform/endian/endian_jpa.cpp
-index 3c15fc7..fa4d21f 100644
+index 3c15fc7..65e3123 100644
 --- a/platform/endian/endian_jpa.cpp
 +++ b/platform/endian/endian_jpa.cpp
-@@ -83,3 +83,86 @@ extern "C" int port_endian_jpa(void* data, uint32_t size)
+@@ -83,3 +83,141 @@ extern "C" int port_endian_jpa(void* data, uint32_t size)
  	}
  	return 1;
  }
@@ -119,36 +120,87 @@ index 3c15fc7..fa4d21f 100644
 +// 0x20) the emitters, each a JEFFjpa1 header (0x20: block count at 0x0C,
 +// key/field/texture counts as u8 at 0x14, resource ID u16 at 0x18) and its
 +// blocks; then the textures, TEX1 blocks one after another
-+// (JPAEmitterArchiveLoader_v10). Wind Waker reads the dynamics (BEM1), field
-+// (FLD1) and texture-index (TDB1) blocks as structs, not through a stream as
-+// Sunshine does: those are converted here too.
++// (JPAEmitterArchiveLoader_v10). Wind Waker's JParticle is another version
++// than Sunshine's: its blocks are read as structs at +0x0C (JPA*Arc), with
++// their own layouts (JPABaseShapeData etc.), converted here.
 +namespace {
 +
-+void bem1_struct(const Buf& b) // JPADynamicsBlockData at +0x0C
++const u32 D = 0x0C; // block data
++
++void ww_bsp1(const Buf& b) // JPABaseShapeData, 0x54
 +{
-+	const u32 d = 0x0C;
-+	if (!b.has(d, 0x80))
++	if (!b.has(D, 0x54))
 +		return;
-+	b.swn(d + 0x00, 3, 4); // flags, sweep, min radius
-+	b.swn(d + 0x0C, 2, 2); // volume size, division number
-+	b.swn(d + 0x10, 2, 4); // rate, rate random
-+	b.swn(d + 0x1A, 3, 2); // max frame, start frame, life time
-+	b.swn(d + 0x20, 22, 4); // 0x20..0x77: floats and three float vectors
-+	b.swn(d + 0x78, 3, 2); // emitter rotation (s16 x 3)
++	b.sw32(D + 0x00);       // flags
++	b.swn(D + 0x04, 2, 2);  // prm/env colour key offsets (from the block start)
++	b.swn(D + 0x08, 2, 4);  // base size x/y
++	b.swn(D + 0x10, 2, 2);  // loop offset, blend flags
++	b.sw16(D + 0x1E);       // colour anim max frame
++	b.swn(D + 0x28, 11, 4); // tiling, static/scroll transforms
++	// colour keys {s16 frame, GXColor}: 6 bytes each
++	u32 prm = (u16)ld16(b.at(D + 0x04)), env = (u16)ld16(b.at(D + 0x06));
++	u8 nprm = b.base[D + 0x1C], nenv = b.base[D + 0x1D];
++	for (u32 i = 0; prm && i < nprm && b.has(prm + i * 6, 6); i++)
++		b.sw16(prm + i * 6);
++	for (u32 i = 0; env && env != prm && i < nenv && b.has(env + i * 6, 6); i++)
++		b.sw16(env + i * 6);
 +}
 +
-+void fld1_struct(const Buf& b) // JPAFieldBlockData at +0x0C
++void ww_esp1(const Buf& b) // JPAExtraShapeData, 0x60
 +{
-+	const u32 d = 0x0C;
-+	if (!b.has(d, 0x45))
++	if (!b.has(D, 0x60))
 +		return;
-+	b.swn(d, 17, 4); // flags, then 16 floats; the cycle (u8) at 0x44 stays
++	b.swn(D + 0x00, 18, 4); // flags, 0x04, alpha and scale parameters
++	b.swn(D + 0x48, 2, 2);  // anim cycle x/y
++	b.swn(D + 0x4C, 5, 4);  // rotation
 +}
 +
-+void tdb1_struct(const Buf& b) // u16 texture indices from +0x0C
++void ww_ssp1(const Buf& b) // JPASweepShapeData, 0x48
 +{
-+	if (b.size > 0x0C)
-+		b.swn(0x0C, (b.size - 0x0C) / 2, 2);
++	if (!b.has(D, 0x48))
++		return;
++	b.swn(D + 0x00, 7, 4); // flags, position/velocity, gravity, timing
++	b.swn(D + 0x1C, 2, 2); // life, rate
++	b.swn(D + 0x24, 6, 4); // scale, rotate speed, inherit rates
++	// colours (RGBA bytes) and texture index stay
++}
++
++void ww_etx1(const Buf& b) // JPAExTexShapeData, 0x24
++{
++	if (!b.has(D, 0x24))
++		return;
++	b.swn(D + 0x00, 7, 4); // flags, indirect texture matrix (2x3 floats)
++}
++
++void ww_kfa1(const Buf& b) // JPAKeyBlockData (bytes), then f32 keys from 0x20
++{
++	if (b.size > 0x20)
++		b.swn(0x20, (b.size - 0x20) / 4, 4);
++}
++
++void ww_bem1(const Buf& b) // JPADynamicsBlockData, 0x80
++{
++	if (!b.has(D, 0x80))
++		return;
++	b.swn(D + 0x00, 3, 4);  // flags, sweep, min radius
++	b.swn(D + 0x0C, 2, 2);  // volume size, division number
++	b.swn(D + 0x10, 2, 4);  // rate, rate random
++	b.swn(D + 0x1A, 3, 2);  // max frame, start frame, life time
++	b.swn(D + 0x20, 22, 4); // 0x20..0x77: floats and three float vectors
++	b.swn(D + 0x78, 3, 2);  // emitter rotation (s16 x 3)
++}
++
++void ww_fld1(const Buf& b) // JPAFieldBlockData
++{
++	if (!b.has(D, 0x45))
++		return;
++	b.swn(D, 17, 4); // flags, then 16 floats; the cycle (u8) at 0x44 stays
++}
++
++void ww_tdb1(const Buf& b) // u16 texture indices
++{
++	if (b.size > D)
++		b.swn(D, (b.size - D) / 2, 2);
 +}
 +
 +} // namespace
@@ -164,31 +216,35 @@ index 3c15fc7..fa4d21f 100644
 +	u32 offs  = 0x20;
 +	for (u32 e = 0; e < nemtr && f.has(offs, 0x20); e++) {
 +		if (!magic_is(f.at(offs), "JEFFjpa1", 8))
-+			return 1; // stop: not where an emitter should be
-+		Buf em = f.sub(offs, f.size - offs);
-+		port_endian_jpa(em.at(0), em.size); // header and the blocks it knows
-+		em.sw16(0x18);                      // resource ID
-+		u32 nblk = ld32(em.at(0x0C));
-+		u32 pos  = 0x20;
-+		for (u32 i = 0; i < nblk && em.has(pos, 8); i++) {
-+			u32 tag = ld32(em.at(pos));
-+			u32 sz  = ld32(em.at(pos + 4));
-+			if (sz < 8 || !em.has(pos, sz))
++			return 1; // not where an emitter should be: stop
++		f.swn(offs, 4, 4);  // magic, type, ?, block count
++		f.sw16(offs + 0x18); // resource ID
++		u32 nblk = ld32(f.at(offs + 0x0C));
++		u32 pos  = offs + 0x20;
++		for (u32 i = 0; i < nblk && f.has(pos, 8); i++) {
++			u32 tag = f.sw32(pos);
++			u32 sz  = f.sw32(pos + 4);
++			if (sz < 8 || !f.has(pos, sz))
 +				return 1;
-+			Buf blk = em.sub(pos, sz);
-+			if (tag == 'BEM1')
-+				bem1_struct(blk);
-+			else if (tag == 'FLD1')
-+				fld1_struct(blk);
-+			else if (tag == 'TDB1')
-+				tdb1_struct(blk);
++			Buf blk = f.sub(pos, sz);
++			switch (tag) {
++			case 'BSP1': ww_bsp1(blk); break;
++			case 'ESP1': ww_esp1(blk); break;
++			case 'SSP1': ww_ssp1(blk); break;
++			case 'ETX1': ww_etx1(blk); break;
++			case 'KFA1': ww_kfa1(blk); break;
++			case 'BEM1': ww_bem1(blk); break;
++			case 'FLD1': ww_fld1(blk); break;
++			case 'TDB1': ww_tdb1(blk); break;
++			default: break;
++			}
 +			pos += sz;
 +		}
-+		offs += pos;
++		offs = pos;
 +	}
 +	for (u32 t = 0; t < ntex && f.has(offs, 0x40); t++) {
-+		u32 sz = f.sw32(offs + 4);
 +		f.sw32(offs); // 'TEX1'
++		u32 sz = f.sw32(offs + 4);
 +		port_endian_timg_header(f.at(offs + 0x20));
 +		if (sz < 8 || !f.has(offs, sz))
 +			break;

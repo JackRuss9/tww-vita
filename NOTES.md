@@ -199,3 +199,13 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   TEX1): every field converts to the expected value.
   Also seen: "resource format not converted: ball128b.i4" (8,192 bytes, a
   raw 128x128 I4 image; check how d_s_logo uses it if anything looks off).
+- 11 Nov, tenth run (81dac71): the JPAC is read now; stopped at
+  JPABaseShape.cpp:93 (makeColorTable: colTbl NULL, bad colour-key
+  counts/frames). Wind Waker's JParticle is another version than
+  Sunshine's: BSP1 has its key offsets at data+0x04 (Sunshine's converter
+  swapped block+0x12...), so none of the sms per-block converters fit.
+  Rewrote port_endian_jpc with Wind Waker's own layouts (blocks read as
+  structs at +0x0C): BSP1 (0x54, plus the {s16 frame, RGBA} colour keys at
+  offsets from the block start), ESP1 (0x60), SSP1 (0x48), ETX1 (0x24),
+  KFA1 (f32 keys from 0x20), BEM1 (0x80), FLD1, TDB1 (u16), TEX1. Checked
+  with a synthetic JPAC containing every block type.
