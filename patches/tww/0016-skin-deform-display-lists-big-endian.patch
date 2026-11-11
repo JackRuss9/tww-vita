@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 20:49:35 +0100
+Subject: [PATCH] Reason: read display lists big-endian in the skin-deform
+ setup
+
+J3DSkinDeform::initMtxIndexArray and changeFastSkinDL walk shapes' GX
+display lists by hand; on PC those stay big-endian (the GX layer reads
+them that way), so the vertex counts and position/normal indices read
+there are read big-endian (TWW_DL16), and the count is copied through
+unchanged. Native reads gave byte-swapped counts and indices and wrote far
+out of range (Link's model setup crashed).
+---
+ src/JSystem/J3DGraphAnimator/J3DCluster.cpp | 18 +++++++++++++-----
+ 1 file changed, 13 insertions(+), 5 deletions(-)
+
+diff --git a/src/JSystem/J3DGraphAnimator/J3DCluster.cpp b/src/JSystem/J3DGraphAnimator/J3DCluster.cpp
+index d933e379..1b561650 100644
+--- a/src/JSystem/J3DGraphAnimator/J3DCluster.cpp
++++ b/src/JSystem/J3DGraphAnimator/J3DCluster.cpp
+@@ -8,6 +8,14 @@
+ #include "JSystem/J3DGraphAnimator/J3DCluster.h"
+ #include "JSystem/J3DGraphAnimator/J3DModel.h"
+ #include "JSystem/J3DGraphAnimator/J3DSkinDeform.h"
++
++// tww-vita: GX display lists stay big-endian on PC (the GX layer reads them
++// that way), so the vertex counts and indices read from them here are too.
++#ifdef TARGET_PC
++#define TWW_DL16(p) ((u16)((((const u8*)(p))[0] << 8) | ((const u8*)(p))[1]))
++#else
++#define TWW_DL16(p) (*(u16*)(p))
++#endif
+ #include "JSystem/J3DGraphAnimator/J3DAnimation.h"
+ #include "JSystem/JKernel/JKRHeap.h"
+ #include "JSystem/J3DAssert.h"
+@@ -309,15 +317,15 @@ int J3DSkinDeform::initMtxIndexArray(J3DModelData* modelData) {
+                 if (cmd != GX_TRIANGLEFAN && cmd != GX_TRIANGLESTRIP)
+                     break;
+ 
+-                int vtxCount = *(u16*)dl;
++                int vtxCount = TWW_DL16(dl);
+                 dl += 2;
+ 
+                 u16 useMtxIdxBuf[10];
+                 for (int k = 0; k < vtxCount; k++) {
+                     u8* src = &dl[vtxSize * k];
+                     u8 pnmtxIdx = (u32)*(u8*)&src[pnmtxIdxOffs] / 3;
+-                    u16 posIdx = *(u16*)&src[posOffs];
+-                    u16 nrmIdx = *(u16*)&src[nrmOffs];
++                    u16 posIdx = TWW_DL16(&src[posOffs]);
++                    u16 nrmIdx = TWW_DL16(&src[nrmOffs]);
+ 
+                     u16 useMtxIdx = shapeMtx->getUseMtxIndex(pnmtxIdx);
+                     if (useMtxIdx == 0xFFFF) {
+@@ -379,9 +387,9 @@ void J3DSkinDeform::changeFastSkinDL(J3DModelData* pModelData) {
+                     if (cmd != GX_TRIANGLEFAN && cmd != GX_TRIANGLESTRIP)
+                         break;
+ 
+-                    int vtxCount = *(u16*)dl;
++                    int vtxCount = TWW_DL16(dl);
++                    memmove(dst, dl, 2); // (kept in the display list's byte order)
+                     dl += 2;
+-                    *(u16*)dst = vtxCount;
+                     dst += 2;
+ 
+                     for (int k = 0; k < vtxCount; k++) {
+-- 
+2.43.0
+

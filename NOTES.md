@@ -311,3 +311,12 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   every actor shares that slot. Re-scan: 0 of 305 offset; gdb confirms
   base_process_class and fopAc_ac_c at the daPy_lk_c address. Only 15
   source lines named the old members.
+- 11 Nov, twenty-first run: the layout fix worked; Link got through
+  phase_1 into his model setup (daPy_lk_c ctor -> J3DSkinDeform::
+  initMtxIndexArray) and crashed there: that code walks GX display lists
+  by hand, and on PC display lists stay big-endian, so vertex counts and
+  indices came out byte-swapped. Patch 0016 reads them big-endian (also in
+  changeFastSkinDL). sms-port 0002 now also converts CLS1 blocks of BLS
+  cluster files (skin deform data; they went through the J3D converter
+  with the block left as it was); synthetic test passes, shared index
+  arrays swapped once.

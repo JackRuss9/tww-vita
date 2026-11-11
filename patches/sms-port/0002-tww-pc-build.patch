@@ -9,17 +9,18 @@ Subject: [PATCH] Reason: build on 32-bit x86 PCs (the fiber stack dump only
  until it gets it); J3D: the MDL3 block (BDL material display lists, read by
  Wind Waker's J3D) converted; JPAC1-00 particle archives (Wind Waker)
  converted with Wind Waker's own JParticle block layouts (BSP1, ESP1, SSP1,
- ETX1, KFA1, BEM1, FLD1, TDB1, TEX1)
+ ETX1, KFA1, BEM1, FLD1, TDB1, TEX1); J3D: CLS1 blocks of BLS cluster (skin
+ deform) files converted (Wind Waker)
 
 ---
  platform/dvd/dvd.cpp                |  11 +++
  platform/endian/endian_dispatch.cpp |   4 +
- platform/endian/endian_j3d.cpp      |  30 +++++-
+ platform/endian/endian_j3d.cpp      |  88 +++++++++++++++++-
  platform/endian/endian_jpa.cpp      | 138 ++++++++++++++++++++++++++++
  platform/endian/port_endian.h       |   1 +
  platform/gx/src/gx_platform.cpp     |  11 ++-
  platform/os/os_thread.cpp           |  18 ++++
- 7 files changed, 208 insertions(+), 5 deletions(-)
+ 7 files changed, 266 insertions(+), 5 deletions(-)
 
 diff --git a/platform/dvd/dvd.cpp b/platform/dvd/dvd.cpp
 index 138c87c..51e3d6e 100644
@@ -59,10 +60,18 @@ index a729d7b..5942588 100644
  		return port_endian_ibnk(data, size) ? PE_FMT_BNK : PE_FMT_UNKNOWN;
  	if (magic_is(d, "WSYS", 4))
 diff --git a/platform/endian/endian_j3d.cpp b/platform/endian/endian_j3d.cpp
-index e79b55e..87b0505 100644
+index e79b55e..3d46344 100644
 --- a/platform/endian/endian_j3d.cpp
 +++ b/platform/endian/endian_j3d.cpp
-@@ -558,6 +558,34 @@ static void anm_block(const Buf& b, u32 tag)
+@@ -2,6 +2,7 @@
+ // (J3D1 b?k1/b?a1), plus the ResNTAB and ResTIMG structures they embed.
+ // Layouts follow the decomp headers (libs/JSystem/include/JSystem/J3D/J3DGraphLoader/*,
+ // J3DGraphBase/J3DStruct.hpp, JUtility/JUTDataHeader.hpp, ResTIMG.hpp).
++#include <vector>
+ #include "endian_util.h"
+ #include "port_endian.h"
+ 
+@@ -558,6 +559,34 @@ static void anm_block(const Buf& b, u32 tag)
  
  // --- File level ---------------------------------------------------------------------
  
@@ -97,12 +106,76 @@ index e79b55e..87b0505 100644
  static bool j3d_magic_be(const u8* d)
  {
  	return magic_is(d, "J3D1", 4) || magic_is(d, "J3D2", 4);
-@@ -592,7 +620,7 @@ extern "C" int port_endian_j3d(void* data, uint32_t size)
+@@ -567,6 +596,62 @@ static bool j3d_magic_native(const u8* d)
+ 	return magic_rev(d, "J3D1", 4) || magic_rev(d, "J3D2", 4);
+ }
+ 
++// CLS1: cluster (skin deform) data of BLS files (J3DClusterLoader_v15,
++// J3DClusterBlock / J3DCluster.h). Header: u16 cluster, key, cluster-vertex,
++// position and normal counts; u32 offsets (from the block) to the clusters
++// (0x24 each: f32 max/min angle, u32 key offset, u8 flags, 3 pad, u16 key /
++// pos / nrm / cluster-vertex counts, u32 pos-dst-index offset, u32 cluster
++// vertex offset, u32 deformer), the keys (0x0C: u16 pos/nrm counts, u32
++// pos/nrm flag offsets), the cluster vertices (0x0C: u16 count, pad, u32
++// src/dst index offsets), f32 positions and normals, and two name tables.
++// The u16 arrays can be shared, so each is swapped once.
++static void cls1(const Buf& b)
++{
++	if (!b.has(0, 0x30))
++		return;
++	u16 ncl = b.sw16(0x08), nkey = b.sw16(0x0A), ncv = b.sw16(0x0C);
++	u16 npos = b.sw16(0x0E), nnrm = b.sw16(0x10);
++	b.sw16(0x12);
++	u32 ocl = b.sw32(0x14), okey = b.sw32(0x18), ocv = b.sw32(0x1C);
++	u32 opos = b.sw32(0x20), onrm = b.sw32(0x24);
++	ntab(b, b.sw32(0x28));
++	ntab(b, b.sw32(0x2C));
++	if (opos) b.swn(opos, npos * 3u, 4);
++	if (onrm) b.swn(onrm, nnrm * 3u, 4);
++	std::vector<u32> done;
++	auto arr16 = [&](u32 off, u32 n) {
++		if (!off || !n)
++			return;
++		for (u32 d : done)
++			if (d == off)
++				return;
++		done.push_back(off);
++		b.swn(off, n, 2);
++	};
++	for (u32 i = 0; i < ncl && ocl && b.has(ocl + i * 0x24, 0x24); i++) {
++		u32 r = ocl + i * 0x24;
++		b.swn(r, 3, 4);
++		b.swn(r + 0x10, 4, 2);
++		b.swn(r + 0x18, 3, 4);
++		arr16(ld32(b.at(r + 0x18)), ld16(b.at(r + 0x12))); // position destination indices
++	}
++	for (u32 i = 0; i < nkey && okey && b.has(okey + i * 0x0C, 0x0C); i++) {
++		u32 r = okey + i * 0x0C;
++		b.swn(r, 2, 2);
++		b.swn(r + 4, 2, 4);
++		arr16(ld32(b.at(r + 4)), ld16(b.at(r)));     // position flags
++		arr16(ld32(b.at(r + 8)), ld16(b.at(r + 2))); // normal flags
++	}
++	for (u32 i = 0; i < ncv && ocv && b.has(ocv + i * 0x0C, 0x0C); i++) {
++		u32 r = ocv + i * 0x0C;
++		b.swn(r, 2, 2);
++		b.swn(r + 4, 2, 4);
++		u16 n = ld16(b.at(r));
++		arr16(ld32(b.at(r + 4)), n);
++		arr16(ld32(b.at(r + 8)), n);
++	}
++}
++
+ extern "C" int port_endian_j3d(void* data, uint32_t size)
+ {
+ 	Buf f(data, size);
+@@ -592,7 +677,8 @@ extern "C" int port_endian_j3d(void* data, uint32_t size)
  		case 'MAT3': mat(b, false); break;
  		case 'MAT2': mat(b, true); break;
  		case 'TEX1': tex1(b); break;
 -		case 'MDL3': break; // BDL material display lists: not read by this J3D version
 +		case 'MDL3': mdl3(b); break; // BDL material display lists (Wind Waker's J3D reads them)
++		case 'CLS1': cls1(b); break; // BLS cluster (skin deform) data (Wind Waker)
  		default: anm_block(b, tag); break;
  		}
  		pos += bsz;
@@ -353,3 +426,6 @@ index 4a8a515..5b22ca7 100644
 +	g_switch_cb = (SwitchThreadCallback)callback;
 +	return (void*)prev;
 +}
+-- 
+2.43.0
+
