@@ -6,13 +6,15 @@ Subject: [PATCH] Reason: build on 32-bit x86 PCs (the fiber stack dump only
  (Wind Waker keeps each thread's current heap with it); the window title is
  the game's (port_window_title); a read past a file's end returns the whole
  length, zero-filled, as the drive does (Wind Waker's JKRFile::read retries
- until it gets it)
+ until it gets it); J3D: the MDL3 block (BDL material display lists, read by
+ Wind Waker's J3D) converted
 
 ---
  platform/dvd/dvd.cpp            | 11 +++++++++++
+ platform/endian/endian_j3d.cpp  | 30 +++++++++++++++++++++++++++++-
  platform/gx/src/gx_platform.cpp | 11 +++++++----
  platform/os/os_thread.cpp       | 18 ++++++++++++++++++
- 3 files changed, 36 insertions(+), 4 deletions(-)
+ 4 files changed, 65 insertions(+), 5 deletions(-)
 
 diff --git a/platform/dvd/dvd.cpp b/platform/dvd/dvd.cpp
 index 138c87c..51e3d6e 100644
@@ -36,6 +38,54 @@ index 138c87c..51e3d6e 100644
  	if (n > 0 && GXPC_MemoryWritten)
  		GXPC_MemoryWritten(addr, (u32)n);
  	return n;
+diff --git a/platform/endian/endian_j3d.cpp b/platform/endian/endian_j3d.cpp
+index e79b55e..87b0505 100644
+--- a/platform/endian/endian_j3d.cpp
++++ b/platform/endian/endian_j3d.cpp
+@@ -558,6 +558,34 @@ static void anm_block(const Buf& b, u32 tag)
+ 
+ // --- File level ---------------------------------------------------------------------
+ 
++// MDL3: BDL material display lists (read by Wind Waker's J3D, not
++// Sunshine's): u16 count; offsets to {u32 offset, u32 size} per material
++// (the display list, relative to its own entry), the patching offsets
++// (6 x u16 + 4 bytes), the current matrix registers (2 x u32), the material
++// modes (u8), an unread table, the names. The display lists are GX command
++// bytes, read big-endian: left as they are.
++static void mdl3(const Buf& b)
++{
++	if (!b.has(0, 0x24))
++		return;
++	u16 n = b.sw16(0x08);
++	u32 dl  = b.sw32(0x0C);
++	u32 pat = b.sw32(0x10);
++	u32 mtx = b.sw32(0x14);
++	b.sw32(0x18); // material modes (u8)
++	b.sw32(0x1C);
++	u32 names = b.sw32(0x20);
++	for (u32 i = 0; i < n; i++) {
++		if (dl && b.has(dl + i * 8, 8))
++			b.swn(dl + i * 8, 2, 4);
++		if (pat && b.has(pat + i * 0x10, 0x10))
++			b.swn(pat + i * 0x10, 6, 2);
++		if (mtx && b.has(mtx + i * 8, 8))
++			b.swn(mtx + i * 8, 2, 4);
++	}
++	ntab(b, names);
++}
++
+ static bool j3d_magic_be(const u8* d)
+ {
+ 	return magic_is(d, "J3D1", 4) || magic_is(d, "J3D2", 4);
+@@ -592,7 +620,7 @@ extern "C" int port_endian_j3d(void* data, uint32_t size)
+ 		case 'MAT3': mat(b, false); break;
+ 		case 'MAT2': mat(b, true); break;
+ 		case 'TEX1': tex1(b); break;
+-		case 'MDL3': break; // BDL material display lists: not read by this J3D version
++		case 'MDL3': mdl3(b); break; // BDL material display lists (Wind Waker's J3D reads them)
+ 		default: anm_block(b, tag); break;
+ 		}
+ 		pos += bsz;
 diff --git a/platform/gx/src/gx_platform.cpp b/platform/gx/src/gx_platform.cpp
 index e47fd0d..85cc68b 100644
 --- a/platform/gx/src/gx_platform.cpp

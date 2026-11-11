@@ -167,3 +167,18 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   passes the pointer (initLoadFileSw 4, checkInitDataOnMemory). Fix: patch
   0008 converts it in mDoAud_Create before setParamInitDataPointer (with
   before/after log lines). Patch 0006's hook stays (harmless, other files).
+- 11 Nov, eighth run (749d065): **the Nintendo and Dolby logos are drawn**
+  (archives, BTI textures, J2D and the GX translation work). JaiInit.aaf
+  converted: 01000000 70060000 ... -> 00000001 00000670 ...; sound table
+  version 11, 8 categories (271 167 166 65 404 419 599 111, then 97 75 in
+  slots 16-17); SeMgr: 256 parameters, JAI heap 342,848 bytes free after.
+  "[endian] resource format not converted: defaultse.bms" (a sequence:
+  bytecode, read big-endian by the sequence parser; check if sound is
+  missing later). No sound heard (none expected over the logos?).
+  Crash after the logos in J3DMaterialFactory::createLockedMaterial
+  (mpCurrentMtxInfo bad): a .bdl loaded by dRes for the next scene. The
+  sms J3D converter skipped MDL3 ("not read by this J3D version"); Wind
+  Waker's J3D reads it (locked materials). Fix (sms-port 0002): mdl3()
+  converts the count, the 6 offsets, per material the DL {offset, size},
+  patching offsets (6 x u16), current mtx (2 x u32), and the names; the
+  DL bytes stay big-endian.
