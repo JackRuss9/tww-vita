@@ -252,3 +252,17 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   - The stage converter logs each file's chunks ("[tww] stage.dzs: N
     chunks: STAG:1 ...").
   - Patch 0011 logs each stage chunk handler before it runs.
+- 11 Nov, fifteenth run (207e552): the stack scan worked: phase_3 (title
+  play scene) -> check1stDynamicWave, a not-yet-decompiled function
+  (`BOOL f() { /* Nonmatching */ }`). GCC drops the return of a non-void
+  function that runs off its end, so the call ran on into the next code
+  (JKRExpHeap::createRoot.cold). This applies to every empty function that
+  returns a value: tools/stub_returns.py, run by fetch.sh on the clean
+  checkout before the patches, gives each one `return {};` (499 functions
+  in 80 files at 9cbb155: 321 BOOL, 100 bool, 64 cPhs_State, a few
+  integers and pointers; void functions, constructors, destructors and
+  references left alone). Patches apply on top of it unchanged; my local
+  tww branch is now port2: a LOCAL commit with the script's result, then
+  the patches (future patches are made the same way).
+  Also seen: stage.dzs for sea_T has 13 chunks (STAG RTBL EVNT MULT EnvR
+  Colo Pale Virt RPAT RPPN ACTR RCAM RARO), all handled.

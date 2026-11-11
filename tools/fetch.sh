@@ -13,12 +13,17 @@ SMS_PORT_COMMIT=fb2a93ba014cd5888c85c00a5e32412328d81fa0
 apply_patches() {
   local dir=$1 commit=$2 name=$3
   local want have
-  want=$(cat patches/"$name"/*.patch | sha256sum | cut -d' ' -f1)
+  want=$(cat patches/"$name"/*.patch tools/stub_returns.py | sha256sum | cut -d' ' -f1)
   have=$(cat "$dir/.tww-vita-patches" 2>/dev/null || true)
   if [[ "$want" != "$have" ]]; then
     echo "== Applying patches/$name to a clean $dir"
     git -C "$dir" reset -q --hard "$commit"
     git -C "$dir" clean -q -fd -e orig -e build -e .tww-vita-patches
+    if [[ "$name" == tww ]]; then
+      # The decomp's still-empty functions that return a value get one
+      # (tools/stub_returns.py); the patches are made on top of this.
+      python3 tools/stub_returns.py "$dir"
+    fi
     for p in patches/"$name"/*.patch; do
       echo "   $p"
       git -C "$dir" apply --whitespace=nowarn "../$p"
