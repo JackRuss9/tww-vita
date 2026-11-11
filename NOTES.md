@@ -129,3 +129,11 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
     uses sms_gx/gxvert_pc.h and GXFIFO = GXPC_WGPipe (as Sunshine's GXVert.h).
   - The window said "Super Mario Sunshine": sms_gx's title is now
     port_window_title (weak default), set by tww_platform.cpp.
+- 11 Nov, fourth run (8f86701): no FIFO errors, right title, black window,
+  no crash; stopped by hand. The DVD thread looped in JKRFile::read on
+  /framework.str (17,600 bytes asked): JKRFileCache asks for the size rounded
+  up to 32 and JKRFile::read retries until it gets exactly that; the
+  platform's reads stopped at the file's end. Fix (sms-port 0002): a read
+  that starts inside a file and runs past its end returns the whole length,
+  the rest zero-filled (the drive reads whole blocks). Checked here with a
+  1,000-byte stand-in: on to JaiInit.aaf and System.arc.

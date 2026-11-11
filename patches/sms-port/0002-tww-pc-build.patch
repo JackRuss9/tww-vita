@@ -4,13 +4,38 @@ Date: Tue, 3 Nov 2026 18:55:30 +0100
 Subject: [PATCH] Reason: build on 32-bit x86 PCs (the fiber stack dump only
  where fibers exist); OSSetSwitchThreadCallback, called on every thread switch
  (Wind Waker keeps each thread's current heap with it); the window title is
- the game's (port_window_title)
+ the game's (port_window_title); a read past a file's end returns the whole
+ length, zero-filled, as the drive does (Wind Waker's JKRFile::read retries
+ until it gets it)
 
 ---
+ platform/dvd/dvd.cpp            | 11 +++++++++++
  platform/gx/src/gx_platform.cpp | 11 +++++++----
  platform/os/os_thread.cpp       | 18 ++++++++++++++++++
- 2 files changed, 25 insertions(+), 4 deletions(-)
+ 3 files changed, 36 insertions(+), 4 deletions(-)
 
+diff --git a/platform/dvd/dvd.cpp b/platform/dvd/dvd.cpp
+index 138c87c..51e3d6e 100644
+--- a/platform/dvd/dvd.cpp
++++ b/platform/dvd/dvd.cpp
+@@ -278,6 +278,17 @@ extern "C" __attribute__((weak)) void GXPC_MemoryWritten(const void* p, u32 n);
+ s32 do_read(DVDFileInfo* fi, void* addr, s32 length, s32 offset)
+ {
+ 	s32 n = do_read_raw(fi, addr, length, offset);
++	// The drive reads whole 32-byte blocks: a read that starts inside a file
++	// and runs past its end (games round the length up to 32, Wind Waker's
++	// JKRFileCache always) gets everything asked for, the rest being what
++	// follows on the disc. Zeros here, and the full length reported:
++	// JKRFile::read retries until it gets exactly what it asked for.
++	if (n >= 0 && n < length && fi->startAddr < g_fst.size() &&
++	    (u32)offset + (u32)n >= g_fst[fi->startAddr].length) {
++		memset((u8*)addr + n, 0, (size_t)(length - n));
++		n = length;
++		fi->cb.transferredSize = n;
++	}
+ 	if (n > 0 && GXPC_MemoryWritten)
+ 		GXPC_MemoryWritten(addr, (u32)n);
+ 	return n;
 diff --git a/platform/gx/src/gx_platform.cpp b/platform/gx/src/gx_platform.cpp
 index e47fd0d..85cc68b 100644
 --- a/platform/gx/src/gx_platform.cpp
