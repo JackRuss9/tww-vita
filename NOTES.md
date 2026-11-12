@@ -401,3 +401,15 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   dRes_info_c was overwritten. Patch 0025 logs every archive's set-up
   (files, table, data heap, info address) and the full state of one
   found without a table.
+- 12 Nov, thirtieth run (5554c54; the previous two ran the old build:
+  the browser had saved the new bundle under another name, and once the
+  WSLg display hung in xcb_connect). The set-up log showed it: Demo51
+  reused Logo.arc's dRes_info_c slot (0x8a74784) and still held a stale
+  archive pointer, so setRes thought it was done. deleteRes ends the
+  record with an explicit destructor call, whose final stores
+  (mpArchive = NULL, ...) GCC removes as dead (-flifetime-dse: the
+  object's lifetime ends there). MWCC kept them; the game reuses
+  destroyed objects everywhere. Fix: -fno-lifetime-dse for the game code
+  (checked on a reduced copy: 1 of 3 null stores kept by default, all 3
+  with the flag). This may also explain the createAnimeHeap dummies.
+  The run command now pulls the newest tww-vita-update*.bundle.
