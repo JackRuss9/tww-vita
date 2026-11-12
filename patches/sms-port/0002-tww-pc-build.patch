@@ -11,18 +11,19 @@ Subject: [PATCH] Reason: build on 32-bit x86 PCs (the fiber stack dump only
  converted with Wind Waker's own JParticle block layouts (BSP1, ESP1, SSP1,
  ETX1, KFA1, BEM1, FLD1, TDB1, TEX1); J3D: CLS1 blocks of BLS cluster (skin
  deform) files converted (Wind Waker); GX: physical addresses beyond emulated
- memory are the game code's own data (Wind Waker's embedded display lists)
+ memory are the game code's own data (Wind Waker's embedded display lists);
+ J3D: BCK animation-sound tables (SE-anim offset) converted (Wind Waker)
 
 ---
  platform/dvd/dvd.cpp                |  11 +++
  platform/endian/endian_dispatch.cpp |   4 +
- platform/endian/endian_j3d.cpp      |  88 +++++++++++++++++-
+ platform/endian/endian_j3d.cpp      | 103 ++++++++++++++++++++-
  platform/endian/endian_jpa.cpp      | 138 ++++++++++++++++++++++++++++
  platform/endian/port_endian.h       |   1 +
  platform/gx/src/gx_fifo.cpp         |   6 ++
  platform/gx/src/gx_platform.cpp     |  11 ++-
  platform/os/os_thread.cpp           |  18 ++++
- 8 files changed, 272 insertions(+), 5 deletions(-)
+ 8 files changed, 287 insertions(+), 5 deletions(-)
 
 diff --git a/platform/dvd/dvd.cpp b/platform/dvd/dvd.cpp
 index 138c87c..51e3d6e 100644
@@ -62,7 +63,7 @@ index a729d7b..5942588 100644
  		return port_endian_ibnk(data, size) ? PE_FMT_BNK : PE_FMT_UNKNOWN;
  	if (magic_is(d, "WSYS", 4))
 diff --git a/platform/endian/endian_j3d.cpp b/platform/endian/endian_j3d.cpp
-index e79b55e..3d46344 100644
+index e79b55e..dbb3ac5 100644
 --- a/platform/endian/endian_j3d.cpp
 +++ b/platform/endian/endian_j3d.cpp
 @@ -2,6 +2,7 @@
@@ -171,7 +172,7 @@ index e79b55e..3d46344 100644
  extern "C" int port_endian_j3d(void* data, uint32_t size)
  {
  	Buf f(data, size);
-@@ -592,7 +677,8 @@ extern "C" int port_endian_j3d(void* data, uint32_t size)
+@@ -592,11 +677,27 @@ extern "C" int port_endian_j3d(void* data, uint32_t size)
  		case 'MAT3': mat(b, false); break;
  		case 'MAT2': mat(b, true); break;
  		case 'TEX1': tex1(b); break;
@@ -181,6 +182,25 @@ index e79b55e..3d46344 100644
  		default: anm_block(b, tag); break;
  		}
  		pos += bsz;
+ 	}
++	// Wind Waker's BCKs carry their animation sounds after the blocks, at the
++	// header's SE-anim offset, in the .bas layout (JAIAnimeSoundData: u16
++	// count, u16, u32, then 0x20-byte entries of u32 sound ID, 3 f32, u32
++	// flags and bytes); Link copies them out and plays them.
++	u32 se = ld32(f.at(0x1C));
++	if (se != 0xFFFFFFFFu && se >= 0x20 && f.has(se, 8)) {
++		u16 n = be16(f.at(se));
++		if (f.has(se + 8, n * 0x20u)) {
++			f.sw16(se);
++			f.sw16(se + 2);
++			f.sw32(se + 4);
++			for (u32 i = 0; i < n; i++)
++				f.swn(se + 8 + i * 0x20, 5, 4);
++		}
++	}
+ 	return 1;
+ }
+ 
 diff --git a/platform/endian/endian_jpa.cpp b/platform/endian/endian_jpa.cpp
 index 3c15fc7..65e3123 100644
 --- a/platform/endian/endian_jpa.cpp

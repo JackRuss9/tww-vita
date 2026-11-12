@@ -438,3 +438,12 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   0027 (JHIhtonl, d_operate_wind's known bug, two switches). To re-run
   that scan after decomp updates: ninja -t commands, -w -> -Wreturn-type,
   grep "control reaches end|no return statement".
+- 12 Nov, thirty-third run (504f558): the title ran for a while (2164
+  seStart calls, each logging that it is not decompiled), then halted in
+  JAInter::SoundTable::getInfoPointer: unregistered SE category, from
+  Link's animation sound (setAnimSound): sound ID 0x00380000 = 0x3800
+  byte-swapped. Link's animation sounds live inside his BCKs, at the
+  header's SE-anim offset (0x1C), in the .bas layout; the J3D converter
+  swapped the offset but not the table. sms-port 0002 converts it
+  (synthetic test passes). (sms-port already converts stand-alone .bas
+  files, same layout.)
