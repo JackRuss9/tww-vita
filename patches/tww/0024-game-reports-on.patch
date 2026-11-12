@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 02:42:40 +0100
+Subject: [PATCH] Reason: the game's own reports stay on, and unknown J3D
+ blocks name their tag
+
+The release build turns OSReport off at start (mDoMch_Create, outside
+development mode), so none of its errors (such as dRes_info_c::setRes's)
+reached the log. On PC they stay on. The J3D animation and cluster loaders'
+"Unknown data block" reports print the block's tag.
+---
+ src/JSystem/J3DGraphLoader/J3DAnmLoader.cpp     | 8 ++++----
+ src/JSystem/J3DGraphLoader/J3DClusterLoader.cpp | 2 +-
+ src/m_Do/m_Do_machine.cpp                       | 2 +-
+ 3 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/src/JSystem/J3DGraphLoader/J3DAnmLoader.cpp b/src/JSystem/J3DGraphLoader/J3DAnmLoader.cpp
+index abe10381..fc5d6d00 100644
+--- a/src/JSystem/J3DGraphLoader/J3DAnmLoader.cpp
++++ b/src/JSystem/J3DGraphLoader/J3DAnmLoader.cpp
+@@ -202,7 +202,7 @@ J3DAnmBase* J3DAnmFullLoader_v15::load(const void* dst) {
+             readAnmVtxColor((J3DAnmVtxColorFullData*)block);
+             break;
+         default:
+-            OSReport("Unknown data block\n");
++            OSReport("Unknown data block %08x\n", block->mType);
+             break;
+         }
+         block = (JUTDataBlockHeader*)((u8*)block + block->mSize);
+@@ -247,7 +247,7 @@ void J3DAnmFullLoader_v15::setResource(J3DAnmBase* dst, const void* data) {
+             }
+             break;
+         default:
+-            OSReport("Unknown data block\n");
++            OSReport("Unknown data block %08x\n", block->mType);
+             break;
+         }
+         block = (JUTDataBlockHeader*)((u8*)block + block->mSize);
+@@ -394,7 +394,7 @@ J3DAnmBase* J3DAnmKeyLoader_v15::load(const void* dst) {
+             readAnmVtxColor((J3DAnmVtxColorKeyData*)block);
+             break;
+         default:
+-            OSReport("Unknown data block\n");
++            OSReport("Unknown data block %08x\n", block->mType);
+             break;
+         }
+         block = (JUTDataBlockHeader*)((u8*)block + block->mSize);
+@@ -439,7 +439,7 @@ void J3DAnmKeyLoader_v15::setResource(J3DAnmBase* dst, const void* data) {
+             }
+             break;
+         default:
+-            OSReport("Unknown data block\n");
++            OSReport("Unknown data block %08x\n", block->mType);
+             break;
+         }
+         block = (JUTDataBlockHeader*)((u8*)block + block->mSize);
+diff --git a/src/JSystem/J3DGraphLoader/J3DClusterLoader.cpp b/src/JSystem/J3DGraphLoader/J3DClusterLoader.cpp
+index e4b307c2..c8d591ff 100644
+--- a/src/JSystem/J3DGraphLoader/J3DClusterLoader.cpp
++++ b/src/JSystem/J3DGraphLoader/J3DClusterLoader.cpp
+@@ -42,7 +42,7 @@ void* J3DClusterLoader_v15::load(const void* i_data) {
+             readCluster((J3DClusterBlock*)block);
+             break;
+         default:
+-            OSReport("Unknown data block\n");
++            OSReport("Unknown data block %08x\n", block->mType);
+             break;
+         }
+         block = (JUTDataBlockHeader*)((u8*)block + block->mSize);
+diff --git a/src/m_Do/m_Do_machine.cpp b/src/m_Do/m_Do_machine.cpp
+index a9f47b10..6cfa81c2 100644
+--- a/src/m_Do/m_Do_machine.cpp
++++ b/src/m_Do/m_Do_machine.cpp
+@@ -503,7 +503,7 @@ bool mDoMch_Create() {
+     if (mDoMain::developmentMode == 0) {
+         OSReportDisable();
+     }
+-#else
++#elif !defined(TARGET_PC) // tww-vita: on PC the game's own reports stay on (they go to the log)
+     if (mDoMain::developmentMode == 0 || !(OSGetConsoleType() & 0x10000000)) {
+         OSReportDisable();
+     }
+-- 
+2.43.0
+

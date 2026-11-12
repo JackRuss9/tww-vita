@@ -384,3 +384,11 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   Open question: Link's createAnimeHeap dummies for J3DAnmTransformKey and
   J3DAnmTexPattern used 0 bytes in their heaps (the other two kinds were
   allocated); the calls are in the object code. Worked around (0022).
+- 12 Nov, twenty-eighth run: getRes now reports Demo51 "mounted but not
+  set up" and returns NULL; the stage has no title.stb either, so the
+  event code's JUT_ASSERT(demo_data) halts. No setRes heap failure was
+  logged. Still no game error lines: the release build calls
+  OSReportDisable() in mDoMch_Create (developmentMode == 0), so the
+  game's OSReport_Error output never existed. Patch 0024 keeps reports on
+  on PC and names the tag of "Unknown data block" (three of those, from
+  J3D animation/cluster loaders).
