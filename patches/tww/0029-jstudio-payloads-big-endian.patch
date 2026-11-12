@@ -1,0 +1,340 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 21:58:22 +0100
+Subject: [PATCH] Reason: JStudio cutscene payloads read big-endian
+
+A .stb's structure (header, blocks, sequence words, paragraph headers and
+the embedded function values) is converted on load by the platform
+(tww_endian_stb); what its object paragraphs carry is known only to the
+code reading it, so that stays big-endian and is read with
+JGadget::binary::beLoad: the value iterators (TParseValue_raw_) and the
+direct reads in JStudio's objects and adaptors (sound, message, actor,
+camera, particle, the reserved flag/wait/jump paragraphs, variable
+values). Unconverted, the title's opening cutscene (Demo51 title.stb)
+did not run and the title fell back to normal play under the logo.
+---
+ include/JSystem/JGadget/binary.h                | 17 ++++++++++++++++-
+ src/JSystem/JStudio/JStudio/jstudio-object.cpp  |  7 ++++---
+ src/JSystem/JStudio/JStudio/stb.cpp             |  7 ++++---
+ .../JStudio/JStudio_JAudio/object-sound.cpp     |  5 +++--
+ .../JStudio/JStudio_JMessage/object-message.cpp |  3 ++-
+ .../JStudio_JParticle/object-particle.cpp       |  5 +++--
+ .../JStudio/JStudio_JStage/object-actor.cpp     | 15 ++++++++-------
+ .../JStudio/JStudio_JStage/object-camera.cpp    |  5 +++--
+ src/JSystem/JStudio/JStudio_JStage/object.cpp   |  5 +++--
+ 9 files changed, 46 insertions(+), 23 deletions(-)
+
+diff --git a/include/JSystem/JGadget/binary.h b/include/JSystem/JGadget/binary.h
+index 77339720..655527d7 100644
+--- a/include/JSystem/JGadget/binary.h
++++ b/include/JSystem/JGadget/binary.h
+@@ -61,10 +61,25 @@ struct TParse_header_block {
+     }
+ };
+ 
++// tww-vita: data parsed through these (JStudio cutscene payloads, JMessage)
++// stays big-endian on PC; beLoad reads a value of it (identity on the GameCube).
++template <typename T>
++inline T beLoad(const void* data) {
++#ifdef TARGET_PC
++    union { T v; u8 b[sizeof(T)]; } u;
++    const u8* s = (const u8*)data;
++    for (u32 i = 0; i < sizeof(T); i++)
++        u.b[i] = s[sizeof(T) - 1 - i];
++    return u.v;
++#else
++    return *(const T*)data;
++#endif
++}
++
+ template <typename T>
+ struct TParseValue_raw_ {
+     typedef T ParseType;
+-    static T parse(const void* data) { return (T)*(T*)data; }
++    static T parse(const void* data) { return beLoad<T>(data); }
+ };
+ 
+ template <typename T>
+diff --git a/src/JSystem/JStudio/JStudio/jstudio-object.cpp b/src/JSystem/JStudio/JStudio/jstudio-object.cpp
+index 234e802f..21ddbd93 100644
+--- a/src/JSystem/JStudio/JStudio/jstudio-object.cpp
++++ b/src/JSystem/JStudio/JStudio/jstudio-object.cpp
+@@ -4,6 +4,7 @@
+ //
+ 
+ #include "JSystem/JSystem.h" // IWYU pragma: keep
++#include "JSystem/JGadget/binary.h" // (beLoad: payloads stay big-endian on PC)
+ 
+ #include "JSystem/JStudio/JStudio/jstudio-object.h"
+ #include "dolphin/types.h"
+@@ -209,13 +210,13 @@ void JStudio::TAdaptor::adaptor_setVariableValue_VOID_(JStudio::TAdaptor* param_
+ /* 8026F07C-8026F0A8       .text adaptor_setVariableValue_IMMEDIATE___Q27JStudio8TAdaptorFPQ27JStudio8TAdaptorPQ27JStudio7TObjectUlPCvUl */
+ void JStudio::TAdaptor::adaptor_setVariableValue_IMMEDIATE_(JStudio::TAdaptor* param_1, JStudio::TObject* param_2, u32 param_3, const void* param_4, u32 param_5) {
+     TVariableValue* value = &param_1->mVariableValues[param_3];
+-    value->setValue_immediate(*(f32*)param_4);
++    value->setValue_immediate(JGadget::binary::beLoad<f32>(param_4));
+ }
+ 
+ /* 8026F0A8-8026F0D4       .text adaptor_setVariableValue_TIME___Q27JStudio8TAdaptorFPQ27JStudio8TAdaptorPQ27JStudio7TObjectUlPCvUl */
+ void JStudio::TAdaptor::adaptor_setVariableValue_TIME_(JStudio::TAdaptor* param_1, JStudio::TObject* param_2, u32 param_3, const void* param_4, u32 param_5) {
+     TVariableValue* value = &param_1->mVariableValues[param_3];
+-    value->setValue_time(*(f32*)param_4);
++    value->setValue_time(JGadget::binary::beLoad<f32>(param_4));
+ }
+ 
+ /* 8026F0D4-8026F144       .text adaptor_setVariableValue_FVR_NAME___Q27JStudio8TAdaptorFPQ27JStudio8TAdaptorPQ27JStudio7TObjectUlPCvUl */
+@@ -227,7 +228,7 @@ void JStudio::TAdaptor::adaptor_setVariableValue_FVR_NAME_(JStudio::TAdaptor* pa
+ /* 8026F144-8026F1B0       .text adaptor_setVariableValue_FVR_INDEX___Q27JStudio8TAdaptorFPQ27JStudio8TAdaptorPQ27JStudio7TObjectUlPCvUl */
+ void JStudio::TAdaptor::adaptor_setVariableValue_FVR_INDEX_(JStudio::TAdaptor* param_1, JStudio::TObject* param_2, u32 param_3, const void* param_4, u32 param_5) {
+     TVariableValue* value = &param_1->mVariableValues[param_3];
+-    value->setValue_functionValue(param_2->getControl()->getFunctionValue_index(*(u32*)param_4));
++    value->setValue_functionValue(param_2->getControl()->getFunctionValue_index(JGadget::binary::beLoad<u32>(param_4)));
+ }
+ 
+ /* 8026F1B0-8026F234       .text __dt__Q27JStudio7TObjectFv */
+diff --git a/src/JSystem/JStudio/JStudio/stb.cpp b/src/JSystem/JStudio/JStudio/stb.cpp
+index 828d1d44..3bafa4c8 100644
+--- a/src/JSystem/JStudio/JStudio/stb.cpp
++++ b/src/JSystem/JStudio/JStudio/stb.cpp
+@@ -4,6 +4,7 @@
+ //
+ 
+ #include "JSystem/JSystem.h" // IWYU pragma: keep
++#include "JSystem/JGadget/binary.h" // (beLoad: payloads stay big-endian on PC)
+ 
+ #include "JSystem/JStudio/JStudio/stb.h"
+ #include "JSystem/JStudio/JStudio/jstudio-object.h"
+@@ -218,13 +219,13 @@ void TObject::process_sequence_() {
+ void TObject::process_paragraph_reserved_(u32 arg1, const void* pContent, u32 uSize) {
+     switch (arg1) {
+     case 0x1:
+-        setFlag_operation_(*(u32*)pContent);
++        setFlag_operation_(JGadget::binary::beLoad<u32>(pContent));
+         break;
+     case 0x2:
+-        setWait(*(u32*)pContent);
++        setWait(JGadget::binary::beLoad<u32>(pContent));
+         break;
+     case 0x3: {
+-        const void* seq = getSequence_offset(*(s32*)pContent);
++        const void* seq = getSequence_offset(JGadget::binary::beLoad<s32>(pContent));
+         setSequence_next(seq);
+         break;
+     }
+diff --git a/src/JSystem/JStudio/JStudio_JAudio/object-sound.cpp b/src/JSystem/JStudio/JStudio_JAudio/object-sound.cpp
+index a83d76d2..5818ed78 100644
+--- a/src/JSystem/JStudio/JStudio_JAudio/object-sound.cpp
++++ b/src/JSystem/JStudio/JStudio_JAudio/object-sound.cpp
+@@ -4,6 +4,7 @@
+ //
+ 
+ #include "JSystem/JSystem.h" // IWYU pragma: keep
++#include "JSystem/JGadget/binary.h" // (beLoad: payloads stay big-endian on PC)
+ 
+ #include "JSystem/JStudio/JStudio_JAudio/object-sound.h"
+ #include "JSystem/JAudio/JAISound.h"
+@@ -72,7 +73,7 @@ void TAdaptor_sound::adaptor_do_update(const JStudio::TObject* object, u32) {
+ void TAdaptor_sound::adaptor_do_SOUND(JStudio::data::TEOperationData op, const void* data, u32) {
+     switch (op) {
+     case JStudio::data::TEOD_Unknown_19: {
+-        u32 soundID = *(s32*)data;
++        u32 soundID = JGadget::binary::beLoad<s32>(data);
+         if (mpBasic->checkEnablePrepare(soundID)) {
+             if (mpSound) {
+                 mpSound->stop(0);
+@@ -83,7 +84,7 @@ void TAdaptor_sound::adaptor_do_SOUND(JStudio::data::TEOperationData op, const v
+                 return;
+             }
+         } else {
+-            mSoundID = *(s32*)data;
++            mSoundID = JGadget::binary::beLoad<s32>(data);
+         }
+         break;
+     }
+diff --git a/src/JSystem/JStudio/JStudio_JMessage/object-message.cpp b/src/JSystem/JStudio/JStudio_JMessage/object-message.cpp
+index de95bc34..cb74c7bb 100644
+--- a/src/JSystem/JStudio/JStudio_JMessage/object-message.cpp
++++ b/src/JSystem/JStudio/JStudio_JMessage/object-message.cpp
+@@ -4,6 +4,7 @@
+ //
+ 
+ #include "JSystem/JSystem.h" // IWYU pragma: keep
++#include "JSystem/JGadget/binary.h" // (beLoad: payloads stay big-endian on PC)
+ 
+ #include "JSystem/JStudio/JStudio_JMessage/object-message.h"
+ #include "dolphin/types.h"
+@@ -22,7 +23,7 @@ JStudio_JMessage::TAdaptor_message::~TAdaptor_message() {}
+ void JStudio_JMessage::TAdaptor_message::adaptor_do_MESSAGE(JStudio::data::TEOperationData operation, const void* param_2, u32 param_3) {
+     switch (operation) {
+     case JStudio::data::TEOD_Unknown_19:
+-        mControl->setMessageCode(*(u32*)param_2);
++        mControl->setMessageCode(JGadget::binary::beLoad<u32>(param_2));
+         break;
+     default:
+         break;
+diff --git a/src/JSystem/JStudio/JStudio_JParticle/object-particle.cpp b/src/JSystem/JStudio/JStudio_JParticle/object-particle.cpp
+index 407b8e89..8bca00f5 100644
+--- a/src/JSystem/JStudio/JStudio_JParticle/object-particle.cpp
++++ b/src/JSystem/JStudio/JStudio_JParticle/object-particle.cpp
+@@ -4,6 +4,7 @@
+ //
+ 
+ #include "JSystem/JSystem.h" // IWYU pragma: keep
++#include "JSystem/JGadget/binary.h" // (beLoad: payloads stay big-endian on PC)
+ 
+ #include "JSystem/JStudio/JStudio_JParticle/object-particle.h"
+ #include "JSystem/JParticle/JPAEmitterManager.h"
+@@ -120,7 +121,7 @@ void TAdaptor_particle::adaptor_do_PARENT_NODE(JStudio::data::TEOperationData op
+         }
+         break;
+     case JStudio::data::TEOD_Unknown_19:
+-        field_0x1C8 = *(u32*)param_2;
++        field_0x1C8 = JGadget::binary::beLoad<u32>(param_2);
+         break;
+     default:
+         break;
+@@ -131,7 +132,7 @@ void TAdaptor_particle::adaptor_do_PARENT_NODE(JStudio::data::TEOperationData op
+ void TAdaptor_particle::adaptor_do_PARENT_ENABLE(JStudio::data::TEOperationData operation, const void* param_2, u32 param_3) {
+     switch (operation) {
+     case JStudio::data::TEOD_Unknown_02:
+-        field_0x1CC = *(u32*)param_2;
++        field_0x1CC = JGadget::binary::beLoad<u32>(param_2);
+         break;
+     default:
+         break;
+diff --git a/src/JSystem/JStudio/JStudio_JStage/object-actor.cpp b/src/JSystem/JStudio/JStudio_JStage/object-actor.cpp
+index a4fde38e..dead67bf 100644
+--- a/src/JSystem/JStudio/JStudio_JStage/object-actor.cpp
++++ b/src/JSystem/JStudio/JStudio_JStage/object-actor.cpp
+@@ -4,6 +4,7 @@
+ //
+ 
+ #include "JSystem/JSystem.h" // IWYU pragma: keep
++#include "JSystem/JGadget/binary.h" // (beLoad: payloads stay big-endian on PC)
+ 
+ #include "JSystem/JStudio/JStudio_JStage/object-actor.h"
+ #include "dolphin/types.h"
+@@ -122,7 +123,7 @@ void TAdaptor_actor::adaptor_do_ANIMATION_MODE(JStudio::data::TEOperationData op
+     if (operation != JStudio::data::TEOD_Unknown_02) {
+         return;
+     }
+-    m13C = *(u32*)p2;
++    m13C = JGadget::binary::beLoad<u32>(p2);
+ }
+ 
+ /* 80276848-802768A0       .text adaptor_do_TEXTURE_ANIMATION__Q214JStudio_JStage14TAdaptor_actorFQ37JStudio4data15TEOperationDataPCvUl */
+@@ -135,7 +136,7 @@ void TAdaptor_actor::adaptor_do_TEXTURE_ANIMATION_MODE(JStudio::data::TEOperatio
+     if (operation != JStudio::data::TEOD_Unknown_02) {
+         return;
+     }
+-    m140 = *(u32*)p2;
++    m140 = JGadget::binary::beLoad<u32>(p2);
+ }
+ 
+ /* 802768B4-80276908       .text adaptor_do_PARENT__Q214JStudio_JStage14TAdaptor_actorFQ37JStudio4data15TEOperationDataPCvUl */
+@@ -158,7 +159,7 @@ void TAdaptor_actor::adaptor_do_PARENT_NODE(JStudio::data::TEOperationData opera
+         }
+         break;
+     case JStudio::data::TEOD_Unknown_19:
+-        m130 = *(u32*)p2;
++        m130 = JGadget::binary::beLoad<u32>(p2);
+         break;
+     default:
+         break;
+@@ -169,7 +170,7 @@ void TAdaptor_actor::adaptor_do_PARENT_NODE(JStudio::data::TEOperationData opera
+ void TAdaptor_actor::adaptor_do_PARENT_ENABLE(JStudio::data::TEOperationData operation, const void* p2, u32 p3) {
+     switch (operation) {
+     case JStudio::data::TEOD_Unknown_02: {
+-        bool v0 = (*(u32*)p2 != 0);
++        bool v0 = (JGadget::binary::beLoad<u32>(p2) != 0);
+         JStage::TObject* object = NULL;
+         u32 v1 = 0xFFFFFFFF;
+         if (v0 != 0) {
+@@ -203,7 +204,7 @@ void TAdaptor_actor::adaptor_do_RELATION_NODE(JStudio::data::TEOperationData ope
+         }
+         break;
+     case JStudio::data::TEOD_Unknown_19:
+-        m138 = *(u32*)p2;
++        m138 = JGadget::binary::beLoad<u32>(p2);
+         break;
+     default:
+         break;
+@@ -214,7 +215,7 @@ void TAdaptor_actor::adaptor_do_RELATION_NODE(JStudio::data::TEOperationData ope
+ void TAdaptor_actor::adaptor_do_RELATION_ENABLE(JStudio::data::TEOperationData operation, const void* p2, u32 p3) {
+     switch (operation) {
+     case JStudio::data::TEOD_Unknown_02:
+-        mObject->JSGSetRelation(*(u32*)p2, m134, m138);
++        mObject->JSGSetRelation(JGadget::binary::beLoad<u32>(p2), m134, m138);
+         break;
+     default:
+         break;
+@@ -225,7 +226,7 @@ void TAdaptor_actor::adaptor_do_RELATION_ENABLE(JStudio::data::TEOperationData o
+ void TAdaptor_actor::setJSG_ID_(IDFunction function, JStudio::data::TEOperationData operation, const void* p3, u32 p4) {
+     switch (operation) {
+     case JStudio::data::TEOD_Unknown_19:
+-        (mObject->*function)(*(u32*)p3);
++        (mObject->*function)(JGadget::binary::beLoad<u32>(p3));
+         break;
+     default:
+         break;
+diff --git a/src/JSystem/JStudio/JStudio_JStage/object-camera.cpp b/src/JSystem/JStudio/JStudio_JStage/object-camera.cpp
+index bd1de096..2dc1ad10 100644
+--- a/src/JSystem/JStudio/JStudio_JStage/object-camera.cpp
++++ b/src/JSystem/JStudio/JStudio_JStage/object-camera.cpp
+@@ -4,6 +4,7 @@
+ //
+ 
+ #include "JSystem/JSystem.h" // IWYU pragma: keep
++#include "JSystem/JGadget/binary.h" // (beLoad: payloads stay big-endian on PC)
+ 
+ #include "JSystem/JStudio/JStudio_JStage/object-camera.h"
+ #include "dolphin/types.h"
+@@ -123,7 +124,7 @@ void TAdaptor_camera::adaptor_do_PARENT_NODE(JStudio::data::TEOperationData oper
+         }
+         break;
+     case JStudio::data::TEOD_Unknown_19:
+-        mF4 = *(u32*)p2;
++        mF4 = JGadget::binary::beLoad<u32>(p2);
+         break;
+     default:
+         break;
+@@ -136,7 +137,7 @@ void TAdaptor_camera::adaptor_do_PARENT_ENABLE(JStudio::data::TEOperationData op
+     case JStudio::data::TEOD_Unknown_02: {
+         JStage::TObject* parent = NULL;
+         u32 idx                 = -1;
+-        if (*(u32*)p2 != 0) {
++        if (JGadget::binary::beLoad<u32>(p2) != 0) {
+             parent = mF0;
+             idx    = mF4;
+         }
+diff --git a/src/JSystem/JStudio/JStudio_JStage/object.cpp b/src/JSystem/JStudio/JStudio_JStage/object.cpp
+index 502cc70c..76b3c769 100644
+--- a/src/JSystem/JStudio/JStudio_JStage/object.cpp
++++ b/src/JSystem/JStudio/JStudio_JStage/object.cpp
+@@ -4,20 +4,21 @@
+ //
+ 
+ #include "JSystem/JSystem.h" // IWYU pragma: keep
++#include "JSystem/JGadget/binary.h" // (beLoad: payloads stay big-endian on PC)
+ 
+ #include "JSystem/JStudio/JStudio_JStage/object.h"
+ #include "dolphin/types.h"
+ 
+ /* 80276188-802761D0       .text adaptor_data___Q214JStudio_JStage16TAdaptor_object_FPQ26JStage7TObjectPCvUlPCvUl */
+ void JStudio_JStage::TAdaptor_object_::adaptor_data_(JStage::TObject* object, const void* p2, u32 p3, const void* p4, u32 p5) {
+-    object->JSGSetData((p3 == 0 ? 0xFFFFFFFF : *(u32*)p2), p4, p5);
++    object->JSGSetData((p3 == 0 ? 0xFFFFFFFF : JGadget::binary::beLoad<u32>(p2)), p4, p5);
+ }
+ 
+ /* 802761D0-80276264       .text adaptor_ENABLE___Q214JStudio_JStage16TAdaptor_object_FPQ26JStage7TObjectQ37JStudio4data15TEOperationDataPCvUl */
+ void JStudio_JStage::TAdaptor_object_::adaptor_ENABLE_(JStage::TObject* object, JStudio::data::TEOperationData op, const void* data, u32) {
+     switch (op) {
+     case JStudio::data::TEOD_Unknown_02:
+-        if ((*(u32*)data) != 0) {
++        if ((JGadget::binary::beLoad<u32>(data)) != 0) {
+             object->JSGFEnableFlag(2);
+         } else {
+             object->JSGFDisableFlag(2);
+-- 
+2.43.0
+

@@ -459,3 +459,18 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   up: 03 (bmg messages, Wind Waker has its own reader), 07 (JAIGFrameStream),
   10 (JASTrack sequence tables, for sound), 11 (card saves), 12 (THP),
   17 (JAIBasic DVD files).
+- 12 Nov, thirty-fifth run (9e76143): THE TITLE SCREEN, right: logo,
+  sparkle, PRESS START, (c) line, Outset behind. But not the GameCube's
+  title: Link stands on the beach, controllable, with the HUD, instead of
+  the ship-sailing cutscene. title.stb (JStudio) was "not converted".
+  Sunshine has no JStudio, so nothing to borrow. Split:
+  - port/src/tww_endian.cpp tww_endian_stb: header, blocks, object
+    flag/id size, sequence words (type in the top byte; types >= 0x80
+    carry `param` bytes of paragraphs), paragraph headers (16/32-bit
+    variable form), and the embedded JFVB function values in full (their
+    paragraphs are 4-byte words, except 0x10 ID list and 0x15 u16 pair).
+  - patch 0029: STB object paragraph payloads stay big-endian and are
+    read with JGadget::binary::beLoad (TParseValue_raw_ for the value
+    iterators, and ~20 direct reads in JStudio objects/adaptors).
+  Synthetic test: structure native, payloads BE, FVB constant converted,
+  second pass a no-op.

@@ -342,6 +342,7 @@ extern "C" int port_warp_want_list(void) { return 0; }
 extern "C" int tww_endian_stage(void* data, uint32_t size, const char* name);
 extern "C" int tww_endian_event_list(void* data, uint32_t size);
 extern "C" int tww_endian_dzb(void* data, uint32_t size, const char* name);
+extern "C" int tww_endian_stb(void* data, uint32_t size, const char* name);
 static bool ends_with(const char* s, const char* suffix)
 {
 	if (!s)
@@ -354,6 +355,8 @@ extern "C" int port_endian_game(void* data, uint32_t size, const char* name)
 	const int PE_FMT_UNKNOWN_ = PE_FMT_UNKNOWN, PE_FMT_GAME_ = PE_FMT_GAME;
 	if (ends_with(name, ".dzs") || ends_with(name, ".dzr"))
 		return tww_endian_stage(data, size, name) ? PE_FMT_GAME_ : PE_FMT_UNKNOWN_;
+	if (ends_with(name, ".stb"))
+		return tww_endian_stb(data, size, name) ? PE_FMT_GAME_ : PE_FMT_UNKNOWN_;
 	if (ends_with(name, ".dzb"))
 		return tww_endian_dzb(data, size, name) ? PE_FMT_GAME_ : PE_FMT_UNKNOWN_;
 	if (ends_with(name, "event_list.dat"))

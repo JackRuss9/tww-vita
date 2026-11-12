@@ -352,3 +352,135 @@ extern "C" int tww_endian_dzb(void* data, uint32_t size, const char* name)
 	}
 	return 1;
 }
+
+// ---- JStudio cutscene scripts (*.stb) -------------------------------------
+// The structure is converted here; STB object paragraphs' payloads, whose
+// meaning only their readers know, are read big-endian where they are used
+// (patch 0029). The embedded function values (a JFVB block) are converted
+// whole: their paragraph contents are 4-byte words except an ID-string list
+// (0x10) and a pair of u16s (0x15).
+namespace {
+
+inline uint16_t ld16(const uint8_t* p) { uint16_t v; memcpy(&v, p, 2); return v; }
+inline uint16_t sr16(uint8_t* p) { sw16(p); return ld16(p); } // swap, then the value
+inline uint32_t sr32(uint8_t* p) { sw32(p); return ld32(p); }
+
+// A paragraph header (JGadget::binary::parseVariableUInt_16_32_following):
+// u16 size, u16 type; or, with the top bit set, a 31-bit size in two u16s
+// and a u32 type. Returns the content's offset, size and type.
+bool stb_paragraph(uint8_t* b, uint32_t off, uint32_t end, uint32_t* content, uint32_t* size, uint32_t* type)
+{
+	if (off + 4 > end)
+		return false;
+	uint16_t first = (uint16_t)(b[off] << 8 | b[off + 1]);
+	if (!(first & 0x8000)) {
+		sw16(b + off);
+		sw16(b + off + 2);
+		*size = ld16(b + off);
+		*type = ld16(b + off + 2);
+		*content = off + 4;
+	} else {
+		if (off + 8 > end)
+			return false;
+		sw16(b + off);
+		sw16(b + off + 2);
+		sw32(b + off + 4);
+		*size = ((uint32_t)(ld16(b + off) & 0x7FFF) << 16) | ld16(b + off + 2);
+		*type = ld32(b + off + 4);
+		*content = off + 8;
+	}
+	return *content + *size <= end;
+}
+
+void fvb_convert(uint8_t* b, uint32_t start, uint32_t end)
+{
+	if (start + 0x10 > end || memcmp(b + start, "FVB", 3) != 0)
+		return;
+	sw16(b + start + 4);
+	sw16(b + start + 6);
+	sw32(b + start + 8);
+	uint32_t nblocks = sr32(b + start + 0x0C);
+	uint32_t pos = start + 0x10;
+	for (uint32_t i = 0; i < nblocks && pos + 8 <= end; i++) {
+		uint32_t bsize = sr32(b + pos);
+		sw16(b + pos + 4); // type
+		uint16_t idsize = sr16(b + pos + 6);
+		if (bsize < 8 || pos + bsize > end)
+			break;
+		uint32_t bend = pos + bsize;
+		uint32_t p = pos + 8 + ((idsize + 3) & ~3u);
+		while (p < bend) {
+			uint32_t c, size, type;
+			if (!stb_paragraph(b, p, bend, &c, &size, &type) || type == 0)
+				break;
+			if (type == 0x10) { // u32 count, then (u32 size, ID bytes) entries
+				uint32_t n = sr32(b + c), q = c + 4;
+				for (uint32_t k = 0; k < n && q + 4 <= c + size; k++) {
+					uint32_t len = sr32(b + q);
+					q += 4 + ((len + 3) & ~3u);
+				}
+			} else if (type == 0x15) {
+				swn(b + c, size / 2, 2);
+			} else {
+				swn(b + c, size / 4, 4);
+			}
+			p = c + ((size + 3) & ~3u);
+		}
+		pos = bend;
+	}
+}
+
+} // namespace
+
+extern "C" int tww_endian_stb(void* data, uint32_t size, const char* name)
+{
+	uint8_t* b = (uint8_t*)data;
+	if (size < 0x20 || memcmp(b, "STB", 3) != 0)
+		return 0;
+	if (b[4] == 0xFF && b[5] == 0xFE)
+		return 1; // already converted (the byte-order mark reads 0xFEFF natively)
+	sw16(b + 4);  // byte order (0xFEFF)
+	sw16(b + 6);  // version
+	sw32(b + 8);
+	uint32_t nblocks = sr32(b + 0x0C);
+	swn(b + 0x18, 4, 2); // target: u16[3], version
+	uint32_t pos = 0x20;
+	for (uint32_t i = 0; i < nblocks && pos + 8 <= size; i++) {
+		uint32_t bsize = sr32(b + pos);
+		uint32_t type = sr32(b + pos + 4);
+		if (bsize < 8 || pos + bsize > size) {
+			port_log("[tww] %s: block %u (0x%x bytes at 0x%x) runs past the end\n", name, i, bsize, pos);
+			break;
+		}
+		uint32_t bend = pos + bsize;
+		if (type == 'JFVB') {
+			fvb_convert(b, pos + 8, bend);
+		} else if (pos + 0x0C <= bend) {
+			sw16(b + pos + 8); // flag
+			uint16_t idsize = sr16(b + pos + 0x0A);
+			uint32_t p = pos + 0x0C + ((idsize + 3) & ~3u);
+			// The object's sequence: u32 words, type in the top byte; types
+			// from 0x80 carry `param` bytes of paragraphs.
+			while (p + 4 <= bend) {
+				uint32_t head = sr32(b + p);
+				uint32_t t = head >> 24, param = head & 0xFFFFFF;
+				p += 4;
+				if (t >= 0x80) {
+					uint32_t pend = p + param;
+					if (pend > bend)
+						break;
+					uint32_t q = p;
+					while (q < pend) {
+						uint32_t c, psize, ptype;
+						if (!stb_paragraph(b, q, pend, &c, &psize, &ptype))
+							break;
+						q = c + ((psize + 3) & ~3u);
+					}
+					p = pend;
+				}
+			}
+		}
+		pos = bend;
+	}
+	return 1;
+}
