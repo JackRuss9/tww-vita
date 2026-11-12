@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 06:59:28 +0100
+Subject: [PATCH] Reason: diagnostics: each archive's resource set-up
+
+Demo51.arc is found mounted with no resource table, and no error was
+reported (the game's reports are on now). Each archive that finishes
+setRes logs its file count, table and data heap, and getRes on one
+without a table logs its full state, to tell a table never made from one
+cleared later.
+---
+ include/d/d_resorce.h | 6 ++++++
+ src/d/d_resorce.cpp   | 7 ++++++-
+ 2 files changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/include/d/d_resorce.h b/include/d/d_resorce.h
+index 5af98071..589ab8df 100644
+--- a/include/d/d_resorce.h
++++ b/include/d/d_resorce.h
+@@ -24,6 +24,12 @@ public:
+     void* getRes(s32 i_index) { return mRes[i_index]; }
+ #ifdef TARGET_PC
+     bool tww_resSetUp() const { return mRes != NULL; } // (diagnostics, d_resorce.cpp)
++    const char* tww_describe() const {
++        static char s[160];
++        snprintf(s, sizeof(s), "count %d, command %p, archive %p, parent heap %p, data heap %p, table %p", mCount,
++                 mpDMCommand, mpArchive, mpParentHeap, mDataHeap, mRes);
++        return s;
++    }
+ #endif
+     int getResNum() { return mpArchive->countFile(); }
+     int getCount() { return mCount; }
+diff --git a/src/d/d_resorce.cpp b/src/d/d_resorce.cpp
+index 2b65c5f9..5d923d85 100644
+--- a/src/d/d_resorce.cpp
++++ b/src/d/d_resorce.cpp
+@@ -462,6 +462,10 @@ int dRes_info_c::setRes() {
+ 
+         u32 heapSize = mDataHeap->getHeapSize();
+         void* heapStartAddr = mDataHeap->getStartAddr();
++#ifdef TARGET_PC
++        OSReport("[tww] <%s.arc> set up: %d files, table %p, data heap %p (0x%x bytes), info %p\n", mArchiveName,
++                 getResNum(), mRes, mDataHeap, heapSize, this);
++#endif
+ #if VERSION <= VERSION_JPN
+         DCFlushRangeNoSync(heapStartAddr, heapSize);
+ #else
+@@ -671,7 +675,8 @@ void* dRes_control_c::getRes(char const* pArcName, char const* resName, dRes_inf
+     if (!resInfo->tww_resSetUp()) {
+         // tww-vita: mounted, but its resources were never set up (setRes
+         // failed); the GameCube would read through NULL here.
+-        OSReport("[tww] <%s.arc> getRes(%s): archive mounted but its resources are not set up\n", pArcName, resName);
++        OSReport("[tww] <%s.arc> getRes(%s): archive mounted but its resources are not set up (info %p: %s)\n", pArcName,
++                 resName, resInfo, resInfo->tww_describe());
+         return NULL;
+     }
+ #endif
+-- 
+2.43.0
+

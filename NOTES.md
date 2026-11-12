@@ -392,3 +392,12 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   game's OSReport_Error output never existed. Patch 0024 keeps reports on
   on PC and names the tag of "Unknown data block" (three of those, from
   J3D animation/cluster loaders).
+- 12 Nov, twenty-ninth run: same halt; still no game error lines at all
+  (OSReport_Error forces output, so setRes really reported nothing).
+  The three "Unknown data block" are J3DModelLoader::load meeting MDL3
+  in .bdl files (normal; the GameCube prints them too). Reading setRes /
+  loadResource / the destructor, every path leaves mRes set or clears
+  mpArchive with it, so either setRes never ran for Demo51 or the
+  dRes_info_c was overwritten. Patch 0025 logs every archive's set-up
+  (files, table, data heap, info address) and the full state of one
+  found without a table.
