@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 19:44:39 +0100
+Subject: [PATCH] Reason: GFSetArray passes the array's pointer to GX
+
+GFSetArray wrote the array base as a physical address (OSCachedToPhysical);
+on PC arrays can be the game code's own data (the grass's vertex arrays
+are embedded assets), outside the emulated memory a physical address
+reaches, so the grass's first draw read from a wrong address. On PC it
+calls GXSetArray with the pointer.
+---
+ src/dolphin/gf/GFGeometry.cpp | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/dolphin/gf/GFGeometry.cpp b/src/dolphin/gf/GFGeometry.cpp
+index 77c2a6da..7e43ddcf 100644
+--- a/src/dolphin/gf/GFGeometry.cpp
++++ b/src/dolphin/gf/GFGeometry.cpp
+@@ -235,6 +235,13 @@ void GFSetVtxAttrFmtv(GXVtxFmt vtxfmt, GXVtxAttrFmtList* list) {
+ }
+ 
+ void GFSetArray(GXAttr attr, void* base_ptr, u8 stride) {
++#ifdef TARGET_PC
++    // tww-vita: arrays can be the game code's own data (the grass's), outside
++    // the emulated GameCube memory a physical address can name; the GX call
++    // takes the pointer itself.
++    GXSetArray(attr, base_ptr, stride);
++    return;
++#endif
+     s32 cpAttr;
+     if (attr == GX_VA_NBT) {
+         cpAttr = GX_VA_TEX0MTXIDX;
+-- 
+2.43.0
+

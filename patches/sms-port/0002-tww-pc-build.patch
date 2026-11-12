@@ -10,7 +10,8 @@ Subject: [PATCH] Reason: build on 32-bit x86 PCs (the fiber stack dump only
  Wind Waker's J3D) converted; JPAC1-00 particle archives (Wind Waker)
  converted with Wind Waker's own JParticle block layouts (BSP1, ESP1, SSP1,
  ETX1, KFA1, BEM1, FLD1, TDB1, TEX1); J3D: CLS1 blocks of BLS cluster (skin
- deform) files converted (Wind Waker)
+ deform) files converted (Wind Waker); GX: physical addresses beyond emulated
+ memory are the game code's own data (Wind Waker's embedded display lists)
 
 ---
  platform/dvd/dvd.cpp                |  11 +++
@@ -18,9 +19,10 @@ Subject: [PATCH] Reason: build on 32-bit x86 PCs (the fiber stack dump only
  platform/endian/endian_j3d.cpp      |  88 +++++++++++++++++-
  platform/endian/endian_jpa.cpp      | 138 ++++++++++++++++++++++++++++
  platform/endian/port_endian.h       |   1 +
+ platform/gx/src/gx_fifo.cpp         |   6 ++
  platform/gx/src/gx_platform.cpp     |  11 ++-
  platform/os/os_thread.cpp           |  18 ++++
- 7 files changed, 266 insertions(+), 5 deletions(-)
+ 8 files changed, 272 insertions(+), 5 deletions(-)
 
 diff --git a/platform/dvd/dvd.cpp b/platform/dvd/dvd.cpp
 index 138c87c..51e3d6e 100644
@@ -337,6 +339,23 @@ index 8f191f1..ba59634 100644
  int port_endian_aaf(void* data, uint32_t size);
  int port_endian_ibnk(void* data, uint32_t size);
  int port_endian_wsys(void* data, uint32_t size);
+diff --git a/platform/gx/src/gx_fifo.cpp b/platform/gx/src/gx_fifo.cpp
+index 74e6282..dadd74b 100644
+--- a/platform/gx/src/gx_fifo.cpp
++++ b/platform/gx/src/gx_fifo.cpp
+@@ -164,6 +164,12 @@ static uint32_t s_memSize = 0x01800000;
+ void* physToPtr(uint32_t phys) {
+     phys &= 0x3FFFFFFF;
+     if (!phys) return nullptr;
++    // Wind Waker: display lists and arrays built into the game's code (its
++    // embedded assets) name host addresses, outside the emulated memory a
++    // physical address can reach; those are used as they are.
++    if (s_memSize && phys >= s_memSize && phys < 0x40000000u &&
++        reinterpret_cast<uintptr_t>(s_memBase) >= 0x40000000u)
++        return reinterpret_cast<void*>(static_cast<uintptr_t>(phys));
+     return s_memBase + phys;
+ }
+ 
 diff --git a/platform/gx/src/gx_platform.cpp b/platform/gx/src/gx_platform.cpp
 index e47fd0d..85cc68b 100644
 --- a/platform/gx/src/gx_platform.cpp

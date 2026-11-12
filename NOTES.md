@@ -413,3 +413,16 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   (checked on a reduced copy: 1 of 3 null stores kept by default, all 3
   with the flag). This may also explain the createAnimeHeap dummies.
   The run command now pulls the newest tww-vita-update*.bundle.
+- 12 Nov, thirty-first run (1c95e53): -fno-lifetime-dse fixed Demo51
+  (set up: 6 files) and the title runs frames and DRAWS: the crash is in
+  the first frame's opaque list, dGrass_packet_c::draw. The grass sets
+  its arrays with GFSetArray, which writes a physical address; the arrays
+  are embedded assets (game code data, host addresses outside MEM1).
+  Patch 0026: GFSetArray calls GXSetArray on PC. sms-port 0002: GX
+  physToPtr treats a "physical" address past emulated memory as a host
+  address (the embedded material display lists carry IMAGE_ADDR(texture)
+  = host pointer >> 5). Embedded vertex arrays are typed C values (Vec,
+  colours), so native order: no big-endian registration needed. (For the
+  Vita: host addresses there are above 0x40000000; the embedded DLs will
+  need relocating instead.)
+  Anime heaps type 0/3 still used 0x0 with -fno-lifetime-dse: still open.
