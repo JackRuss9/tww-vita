@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 20:32:10 +0100
+Subject: [PATCH] Reason: colours are 0xRRGGBBAA by value; failed stream reads
+ keep their value
+
+JUtility::TColor's u32 constructor/set/toUInt32 stored the value straight
+into the r,g,b,a bytes, which reverses the channels on a little-endian
+host (the title logo's .blo colours turned opaque white over the screen);
+they now shift by value, as sms-port's endian-04. JSUInputStream::readBE
+swaps the value around the read, so one that fails at the end of a stream
+leaves it as it was (sms-port's endian-18). JAIZelBasic::seStart, not
+decompiled, says so once instead of on every call.
+---
+ include/JSystem/JSupport/JSUInputStream.h | 11 +++++++++--
+ include/JSystem/JUtility/TColor.h         | 16 ++++++++++++++++
+ src/JAZelAudio/JAIZelBasic.cpp            |  7 +++++++
+ 3 files changed, 32 insertions(+), 2 deletions(-)
+
+diff --git a/include/JSystem/JSupport/JSUInputStream.h b/include/JSystem/JSupport/JSUInputStream.h
+index 9fa8e1dc..24a8957e 100644
+--- a/include/JSystem/JSupport/JSUInputStream.h
++++ b/include/JSystem/JSupport/JSUInputStream.h
+@@ -15,14 +15,21 @@ public:
+ #ifdef TARGET_PC
+     // The streams carry the disc's big-endian data: the typed reads of
+     // 16- and 32-bit values convert to host order.
+-    s32 readBE(void* buf, s32 size) {
+-        s32 r = read(buf, size);
++    // The value is put in big-endian order around the read, so a read that
++    // fails at the end of the stream leaves it as it was, and a short one
++    // replaces its leading bytes, as on the console (sms-port endian-18).
++    static void swapBE(void* buf, s32 size) {
+         u8* b = (u8*)buf;
+         for (s32 i = 0; i < size / 2; i++) {
+             u8 c = b[i];
+             b[i] = b[size - 1 - i];
+             b[size - 1 - i] = c;
+         }
++    }
++    s32 readBE(void* buf, s32 size) {
++        swapBE(buf, size);
++        s32 r = read(buf, size);
++        swapBE(buf, size);
+         return r;
+     }
+ #else
+diff --git a/include/JSystem/JUtility/TColor.h b/include/JSystem/JUtility/TColor.h
+index ba460306..854b3948 100644
+--- a/include/JSystem/JUtility/TColor.h
++++ b/include/JSystem/JUtility/TColor.h
+@@ -17,7 +17,14 @@ struct TColor : public GXColor {
+     }
+ 
+     operator u32() const { return toUInt32(); }
++#ifdef TARGET_PC
++    // tww-vita: the u32 is 0xRRGGBBAA by value (colour literals, typed stream
++    // reads); a raw store reversed the channels on little-endian hosts (the
++    // title logo's colours turned opaque white). As sms-port's endian-04.
++    u32 toUInt32() const { return ((u32)r << 24) | ((u32)g << 16) | ((u32)b << 8) | a; }
++#else
+     u32 toUInt32() const { return *(u32*)&r; }
++#endif
+ 
+     void set(u8 cR, u8 cG, u8 cB, u8 cA) {
+         r = cR;
+@@ -26,7 +33,16 @@ struct TColor : public GXColor {
+         a = cA;
+     }
+ 
++#ifdef TARGET_PC
++    void set(u32 u32Color) {
++        r = u32Color >> 24;
++        g = u32Color >> 16;
++        b = u32Color >> 8;
++        a = u32Color;
++    }
++#else
+     void set(u32 u32Color) { *(u32*)&r = u32Color; }
++#endif
+     void set(GXColor gxColor) {
+         GXColor* temp = this;
+         *temp = gxColor;
+diff --git a/src/JAZelAudio/JAIZelBasic.cpp b/src/JAZelAudio/JAIZelBasic.cpp
+index 540378cb..c6f2fc63 100644
+--- a/src/JAZelAudio/JAIZelBasic.cpp
++++ b/src/JAZelAudio/JAIZelBasic.cpp
+@@ -709,6 +709,13 @@ void JAIZelBasic::initSe() {
+ JAISound** JAIZelBasic::seStart(u32 i_seNum, Vec*, u32, s8, f32, f32, f32, f32, u8) {
+     /* Nonmatching */
+     // "Kurobo voices should be played in monsSeStart!\n"
++#ifdef TARGET_PC
++    static bool once; // tww-vita: (thousands of these otherwise)
++    if (once)
++        return {};
++    once = true;
++    OSReport("[tww] JAIZelBasic::seStart is not decompiled yet: no sound effects (said once)\n");
++#endif
+     OSReport("クロボーの声は monsSeStartで！\n");
+     OSReport("[JAIZelBasic::seStart] overflow JAISound pointer\n");
+     return {}; // tww-vita: not decompiled yet
+-- 
+2.43.0
+

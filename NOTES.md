@@ -447,3 +447,15 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   swapped the offset but not the table. sms-port 0002 converts it
   (synthetic test passes). (sms-port already converts stand-alone .bas
   files, same layout.)
+- 12 Nov, thirty-fourth run (042ed75): IN GAME. Link moves on Outset
+  with the HUD (hearts, buttons, rupees); ran 220 s, no crash. But the
+  title logo screen covers it as a translucent white box: JUtility::TColor
+  stored its u32 straight into r,g,b,a (channels reversed on a
+  little-endian host), so the .blo's colours (alpha 0 white -> alpha FF)
+  became opaque. Patch 0028: TColor by value (sms-port endian-04), and
+  JSUInputStream::readBE keeps a value whose read fails (endian-18);
+  seStart's two lines said once (they made an 850 KB log).
+  sms-port's decomp-patches/endian-* still to port when their area comes
+  up: 03 (bmg messages, Wind Waker has its own reader), 07 (JAIGFrameStream),
+  10 (JASTrack sequence tables, for sound), 11 (card saves), 12 (THP),
+  17 (JAIBasic DVD files).
