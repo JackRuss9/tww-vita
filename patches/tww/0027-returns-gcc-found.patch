@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 20:02:52 +0100
+Subject: [PATCH] Reason: the four functions GCC finds can run off their end
+ return a value
+
+Running off the end of a non-void function is undefined in C++, and GCC
+compiles it as impossible, so the call runs on into whatever follows (the
+title's raft crashed in JAIZelBasic::seStart, not decompiled yet; those
+are tools/stub_returns.py's). Building the game with -Wreturn-type left
+these four: JHIhtonl's little-endian branch (an empty todo), the wind
+direction table's known missing return (225), and two switches without a
+default (dMenu_save_c::closeForGameover, the JASTrack register read).
+---
+ include/JSystem/JHostIO/JHICommonMem.h | 2 +-
+ src/JSystem/JAudio/JASTrack.cpp        | 3 +++
+ src/d/d_menu_save.cpp                  | 3 +++
+ src/d/d_operate_wind.cpp               | 3 +++
+ 4 files changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/include/JSystem/JHostIO/JHICommonMem.h b/include/JSystem/JHostIO/JHICommonMem.h
+index d515de4a..eb4a2c51 100644
+--- a/include/JSystem/JHostIO/JHICommonMem.h
++++ b/include/JSystem/JHostIO/JHICommonMem.h
+@@ -7,7 +7,7 @@ inline u32 JHIhtonl(u32 v) {
+ #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+     return v;
+ #else
+-    // todo
++    return __builtin_bswap32(v); // tww-vita (was an empty "todo": running off a non-void function)
+ #endif
+ }
+ 
+diff --git a/src/JSystem/JAudio/JASTrack.cpp b/src/JSystem/JAudio/JASTrack.cpp
+index 53a951b6..f3052973 100644
+--- a/src/JSystem/JAudio/JASTrack.cpp
++++ b/src/JSystem/JAudio/JASTrack.cpp
+@@ -1004,6 +1004,9 @@ int JASystem::TTrack::loadTbl(u32 param_1, u32 param_2, u32 param_3) {
+     case 8:
+         return mSeqCtrl.get32(param_1 + param_2);
+     }
++#ifdef TARGET_PC
++    return 0; // tww-vita: GCC treats running off the end as impossible
++#endif
+ }
+ 
+ /* 80282D80-80282DC0       .text exchangeRegisterValue__Q28JASystem6TTrackFUc */
+diff --git a/src/d/d_menu_save.cpp b/src/d/d_menu_save.cpp
+index 9a4160b5..9286c911 100644
+--- a/src/d/d_menu_save.cpp
++++ b/src/d/d_menu_save.cpp
+@@ -399,6 +399,9 @@ BOOL dMenu_save_c::closeForGameover() {
+     case 1: return closeForGameover_1();
+     case 0: return closeForGameover_2();
+     }
++#ifdef TARGET_PC
++    return FALSE; // tww-vita: GCC treats running off the end as impossible
++#endif
+ }
+ 
+ /* 801D6EAC-801D704C       .text closeForGameover_1__12dMenu_save_cFv */
+diff --git a/src/d/d_operate_wind.cpp b/src/d/d_operate_wind.cpp
+index 1cc6bd70..bdd3b7f4 100644
+--- a/src/d/d_operate_wind.cpp
++++ b/src/d/d_operate_wind.cpp
+@@ -72,6 +72,9 @@ int dOperate_wind_c::dOw_angleRegular(f32 angle) {
+     else if (angle < 202.5f)
+         return 180;
+     // !@bug missing end return
++#ifdef TARGET_PC
++    return 225; // tww-vita: GCC treats running off the end as impossible; the direction left
++#endif
+ }
+ 
+ /* 8021E7E4-8021E974       .text dOw_stickControl__15dOperate_wind_cFis */
+-- 
+2.43.0
+

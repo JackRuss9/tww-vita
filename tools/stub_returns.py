@@ -47,8 +47,85 @@ def return_type(sig):
             return None
     return ' '.join(head.split())
 
+# Any function definition starting at column 0 with its "{" ending the line
+# (the decomp's style); the body is found by matching braces.
+DEF_ANY = re.compile(r'(?P<sig>^[A-Za-z_][^;{}#]*?\)\s*(?:const\s*)?)\{[ \t]*(?://[^\n]*)?$', re.M | re.S)
+
+def body_end(t, i):
+    """Index of the "}" closing the brace at t[i], skipping comments,
+    strings and character literals; -1 if unbalanced."""
+    depth, n = 0, len(t)
+    while i < n:
+        c = t[i]
+        if c == '/' and t.startswith('//', i):
+            i = t.find('\n', i)
+            if i < 0:
+                return -1
+        elif c == '/' and t.startswith('/*', i):
+            i = t.find('*/', i + 2)
+            if i < 0:
+                return -1
+            i += 1
+        elif c in '"\'':
+            j = i + 1
+            while j < n and t[j] != c:
+                j += 2 if t[j] == '\\' else 1
+            i = j
+        elif c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+def last_statement_returns(body):
+    s = re.sub(r'/\*.*?\*/|//[^\n]*', ' ', body, flags=re.S).strip()
+    if not s:
+        return False
+    # the last statement: after the last ";" or "}" before the end
+    tail = s.rstrip()
+    m = re.search(r'(?:^|[;{}])\s*(return\b[^;]*;)\s*$', tail, re.S)
+    return bool(m)
+
+def process_partial(path, t):
+    """Non-void functions not decompiled yet (Nonmatching/TODO) whose body has
+    code but can run off its end: `return {};` goes before the closing brace."""
+    out, pos, n = [], 0, 0
+    for m in DEF_ANY.finditer(t):
+        if m.start() < pos:
+            continue
+        open_i = m.end() - 1
+        while t[open_i] != '{':
+            open_i -= 1
+        close_i = body_end(t, open_i)
+        if close_i < 0:
+            continue
+        body = t[open_i + 1:close_i]
+        if MARK in body or not re.search(r'Nonmatching|TODO', body):
+            continue
+        rt = return_type(m.group('sig'))
+        if rt is None or rt == 'void' or rt.endswith('&'):
+            continue
+        if last_statement_returns(body):
+            continue
+        if os.environ.get('STUB_RETURNS_VERBOSE'):
+            print('%s: (partial) %s | %s' % (os.path.basename(path), rt, ' '.join(m.group('sig').split())[:90]))
+        out.append(t[pos:close_i])
+        out.append('    ' + MARK + '\n')
+        pos = close_i
+        n += 1
+    if n:
+        out.append(t[pos:])
+        return ''.join(out), n
+    return t, 0
+
 def process(path):
     t = open(path, encoding='utf-8', errors='surrogateescape').read()
+    t, n_partial = process_partial(path, t)
+    if n_partial:
+        open(path, 'w', encoding='utf-8', errors='surrogateescape').write(t)
     out, pos, n = [], 0, 0
     for m in DEF.finditer(t):
         body = m.group('body')
@@ -69,7 +146,7 @@ def process(path):
     if n:
         out.append(t[pos:])
         open(path, 'w', encoding='utf-8', errors='surrogateescape').write(''.join(out))
-    return n
+    return n + n_partial
 
 def main():
     src = os.path.join(sys.argv[1], 'src')

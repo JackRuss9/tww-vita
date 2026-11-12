@@ -426,3 +426,15 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
   Vita: host addresses there are above 0x40000000; the embedded DLs will
   need relocating instead.)
   Anime heaps type 0/3 still used 0x0 with -fno-lifetime-dse: still open.
+- 12 Nov, thirty-second run (58e66e1): THE TITLE SCREEN SHOWS ("The
+  Legend of Zelda" after the Dolby logo). Crash a few frames in: the
+  raft (daObj_Ikada_c::_execute) calls JAIZelBasic::seStart, not
+  decompiled, whose body is two OSReports and no return: GCC compiles
+  running off a non-void function as impossible and the call went on into
+  data. stub_returns.py now also handles bodies with code (Nonmatching /
+  TODO, non-void, last statement not a return): 520 functions (was 499;
+  two old ones were void, fixed). Then a scan of every file compiled
+  with -Wreturn-type (instead of -w) left four, fixed by hand in patch
+  0027 (JHIhtonl, d_operate_wind's known bug, two switches). To re-run
+  that scan after decomp updates: ninja -t commands, -w -> -Wreturn-type,
+  grep "control reaches end|no return statement".
