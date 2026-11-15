@@ -12,6 +12,7 @@ keybase = int(gdb.parse_and_eval("&'(anonymous namespace)::g_key'"))
 opening_done = False
 seen_game_demo = False
 free_frames = 0
+free_since = None
 move_origin = None
 camera_cut = None
 
@@ -26,10 +27,16 @@ class Flow(gdb.Breakpoint):
     def __init__(self, name, kind):
         super().__init__(name)
         self.kind, self.n, self.last, self.age = kind, 0, None, 0
+        self.stride = {'link': 30, 'camera': 10, 'opening': 15, 'message': 5}.get(kind, 1)
     def stop(self):
-        global opening_done, seen_game_demo, free_frames, move_origin, camera_cut
+        global opening_done, seen_game_demo, free_frames, free_since, move_origin, camera_cut
         self.n += 1
-        obj = gdb.parse_and_eval('this')
+        # Returning early keeps the real execution count and avoids expensive
+        # memory reads on every frame. GDB breakpoint state is not modified
+        # from stop(), where changes to ignore_count are not reliable.
+        if (self.n - 1) % self.stride:
+            return False
+        obj = gdb.parse_and_eval('i_Msg' if self.kind == 'message' else 'this')
         if self.kind == 'title':
             press('start' if 120 <= self.n % 180 < 136 else None)
             if self.n % 180 == 120:
@@ -61,6 +68,13 @@ class Flow(gdb.Breakpoint):
             elif main == 4 and 60 <= self.age % 180 < 68:
                 key = 'a'
             press(key)
+        elif self.kind == 'message':
+            state = val(obj, 'field_0x164')
+            if state != self.last:
+                self.last = state
+                control = gdb.parse_and_eval('dMesg_gpControl')
+                print('[flow] dialogue state=%d group=%d index=%d' %
+                      (state, val(control, 'mGroupID'), val(control, 'mMessageIndex')))
         elif self.kind == 'opening':
             state = val(obj, 'mState')
             if state != self.last:
@@ -121,22 +135,29 @@ class Flow(gdb.Breakpoint):
             if opening_done and stage == 'sea':
                 seen_game_demo |= demo != 0
                 if seen_game_demo and demo == 0:
-                    free_frames += 1
+                    if free_since is None: free_since = self.n
+                    free_frames = self.n - free_since
                 else:
+                    free_since = None
                     free_frames = 0
                 if free_frames == 60:
                     move_origin = xyz
                     print('[flow] control handed to Link; testing movement')
-                press('up' if 60 <= free_frames < 90 else None)
+                key = 'up' if 60 <= free_frames < 90 else None
+                if demo != 0 and 91 <= self.n % 120 < 120:
+                    key = 'a' # Normal dialogue advance; never Start to skip a movie.
+                press(key)
                 if free_frames >= 100 and move_origin:
                     distance = sum((xyz[i]-move_origin[i])**2 for i in (0,2))**0.5
                     print('[flow] normal-start movement distance=%.3f' % distance)
                     if distance > 10:
                         print('[flow] SUCCESS: normal startup, named new game, full opening, control and movement')
+                        gdb.set_convenience_variable('tww_probe_success', 1)
                         return True
         return False
 
-for name, kind in [('dDemo_actor_c::JSGSetData','params'),
+for name, kind in [('dMsg_Execute','message'),
+                   ('dDemo_actor_c::JSGSetData','params'),
                    ('daTitle_proc_c::proc_execute','title'),
                    ('dScnName_c::execute','name'),
                    ('dScnOpen_proc_c::proc_execute','opening'),

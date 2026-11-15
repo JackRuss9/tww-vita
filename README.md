@@ -14,14 +14,14 @@ functions. The port follows it as it fills in (`TWW_COMMIT` in
 No game data is included. You need your own disc image.
 
 See [PROGRESS.md](PROGRESS.md) for verified PC milestones, reproducible tests
-and known blockers (Spanish). Full Outset story progression and uninterrupted
-audio are not verified yet.
+and known blockers (Spanish). Normal startup through the complete opening to controlling Link is verified.
+Full Outset story progression and uninterrupted audio are not verified yet.
 
 ## Builds
 
 | | Command | Status |
 |---|---|---|
-| PC test version (Linux / WSL, 32-bit) | `TWW_ISO=/path/GZLE01.iso ./build-pc.sh`, then `./run-pc.sh` | builds; direct Outset free-walk verified; story bring-up continues |
+| PC test version (Linux / WSL, 32-bit) | `TWW_ISO=/path/GZLE01.iso ./build-pc.sh`, then `./run-pc.sh` | normal startup, full opening and first Link movement verified; island story work continues |
 | PS Vita | not implemented yet | deferred until PC works |
 
 See the top of `build-pc.sh` for the one-time Ubuntu / WSL setup. A working

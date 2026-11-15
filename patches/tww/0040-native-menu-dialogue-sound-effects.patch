@@ -1,0 +1,57 @@
+Reason: restore the recovered JAudio dispatch for non-positional menu/dialogue effects; specialized sound remapping remains pending.
+
+--- a/src/JAZelAudio/JAIZelBasic.cpp
++++ b/src/JAZelAudio/JAIZelBasic.cpp
+@@ -706,15 +706,50 @@
+ }
+ 
+ /* 802A6720-802A8550       .text seStart__11JAIZelBasicFUlP3VecUlScffffUc */
+-JAISound** JAIZelBasic::seStart(u32 i_seNum, Vec*, u32, s8, f32, f32, f32, f32, u8) {
++JAISound** JAIZelBasic::seStart(u32 i_seNum, Vec* position, u32 userData, s8 reverb, f32 pitch, f32 volume, f32 pan, f32 dolby, u8 flags) {
+     /* Nonmatching */
+     // "Kurobo voices should be played in monsSeStart!\n"
+ #ifdef TARGET_PC
++    // Recovered common dispatch at 802A8268..802A850C. Limit this first
++    // implementation to non-positional menu/dialogue effects: the rest of
++    // retail seStart performs sound-specific remapping that is still absent.
++    if (i_seNum >= 0x0800 && i_seNum <= 0x083f && !position && flags == 0) {
++        if (field_0x0201 == 1)
++            return NULL;
++        int slot = -1;
++        for (int n = 0; n < MAX_CONCURRENT_SE_NUM; n++) {
++            int candidate = (field_0x01f4 + n) % MAX_CONCURRENT_SE_NUM;
++            if (!mpSeSound[candidate]) {
++                slot = candidate;
++                break;
++            }
++        }
++        if (slot < 0)
++            return NULL;
++        JAISound** handle = &mpSeSound[slot];
++        startSoundVec(i_seNum, handle, position, 0, userData, 4);
++        if (*handle) {
++            (*handle)->setPortData(9, (u16)reverb);
++            if (pitch != 1.0f) (*handle)->setPitch(pitch, 0, SOUNDPARAM_Unk0);
++            if (volume != 1.0f) (*handle)->setVolume(volume, 0, SOUNDPARAM_Unk0);
++            if (pan != -1.0f) (*handle)->setPan(pan, 0, SOUNDPARAM_Unk0);
++            if (dolby != -1.0f) (*handle)->setDolby(dolby, 0, SOUNDPARAM_Unk0);
++            static bool reported;
++            if (!reported) {
++                OSReport("[tww] native menu/dialogue sound effects enabled\n");
++                reported = true;
++            }
++        }
++        mSeNum[slot] = i_seNum;
++        field_0x0194[slot] = 0;
++        field_0x01f4 = (slot + 1) % MAX_CONCURRENT_SE_NUM;
++        return handle;
++    }
+     static bool once; // tww-vita: (thousands of these otherwise)
+     if (once)
+         return {};
+     once = true;
+-    OSReport("[tww] JAIZelBasic::seStart is not decompiled yet: no sound effects (said once)\n");
++    OSReport("[tww] JAIZelBasic::seStart specialized effects not decompiled yet (said once)\n");
+ #endif
+     OSReport("クロボーの声は monsSeStartで！\n");
+     OSReport("[JAIZelBasic::seStart] overflow JAISound pointer\n");

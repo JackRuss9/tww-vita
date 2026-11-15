@@ -1,0 +1,180 @@
+Reason: recover event argument readers, retail PAUSE timing and the absolute FIXEDFRM branch needed to finish awake; compare trim tags independently of host endian.
+
+--- a/src/d/d_ev_camera.cpp
++++ b/src/d/d_ev_camera.cpp
+@@ -6,6 +6,25 @@
+ #include "d/dolzel.h" // IWYU pragma: keep
+ #include "d/d_camera.h"
+ #include "dolphin/types.h"
++#include "string.h"
++
++#ifdef TARGET_PC
++namespace {
++// Event-list substances have already been converted to native byte order.
++// Manual camera arguments contain native pointers to values as in retail.
++void* pcCameraArgument(dCamera_c* camera, char* name, int type) {
++    if (camera->chkFlag(0x20000000)) {
++        for (int i = 0; i < 8; i++) {
++            dCamera__EventParam& arg = camera->mEventData.mEventParams[i];
++            if (strcmp(arg.mName, name) == 0)
++                return (void*)arg.mValue;
++        }
++        return NULL;
++    }
++    return dComIfGp_getPEvtManager()->getMySubstanceP(camera->mEventData.mStaffIdx, name, type);
++}
++}
++#endif
+ 
+ /* 800B004C-800B0174       .text StartEventCamera__9dCamera_cFiie */
+ void dCamera_c::StartEventCamera(int, int, ...) {
+@@ -23,8 +42,13 @@
+ }
+ 
+ /* 800B0248-800B0310       .text getEvIntData__9dCamera_cFPiPc */
+-void dCamera_c::getEvIntData(int*, char*) {
+-    /* Nonmatching */
++void dCamera_c::getEvIntData(int* value, char* name) {
++    /* Nonmatching */
++#ifdef TARGET_PC
++    int* data = (int*)pcCameraArgument(this, name, 3);
++    if (data) *value = *data;
++    else mEventData.field_0x10 = 1;
++#endif
+ }
+ 
+ /* 800B0310-800B03BC       .text getEvStringPntData__9dCamera_cFPc */
+@@ -33,24 +57,42 @@
+ }
+ 
+ /* 800B03BC-800B0484       .text getEvIntData__9dCamera_cFPiPci */
+-void dCamera_c::getEvIntData(int*, char*, int) {
+-    /* Nonmatching */
++void dCamera_c::getEvIntData(int* value, char* name, int fallback) {
++    /* Nonmatching */
++#ifdef TARGET_PC
++    int* data = (int*)pcCameraArgument(this, name, 3);
++    *value = data ? *data : fallback;
++#endif
+ }
+ 
+ /* 800B0484-800B055C       .text getEvFloatData__9dCamera_cFPfPcf */
+-void dCamera_c::getEvFloatData(f32*, char*, f32) {
+-    /* Nonmatching */
++void dCamera_c::getEvFloatData(f32* value, char* name, f32 fallback) {
++    /* Nonmatching */
++#ifdef TARGET_PC
++    f32* data = (f32*)pcCameraArgument(this, name, 0);
++    *value = data ? *data : fallback;
++#endif
+ }
+ 
+ /* 800B055C-800B066C       .text getEvXyzData__9dCamera_cFP4cXyzPc4cXyz */
+-void dCamera_c::getEvXyzData(cXyz*, char*, cXyz) {
+-    /* Nonmatching */
++void dCamera_c::getEvXyzData(cXyz* value, char* name, cXyz fallback) {
++    /* Nonmatching */
++#ifdef TARGET_PC
++    cXyz* data = (cXyz*)pcCameraArgument(this, name, 1);
++    *value = data ? *data : fallback;
++#endif
+ }
+ 
+ /* 800B066C-800B074C       .text getEvStringData__9dCamera_cFPcPcPc */
+-bool dCamera_c::getEvStringData(char*, char*, char*) {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++bool dCamera_c::getEvStringData(char* value, char* name, char* fallback) {
++    /* Nonmatching */
++#ifdef TARGET_PC
++    char* data = (char*)pcCameraArgument(this, name, 4);
++    strcpy(value, data ? data : fallback);
++    return data != NULL;
++#else
++    return {}; // tww-vita: not decompiled yet
++#endif
+ }
+ 
+ /* 800B074C-800B07F4       .text getEvStringPntData__9dCamera_cFPcPc */
+@@ -71,13 +113,50 @@
+ /* 800B0A20-800B0AF8       .text pauseEvCamera__9dCamera_cFv */
+ bool dCamera_c::pauseEvCamera() {
+     /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++#ifdef TARGET_PC
++    // Recovered from 800B0A20..800B0AF4: Stay freezes the camera;
++    // a missing Timer completes the staff cut immediately. Other staff's
++    // start flags still determine when the next camera cut may advance.
++    if (m11C == 0) m100 = m101 = m102 = 1;
++    int stay = 0;
++    getEvIntData(&stay, "Stay", 0);
++    if (stay) setFlag(1);
++    int* timer = (int*)pcCameraArgument(this, "Timer", 3);
++    return !timer || m11C >= (u32)*timer;
++#else
++    return {}; // tww-vita: not decompiled yet
++#endif
+ }
+ 
+ /* 800B0AF8-800B14D4       .text fixedFrameEvCamera__9dCamera_cFv */
+ bool dCamera_c::fixedFrameEvCamera() {
+     /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++#ifdef TARGET_PC
++    // Recover the absolute-frame branch used at the end of awake. Relative
++    // actor masks require additional retail branches; never finish those
++    // unsupported cuts using an invented view or a forced skip.
++    if (pcCameraArgument(this, "RelActor", 4)) {
++        if (m11C == 0)
++            OSReport("[tww] relative FIXEDFRM event camera is still unimplemented\n");
++        return false;
++    }
++    if (m11C == 0) {
++        getEvXyzData(&mViewCache.mEye, "Eye", mEye);
++        getEvXyzData(&mViewCache.mCenter, "Center", mCenter);
++        getEvFloatData(&mViewCache.mFovy, "Fovy", mFovy);
++        f32* bank = (f32*)pcCameraArgument(this, "Bank", 0);
++        if (bank) {
++            mViewCache.mBank = cSAngle(cAngle::d2s(*bank));
++            setFlag(0x400);
++        }
++        mViewCache.mDirection.Val(mViewCache.mEye - mViewCache.mCenter);
++        m100 = m101 = m102 = 1;
++    }
++    int* timer = (int*)pcCameraArgument(this, "Timer", 3);
++    return !timer || m11C >= (u32)*timer;
++#else
++    return {}; // tww-vita: not decompiled yet
++#endif
+ }
+ 
+ /* 800B14D4-800B18E4       .text stokerEvCamera__9dCamera_cFv */
+--- a/src/d/d_camera.cpp
++++ b/src/d/d_camera.cpp
+@@ -4815,20 +4815,20 @@
+ 
+         char evStringData[12];
+         if (getEvStringData(evStringData, "Trim", "CINESCO")) {
+-            u32* evStringPtr = (u32*)evStringData;
+-            if (*evStringPtr == 'STAN') {
++            u32 evStringTag = JGadget::binary::beLoad<u32>(evStringData);
++            if (evStringTag == 'STAN') {
+                 mEventData.field_0x1c = 0;
+             }
+-            else if (*evStringPtr == 'VIST') {
++            else if (evStringTag == 'VIST') {
+                 mEventData.field_0x1c = 1;
+             }
+-            else if (*evStringPtr == 'DEMO') {
++            else if (evStringTag == 'DEMO') {
+                 mEventData.field_0x1c = 3;
+             }
+-            else if (*evStringPtr == 'NONE') {
++            else if (evStringTag == 'NONE') {
+                 mEventData.field_0x1c = 4;
+             }
+-            else if (*evStringPtr == 'KEEP') {
++            else if (evStringTag == 'KEEP') {
+                 mEventData.field_0x1c = 999;
+             }
+         }

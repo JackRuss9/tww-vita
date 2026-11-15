@@ -6,6 +6,7 @@ probe_save_dir=
 probe_audio=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --no-captures) export SMS_GX_DUMP_EVERY=0; shift ;;
     --audio) probe_audio=1; shift ;;
     --save-dir) probe_save_dir=$(realpath -m "$2"); shift 2 ;;
     --outset) export TWW_START_OUTSET=1; shift ;;
@@ -34,7 +35,7 @@ fi
 export SMS_GX_DUMP_DIR="$out" SMS_GX_DUMP_EVERY="${SMS_GX_DUMP_EVERY:-300}"
 cd "$root/run-pc"
 if [[ -n "${TWW_PROBE_GDB:-}" ]]; then
-  timeout --signal=INT --kill-after=10s "${TWW_PROBE_SECONDS:-90}s" gdb -q -batch -x "$TWW_PROBE_GDB" --args "$root/build-pc/tww" > "$out/run.log" 2>&1
+  timeout --signal=INT --kill-after=10s "${TWW_PROBE_SECONDS:-90}s" gdb -q -batch --return-child-result -x "$TWW_PROBE_GDB" --args "$root/build-pc/tww" > "$out/run.log" 2>&1
 else
   timeout --kill-after=5s "${TWW_PROBE_SECONDS:-90}s" "$root/build-pc/tww" > "$out/run.log" 2>&1
 fi

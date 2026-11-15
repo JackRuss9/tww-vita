@@ -10,6 +10,10 @@ run
 python
 if gdb.selected_inferior().pid == 0:
     gdb.execute("quit")
+probe_success = gdb.convenience_variable("tww_probe_success")
+if probe_success is not None and int(probe_success):
+    print("[probe] requested gameplay checks passed")
+    gdb.execute("quit 0")
 end
 echo \n== crash: backtrace\n
 bt 40

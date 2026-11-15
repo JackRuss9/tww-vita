@@ -1,0 +1,189 @@
+Reason: read cutscene BMG headers, text offsets, copied metadata and wait/size tags big-endian.
+
+--- a/include/JSystem/JMessage/data.h
++++ b/include/JSystem/JMessage/data.h
+@@ -17,8 +17,8 @@
+     const void* getContent() const { return (char*)getRaw() + 0x20; }
+ 
+     char* get_signature() const { return (char*)(get() + 0x0); }
+-    u32 get_type() const { return *(u32*)(get() + 0x4); }
+-    u32 get_blockNumber() const { return *(u32*)(get() + 0xC); }
++    u32 get_type() const { return JGadget::binary::beLoad<u32>(get() + 0x4); }
++    u32 get_blockNumber() const { return JGadget::binary::beLoad<u32>(get() + 0xC); }
+     u32 get_encoding() const { return *(u8*)(get() + 0x10); }
+ };
+ 
+@@ -29,8 +29,8 @@
+     const char* get() const { return (char*)getRaw(); }
+     const void* getNext() const { return (char*)getRaw() + get_size(); }
+ 
+-    u32 get_type() const { return *(u32*)(get() + 0x0); }
+-    u32 get_size() const { return *(u32*)(get() + 0x4); }
++    u32 get_type() const { return JGadget::binary::beLoad<u32>(get() + 0x0); }
++    u32 get_size() const { return JGadget::binary::beLoad<u32>(get() + 0x4); }
+ };
+ 
+ // INF1
+@@ -51,9 +51,9 @@
+ 
+     char* get() const { return (char*)getRaw(); }
+ 
+-    u32 get_messageEntryNumber() const { return *(u16*)(get() + 0x8); }
+-    u32 get_messageEntrySize() const { return *(u16*)(get() + 0xA); }
+-    u16 get_groupID() const { return *(u16*)(get() + 0xC); }
++    u32 get_messageEntryNumber() const { return JGadget::binary::beLoad<u16>(get() + 0x8); }
++    u32 get_messageEntrySize() const { return JGadget::binary::beLoad<u16>(get() + 0xA); }
++    u16 get_groupID() const { return JGadget::binary::beLoad<u16>(get() + 0xC); }
+     char* getContent() const { return (char*)getRaw() + 0x10; }
+ };
+ 
+--- a/src/JSystem/JMessage/control.cpp
++++ b/src/JSystem/JMessage/control.cpp
+@@ -43,7 +43,7 @@
+     void* messageEntry = getMessageEntry(groupID, messageIndex);
+     if (messageEntry == NULL)
+         return NULL;
+-    u32 offs = *(u32*)messageEntry;
++    u32 offs = JGadget::binary::beLoad<u32>(messageEntry);
+     return mResource->pMessageText_ + offs;
+ }
+ 
+@@ -104,7 +104,7 @@
+     if (mMessageEntry == NULL)
+         return false;
+ 
+-    u32 offs = *(u32*)mMessageEntry;
++    u32 offs = JGadget::binary::beLoad<u32>(mMessageEntry);
+     mMessageDataStart = mResource->pMessageText_ + offs;
+     mMessageDataCurrent = mMessageDataStart;
+     return true;
+--- a/src/d/d_mesg.cpp
++++ b/src/d/d_mesg.cpp
+@@ -22,6 +22,19 @@
+ #include "m_Do/m_Do_audio.h"
+ #include "m_Do/m_Do_controller_pad.h"
+ #include "stdio.h"
++
++// BMG resources are shared with the stream reader and remain big-endian.
++// Convert copied metadata, without modifying the archive's backing bytes.
++static JMSMesgEntry_c dMesg_readEntry(const void* data) {
++    JMSMesgEntry_c entry = *(const JMSMesgEntry_c*)data;
++    using JGadget::binary::beLoad;
++    entry.mDataOffs = beLoad<u32>(&entry.mDataOffs);
++    entry.mMsgNo = beLoad<u16>(&entry.mMsgNo);
++    entry.mItemPrice = beLoad<s16>(&entry.mItemPrice);
++    entry.mNextMsgNo = beLoad<u16>(&entry.mNextMsgNo);
++    entry.field_0x0a = beLoad<u16>(&entry.field_0x0a);
++    return entry;
++}
+ 
+ JMessage::TResourceContainer* dMesg_gpResourceContainer;
+ dMesg_tControl* dMesg_gpControl;
+@@ -184,7 +197,7 @@
+     processor.process(NULL);
+ 
+     int r31_2 = mesgControl->getLineCount();
+-    JMSMesgEntry_c stack_8c = *(JMSMesgEntry_c*)dMesg_gpControl->getMessageEntry(nowMesgCode);
++    JMSMesgEntry_c stack_8c = dMesg_readEntry(dMesg_gpControl->getMessageEntry(nowMesgCode));
+ 
+     for (int i = 0; i < r31_2; i++) {
+         if (stack_8c.mTextAlignment != 3) {
+@@ -239,7 +252,7 @@
+ bool dMesg_tSequenceProcessor::do_isReady() {
+     bool ret = false;
+     if (mStopFlag == 0) {
+-        JMSMesgEntry_c stack_2c = *(JMSMesgEntry_c*)dMesg_gpControl->getMessageEntry(nowMesgCode);
++        JMSMesgEntry_c stack_2c = dMesg_readEntry(dMesg_gpControl->getMessageEntry(nowMesgCode));
+         if (stack_2c.mDrawType == 1) {
+             mShortCutFlag = 1;
+ #if VERSION > VERSION_DEMO
+@@ -446,7 +459,7 @@
+             r29 = true;
+             int r30 = 0;
+             char sp54[17];
+-            JMSMesgEntry_c sp38 = *(JMSMesgEntry_c*)dMesg_gpControl->getMessageEntry(nowMesgCode);
++            JMSMesgEntry_c sp38 = dMesg_readEntry(dMesg_gpControl->getMessageEntry(nowMesgCode));
+ 
+             strcpy(sp54, dComIfGs_getPlayerName());
+ #if VERSION > VERSION_JPN
+@@ -513,7 +526,7 @@
+             break;
+         case 4:
+             r29 = true;
+-            mWaitRest = *(u16*)param_2;
++            mWaitRest = JGadget::binary::beLoad<u16>(param_2);
+             field_0x160 = 1;
+             mStopFlag = 2;
+             break;
+@@ -523,7 +536,7 @@
+             break;
+         case 7:
+             r29 = true;
+-            mWaitRest = *(u16*)param_2;
++            mWaitRest = JGadget::binary::beLoad<u16>(param_2);
+             field_0x160 = 1;
+             break;
+         case 8:
+@@ -712,7 +725,7 @@
+     case 1:
+     case 6:
+         if (param_3 == 2) {
+-            u16 tmp = *(u16*)param_2;
++            u16 tmp = JGadget::binary::beLoad<u16>(param_2);
+             int r31 = mesgControl->getNowFontSize();
+             int r29 = (tmp * mesgControl->getInitFontSize()) / 100.0f + 0.5f;
+             mesgControl->setNowFontSize(r29);
+@@ -788,7 +801,7 @@
+             retFlag = 0;
+         }
+         r29 = true;
+-        JMSMesgEntry_c stack_58 = *(JMSMesgEntry_c*)dMesg_gpControl->getMessageEntry(nowMesgCode);
++        JMSMesgEntry_c stack_58 = dMesg_readEntry(dMesg_gpControl->getMessageEntry(nowMesgCode));
+         if (dComIfGs_getClearCount() == 0 && stack_58.mTextboxType == 12) {
+             for (int i = 0; i < 97; i++) {
+                 if (zfont[i][0] == u16(param_1)) {
+@@ -850,7 +863,7 @@
+             int r25 = 0;
+             char sp44[17];
+ #if VERSION > VERSION_DEMO
+-            JMSMesgEntry_c stack_98 = *(JMSMesgEntry_c*)dMesg_gpControl->getMessageEntry(nowMesgCode);
++            JMSMesgEntry_c stack_98 = dMesg_readEntry(dMesg_gpControl->getMessageEntry(nowMesgCode));
+ 
+             strcpy(sp44, dComIfGs_getPlayerName());
+ #endif
+@@ -1045,7 +1058,7 @@
+     switch (param_1) {
+     case 1:
+         if (param_3 == 2) {
+-            u16 var1 = *(u16*)param_2;
++            u16 var1 = JGadget::binary::beLoad<u16>(param_2);
+             mesgControl->setNowFontSize((var1 * mesgControl->getInitFontSize()) / 100.0f + 0.5f);
+             if (var2 >= 1 && var2 <= 2 && var1 > 100 && m_strSizeFlag == 0) {
+                 linemax--;
+@@ -1519,7 +1532,7 @@
+         field_0x88[3].pane->show();
+         messageOffsetY = 0;
+     }
+-    JMSMesgEntry_c stack_message = *(JMSMesgEntry_c*)dMesg_gpControl->getMessageEntry(nowMesgCode);
++    JMSMesgEntry_c stack_message = dMesg_readEntry(dMesg_gpControl->getMessageEntry(nowMesgCode));
+     if (dItem_data::getTexture(stack_message.mMsgNo - 101)) {
+         JKRArchive* archive = dComIfGp_getItemIconArchive();
+         JKRReadTypeResource(texBuffer, 0xc00, 'TIMG', dItem_data::getTexture(stack_message.mMsgNo - 101), archive);
+@@ -1941,7 +1954,7 @@
+             }
+         }
+         if (!i_Msg->screen) {
+-            JMSMesgEntry_c stack_3c = *(JMSMesgEntry_c*)dMesg_gpControl->getMessageEntry(nowMesgCode);
++            JMSMesgEntry_c stack_3c = dMesg_readEntry(dMesg_gpControl->getMessageEntry(nowMesgCode));
+             if (stack_3c.mTextboxType == 9) {
+                 i_Msg->screen = new dMesg_screenDataItem_c();
+             } else {
+@@ -1988,7 +2001,7 @@
+             i_Msg->screen->setString(i_Msg->text[i], i);
+         }
+         i_Msg->field_0x164 = 6;
+-        JMSMesgEntry_c stack_3c = *(JMSMesgEntry_c*)dMesg_gpControl->getMessageEntry(nowMesgCode);
++        JMSMesgEntry_c stack_3c = dMesg_readEntry(dMesg_gpControl->getMessageEntry(nowMesgCode));
+         if (stack_3c.mInitialSound) {
+             mDoAud_messageSePlay(stack_3c.mInitialSound, NULL, dComIfGp_getReverb(dComIfGp_roomControl_getStayNo()));
+         }

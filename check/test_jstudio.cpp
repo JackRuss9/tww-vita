@@ -1,5 +1,6 @@
 // Synthetic STB data-ID payload: no game data or display needed.
 #include "JSystem/JStudio/JStudio/stb-data-parse.h"
+#include "JSystem/JMessage/data.h"
 #include <assert.h>
 #include <stdio.h>
 #ifdef NDEBUG
@@ -34,5 +35,17 @@ int main() {
     const u8 padded[] = {0,0,0,1, 'X',0,0,0, 0};
     data::TParse_TParagraph_dataID short_id(padded);
     assert(short_id.get_IDSize() == 1 && short_id.getContent() == padded + 8);
-    puts("JStudio data-ID, animation IDs and hand payload checks passed");
+    const u8 bmg_header[] = {'M','E','S','G','b','m','g','1',
+                             0,0,0,64, 0,0,0,3, 1,0,0,0,
+                             0,0,0,0, 0,0,0,0, 0,0,0,0};
+    JMessage::data::TParse_THeader bmg(bmg_header);
+    assert(bmg.get_type() == 0x626d6731 && bmg.get_blockNumber() == 3);
+    assert(bmg.get_encoding() == 1);
+    const u8 inf[] = {'I','N','F','1', 0,0,0,64,
+                      0x01,0x23, 0,24, 0,2, 0,0};
+    JMessage::data::TParse_TBlock_info info(inf);
+    assert(info.get_type() == 0x494e4631 && info.get_size() == 64);
+    assert(info.get_messageEntryNumber() == 0x123);
+    assert(info.get_messageEntrySize() == 24 && info.get_groupID() == 2);
+    puts("JStudio data-ID/animation/hand and JMessage BMG header checks passed");
 }

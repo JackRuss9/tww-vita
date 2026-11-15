@@ -654,3 +654,36 @@ Verification:
 - PROGRESS.md documents the first-island objective through departure, real
   successful tests, limitations and reproduction commands. GitHub publication
   is explicitly authorized by the user; no game data will be uploaded.
+
+
+2026-11-15 milestone: normal startup hands control to Link:
+
+- Patch 0039 repairs BMG header getters and text offsets used by JMessage,
+  copied cutscene metadata and 16-bit wait/font-size tags. The synthetic BMG
+  header check fails before this patch and passes afterwards. Probe-Y93Dgb
+  traverses the awake dialogues but waits forever at final camera cut 347.
+- Patch 0041 recovers typed event argument readers, PAUSE completion/timers
+  and the absolute FIXEDFRM branch using the extracted retail assembly. Trim
+  string tags no longer depend on the host's word order. Relative FIXEDFRM
+  and the other missing handlers remain explicitly unsupported.
+- Patch 0040 recovers common dispatch for non-positional UI/dialogue sounds
+  0x0800..0x083f, based on retail 802A8268..802A850C. The first float is pitch,
+  the second volume; user data goes to Actor, signed reverb to port 9, camera
+  ID is 4. Handles use the existing 24-slot pool and retire through JAudio.
+  Broader seStart remapping and bgmStart are not implemented by this patch.
+- Probe-U7Jmuo: real title/file selection, newly named game, COMPLETE illustrated
+  opening, original awake movie/dialogues, final camera, demo=0/0, keyboard
+  movement distance 166.342. Explicit SUCCESS and wrapper status 0. Headless
+  deterministic/dummy-audio test: not an audible performance validation.
+  Local screenshot: run-pc/normal-start-verified.png.
+- Diagnostics now sample expensive player/camera reads, preserving actual
+  execution counts and keyboard hold durations. GDB ignore_count changes from
+  a stop callback proved unreliable and were removed. A deliberate diagnostic
+  interruption of probe-G8CBCW is not a game regression. Do not edit a sourced
+  GDB script while a probe runs: GDB may resume reading it after run returns.
+- GDB probes propagate child failure status. The success flag lets crash.gdb
+  finish a passed gameplay probe without labelling its breakpoint as a crash.
+- Audio underrun diagnosis probe-uUbjVb stopped at the first missing output
+  samples: game thread waits in gx::glt::mainWait -> shaderSetup, while the GL
+  thread is reading programCacheLoad. That host wait does not service emulated
+  interrupts. This is a specific cause to fix, not proof every hitch has it.
