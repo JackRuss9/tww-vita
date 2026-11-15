@@ -30,7 +30,7 @@ Las tareas posteriores de la isla y el embarque siguen pendientes.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 43 de tww y 4 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 44 de tww y 4 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -205,6 +205,49 @@ al entrar en el segundo tipo de mensajes, no por un fallo nativo del juego.
 El observador se corrigió distinguiendo mensajes cinemáticos y de juego;
 `probe-ZKKyqJ` pudo entonces observar el bloqueo de conversación real.
 
+## Verificación visible y cierre al entrar en casa
+
+El usuario confirma tras el parche 0043 que los efectos del menú de inicio
+y de avance de mensajes ya suenan correctos, y que ha desaparecido el
+parpadeo de la cinemática. Es una comprobación perceptiva del usuario en
+la ejecución visible, adicional a las regresiones numéricas anteriores.
+No implica que estén implementados todos los efectos, voces o música.
+
+Quedan observados en esa misma prueba: voces de Link ausentes al saltar y
+rodar, desfase del efecto de la voltereta, cámara manual no disponible y
+pequeños tirones en las olas al romper en la orilla. `linkVoiceStart` y
+`getLinkVoiceVowel` están vacías; recuperar su implementación es una tarea
+concreta. El desfase y los tirones aún no tienen causa verificada.
+
+Al entrar por la puerta de la abuela, el registro solicita `LinkRM`, punto 1,
+habitación 0, wipe 10 y termina con SIGFPE en `JUTFader::control`, línea 40:
+división entera por cero. `dOvlpFd_FadeIn` solicita legítimamente
+`startFadeOut(0)` al completar la transición. El parche 0044 permite terminar
+ese fundido en la actualización actual sin dividir por cero; conserva los
+cálculos de los fundidos de duración positiva.
+
+`check/test_fader.py` compila el `JUTFader.cpp` de producción, sustituyendo
+solo el contexto gráfico por un doble sin dibujo. Antes del parche falla con
+SIGFPE; después pasa las duraciones 0 a 30 en ambos sentidos, sus valores de
+alfa, la aceptación/rechazo por estado y un fundido instantáneo diferido.
+La compilación PC pasa y los 44 parches se aplican sobre fuentes limpias.
+
+`probe-dvgrnb` termina con resultado 0 y éxito explícito: completa una
+solicitud de transición a `LinkRM` con ese punto y wipe, carga el interior y
+Link recorre 51,916 unidades mediante teclado. **Es una prueba aislada:**
+parte de `--outset` y el depurador escribe la solicitud de próximo escenario;
+no valida el uso de la puerta, la conversación con la abuela ni el recorrido
+normal de la historia. `tools/room_transition.gdb` permite repetirla.
+Los intentos previos `probe-KseqH0` y `probe-73RZUS` terminan por tiempo
+límite/terminación forzada del depurador (137): llamar a funciones del invitado
+desde ese punto de diagnóstico no permitió completar la prueba; no se cuentan
+como fallos nativos de carga ni como ensayos superados.
+
+Se abre otra ejecución visible desde la playa con audio real y tarjeta
+separada (`run-pc/visible-house-card`) para contrastar la entrada por la puerta.
+La partida del usuario en `run-pc/card-a` se conserva. Esta ruta de diagnóstico
+desactiva escenas automáticas; no sustituye la prueba de progreso de la historia.
+
 ## Cómo repetir las comprobaciones
 
 ```sh
@@ -212,6 +255,7 @@ El observador se corrigió distinguiendo mensajes cinemáticos y de juego;
 python3 check/test_animation.py
 python3 check/test_jstudio.py
 python3 check/test_dsp_tables.py
+python3 check/test_fader.py
 g++ -std=c++11 -O2 -Iport/include check/test_timing.cpp -o /tmp/tww-timing-test
 /tmp/tww-timing-test
 
@@ -225,6 +269,10 @@ g++ -std=c++11 -O2 -Iport/include check/test_timing.cpp -o /tmp/tww-timing-test
 # Cinco tramos de 60 fotogramas consecutivos y cámara activa en camera.jsonl:
 TWW_CAPTURE_TOWER=sample ./tools/probe-pc.sh --headless --seconds 420 \
   --gdb "$PWD/tools/normal_flow.gdb"
+
+# Transición aislada a la casa; no prueba la puerta ni la historia:
+./tools/probe-pc.sh --outset --headless --seconds 120 \
+  --gdb "$PWD/tools/room_transition.gdb"
 ```
 
 `TWW_CAPTURE_TOWER=all` captura hasta los primeros 4000 fotogramas de la isla
@@ -241,7 +289,8 @@ que produce quedarse sin datos en el dispositivo de salida.
 
 ## Próximos hitos
 
-- Corregir el parpadeo comunicado en la torre y verificar la escena completa.
+- Vigilar regresiones del parpadeo ya descartado por el usuario en la torre;
+  diagnosticar los tirones de las olas y el desfase del efecto de rodar.
 - Corregir cámaras, diálogos y actores que bloqueen las tareas de la isla.
 - Comprobar espada, escudo, bosque y rescate, cambios de habitación, regreso,
   despedida y embarque. Ninguno se considera validado todavía.

@@ -1,0 +1,27 @@
+Reason: zero-frame room-transition fades must finish immediately without an x86 integer divide-by-zero exception; preserve positive-duration ramps.
+
+--- a/src/JSystem/JUtility/JUTFader.cpp
++++ b/src/JSystem/JUtility/JUTFader.cpp
+@@ -27,17 +27,20 @@
+         return;
+     }
+ 
++    // Room transitions intentionally request a zero-frame fade. Complete
++    // it on this update instead of issuing x86 integer division by zero.
++    const u32 fadeTime = mFadeTime ? mFadeTime : 1;
+     switch (mStatus) {
+     case WaitOut:
+         mColor.a = 0xFF;
+         break;
+     case FadeIn:
+-        mColor.a = 0xFF - ((++mTimer * 0xFF) / mFadeTime);
++        mColor.a = 0xFF - ((++mTimer * 0xFF) / fadeTime);
+         if (mTimer >= mFadeTime)
+             mStatus = WaitIn;
+         break;
+     case FadeOut:
+-        mColor.a = ((++mTimer * 0xFF) / mFadeTime);
++        mColor.a = ((++mTimer * 0xFF) / fadeTime);
+         if (mTimer >= mFadeTime)
+             mStatus = WaitOut;
+         break;

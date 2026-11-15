@@ -700,3 +700,14 @@ Verification:
   captures in normal_flow.gdb. A changing stage name does not mean its camera
   exists yet; guard the pointer. CameraInfo.mCameraPos/mCameraTarget are saved
   camera state, not the live view, and were zero in these startup probes.
+- The user's visible test after 0043 confirms menu/page sounds and the absence
+  of the reported cinematic flashing. Link action voices, roll SFX timing and
+  shoreline wave pacing remain open. Link's voice selectors/dispatch are still
+  empty, independently of the conversation camera blockers.
+- Entering Grandma's house requests LinkRM point 1 room 0 wipe 10. The native
+  crash was SIGFPE in JUTFader::control: dOvlpFd_FadeIn requests startFadeOut(0).
+  Patch 0044 treats this as an instantaneous fade, preserving positive ramps.
+  The production fader test fails before the change and passes after it.
+  room_transition.gdb tests the same destination/wipe through an injected
+  next-stage request: loading and movement pass, but this does not test the
+  door interaction or story progression. Keep that distinction in reports.
