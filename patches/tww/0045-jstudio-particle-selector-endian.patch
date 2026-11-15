@@ -1,0 +1,13 @@
+Reason: read the packed cinematic particle resource/group/effect selector in big-endian order, as other STB payloads; native x86 reads turn valid clothing-get effects into invalid emitter groups.
+
+--- a/src/JSystem/JStudio/JStudio_JParticle/object-particle.cpp
++++ b/src/JSystem/JStudio/JStudio_JParticle/object-particle.cpp
+@@ -85,7 +85,7 @@
+ void TAdaptor_particle::adaptor_do_PARTICLE(JStudio::data::TEOperationData operation, const void* r5, u32) {
+     switch (operation) {
+     case JStudio::data::TEOD_Unknown_19:
+-        field_0x1B0 = *(int*)r5;
++        field_0x1B0 = JGadget::binary::beLoad<u32>(r5);
+         break;
+     default:
+         break;

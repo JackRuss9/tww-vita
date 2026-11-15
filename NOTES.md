@@ -711,3 +711,12 @@ Verification:
   room_transition.gdb tests the same destination/wipe through an injected
   next-stage request: loading and movement pass, but this does not test the
   door interaction or story progression. Keep that distinction in reports.
+- After 0044 the user entered Grandma's house and reached the Hero's Clothes
+  presentation. A second crash asserted groupID < 16 in JPAEmitterManager:
+  JStudio's adaptor_do_PARTICLE read a raw big-endian selector as native int.
+  Patch 0045 fixes that read (0x000001fa had become 0xfa010000, group 250).
+  The isolated clothes_scene.gdb regression checks the selector against its
+  bytes, validates the emitter group/resource, and reaches hero clothes and
+  keyboard movement after the scene. It injects a next-stage request, not a
+  complete normal-story path. The roll SFX timing is now user-confirmed good;
+  Link voices and shoreline animation pacing remain open.

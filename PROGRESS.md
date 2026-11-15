@@ -30,7 +30,7 @@ Las tareas posteriores de la isla y el embarque siguen pendientes.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 44 de tww y 4 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 45 de tww y 4 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -219,6 +219,10 @@ pequeños tirones en las olas al romper en la orilla. `linkVoiceStart` y
 `getLinkVoiceVowel` están vacías; recuperar su implementación es una tarea
 concreta. El desfase y los tirones aún no tienen causa verificada.
 
+En la repetición posterior, el usuario confirma que el efecto de la voltereta
+ya está sincronizado. Las voces de Link y los tirones de las olas siguen
+pendientes; no se atribuye esa mejora de sincronización a una causa medida.
+
 Al entrar por la puerta de la abuela, el registro solicita `LinkRM`, punto 1,
 habitación 0, wipe 10 y termina con SIGFPE en `JUTFader::control`, línea 40:
 división entera por cero. `dOvlpFd_FadeIn` solicita legítimamente
@@ -248,6 +252,35 @@ separada (`run-pc/visible-house-card`) para contrastar la entrada por la puerta.
 La partida del usuario en `run-pc/card-a` se conserva. Esta ruta de diagnóstico
 desactiva escenas automáticas; no sustituye la prueba de progreso de la historia.
 
+El usuario confirma en esa ejecución visible que ya puede entrar en casa.
+Al hablar con la abuela se llega a mostrar los ropajes del héroe, pero aparece
+un **segundo cierre**, distinto: la comprobación `groupID < 16` en
+`JPAEmitterManager::createSimpleEmitterID`. La traza viene del adaptador de
+partículas JStudio. `adaptor_do_PARTICLE` aún leía el selector empaquetado
+como entero nativo, aunque el contenido STB permanece big-endian. El efecto
+`0x000001fa` se interpretaba como `0xfa010000`, grupo 250. El parche 0045
+usa la lectura big-endian para recuperar grupo 0, recurso 0 y efecto 506.
+
+`probe-eXPiWb` completa la escena aislada de los ropajes, resultado 0: comprueba
+que el selector leído coincide con sus bytes originales, crea el efecto en
+el grupo válido, deja a Link vestido de héroe y verifica 118,535 unidades de
+movimiento con teclado después de recuperar el control. No modifica las
+banderas de ropa: el cambio lo realiza la escena del juego. Parte de una
+solicitud de escenario `LinkRM`, punto 200, habitación 0, capa 8; **no valida
+todo el recorrido desde el menú ni la entrega del catalejo**.
+
+`tools/clothes_scene.gdb` permite repetir esa regresión. El primer intento
+`probe-F0m5M1` se detuvo por argumentos optimizados fuera del alcance del
+observador de GDB; se ajustó el punto de observación al inicio de la función
+compilada. No se cuenta ese intento como cierre nativo del juego.
+La compilación PC y la aplicación limpia de los 45 parches pasan.
+
+`probe-UAs7rS` repite esa misma escena **con ventana, sonido real y reloj
+normal**, y termina también con resultado 0, ropa de héroe y 118,535 unidades
+de movimiento después de la escena. Registra una interrupción de audio de
+54 ms durante el ensayo con depurador; no valida reproducción sin cortes.
+La ventana se cierra al alcanzar la condición de éxito del ensayo automático.
+
 ## Cómo repetir las comprobaciones
 
 ```sh
@@ -273,6 +306,10 @@ TWW_CAPTURE_TOWER=sample ./tools/probe-pc.sh --headless --seconds 420 \
 # Transición aislada a la casa; no prueba la puerta ni la historia:
 ./tools/probe-pc.sh --outset --headless --seconds 120 \
   --gdb "$PWD/tools/room_transition.gdb"
+
+# Escena aislada de los ropajes, partículas y retorno del control:
+./tools/probe-pc.sh --outset --headless --deterministic --seconds 240 \
+  --gdb "$PWD/tools/clothes_scene.gdb"
 ```
 
 `TWW_CAPTURE_TOWER=all` captura hasta los primeros 4000 fotogramas de la isla

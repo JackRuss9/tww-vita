@@ -16,6 +16,9 @@ No game data is included. You need your own disc image.
 See [PROGRESS.md](PROGRESS.md) for verified PC milestones, reproducible tests
 and known blockers (Spanish). Normal startup through the complete opening to controlling Link is verified.
 Full Outset story progression and uninterrupted audio are not verified yet.
+Grandma's house loading and the Hero's Clothes scene also pass isolated PC
+tests, including movement after the scene. Ordinary NPC conversations still
+encounter missing camera implementations; see the progress log for limits.
 
 ## Builds
 
