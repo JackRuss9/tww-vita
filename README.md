@@ -50,8 +50,10 @@ code is still absent in the decompilation are omitted; they would otherwise
 keep the whole room loading forever. Their profiles are generated at CMake
 configure time by `tools/gen_missing_actors.py`.
 
-The normal follow camera and L recentering are available. The manual C-stick
-camera is still undecompiled.
+The normal follow camera and L recentering are available. A PC C-stick orbit
+camera supports rotation and tilt around Link, with zone-specific limits and
+the existing collision handling. Retail vertical zoom/FOV coupling and special
+combat/vehicle camera behavior are not fully reconstructed.
 
 Keyboard defaults: Enter = Start, Space = A, Shift = B, WASD / arrows =
 left stick, IJKL = C-stick, Q / E = L / R, V / F = X / Y, Escape = quit.

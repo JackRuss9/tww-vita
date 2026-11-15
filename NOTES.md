@@ -754,3 +754,33 @@ Verification:
 - Final normal-start regression probe-QXA2ta status 0: title/file/name, full
   opening and tower awake, control and 166.342 units movement. Headless, dummy
   audio; no new claims about audio fidelity or completion of all Outset.
+
+## Functional PC manual camera (patch 0050)
+
+- manualCamera was empty while C-stick input/mode selection already worked.
+  Added a PC orbit implementation using existing mWork scratch storage, real
+  attention anchor, style angular limits and entering distance. Native mode
+  selection, L recentering, DMC and the post-engine collision pass are reused.
+  This is NOT a matching reconstruction of retail vertical zoom/FOV coupling
+  or its special combat/vehicle branches. Keyboard tested, physical pad pending.
+- probe-IPp5jo status 0: outdoor orbit both ways, pitch, >360 degree wrap,
+  idle without drift, walking and L. Ae4oIf caught reversed style endpoints
+  in LinkRM (MM18=35/0 vs MM01=0/30); fixed min/max normalization. That was a
+  debugger assertion failure, not a native crash. nZDFXv then passes exterior
+  and interior, including stationary Link while rotating the view.
+- A close-wall capture showed Link's hair filling the view. Enable transient
+  flag 0x10000000 in manualCamera so Run's existing PlayerHideDist=70 check
+  sets attention status 0x20. Native preparation clears it every frame and
+  player drawing restores the model after the camera moves away / exits.
+- Final visible probe-kFU55x status 0, normal clock / muted audio. Observer
+  checks finite views, bounded angle steps, style pitch limits, stable idle,
+  Link movement, close-view hiding (100 frames) and no lingering hide after L.
+- probe-VX57Ad status 0: manual input before Aryll's automatic scenes, earned
+  telescope, completed TALK and 234.579 movement. This precedes only the last
+  model-visibility tweak. tools/aryll_story.gdb now includes that rotation.
+- All 50 patches apply cleanly and reproduce d_camera.cpp byte-for-byte.
+  Original game window was left alone; diagnostic windows close after tests.
+- Final expanded observer probe-Pkl2hc status 0: simultaneous walking/orbit
+  passes outside and inside (471.885 degrees per combined-input segment),
+  plus 111 close-view hiding checks and restoration after L. No code changes
+  after the final visible test; this only expands the input regression.

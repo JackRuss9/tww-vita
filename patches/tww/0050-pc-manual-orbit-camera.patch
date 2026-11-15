@@ -1,0 +1,82 @@
+Reason: implement a functional PC C-stick orbit camera with style endpoints in either order, attention tracking, stable entering distance and the existing L/mode/collision/player-hiding pipeline. This does not reconstruct retail vertical zoom/FOV coupling or all special actor/vehicle branches.
+
+--- a/src/d/d_camera.cpp
++++ b/src/d/d_camera.cpp
+@@ -4467,9 +4467,74 @@
+ }
+ 
+ /* 801787B8-801795C8       .text manualCamera__9dCamera_cFl */
+-bool dCamera_c::manualCamera(s32) {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++bool dCamera_c::manualCamera(s32 style) {
++#ifdef TARGET_PC
++    // Functional PC orbit camera. The retail manual camera also couples
++    // vertical input to zoom/FOV and has special combat/vehicle branches;
++    // those are not reconstructed here. Mode selection, L recentering and
++    // the common terrain/wall collision pass remain in the original pipeline.
++    struct State {
++        f32 radius;
++        s16 pitch, yaw;
++    } state = {};
++    static_assert(sizeof(State) <= sizeof(mWork), "manual camera scratch");
++    if (!mpPlayerActor) return false;
++    if (m11C == 0) {
++        cSGlobe entering(mViewCache.mEye - mViewCache.mCenter);
++        state.radius = entering.R();
++        state.pitch = entering.V().Val();
++        state.yaw = entering.U().Val();
++        if (mStickMainValueLast > 0.05f) setDMCAngle();
++        m100 = m101 = m102 = 1;
++    } else {
++        memcpy(&state, &mWork, sizeof(state));
++    }
++    // Avoid analog drift, with continuous response outside the dead zone.
++    float x = mStickCPosXLast, y = mStickCPosYLast;
++    float magnitude = sqrtf(x * x + y * y);
++    if (magnitude > 0.15f) {
++        float response = limitf((magnitude - 0.15f) / 0.85f, 0.0f, 1.0f) / magnitude;
++        x *= response;
++        y *= response;
++    } else {
++        x = y = 0.0f;
++    }
++    cSAngle yaw(state.yaw), pitch(state.pitch);
++    yaw += cSAngle(x * mCamParam.Val(style, dCamStyleParam_LOCKON_LONGITUDE_MAX));
++    if (y != 0.0f) {
++        float degrees = pitch.Degree() + y * mCamParam.Val(style, dCamStyleParam_LOCKON_LATITUDE_MAX);
++        // Retail styles store these endpoints in either order (MM01
++        // uses 0/30; Grandma's MM18 uses 35/0).
++        float end1 = mCamParam.Val(style, dCamStyleParam_UNK16);
++        float end2 = mCamParam.Val(style, dCamStyleParam_UNK17);
++        degrees = limitf(degrees, end1 < end2 ? end1 : end2,
++                         end1 > end2 ? end1 : end2);
++        pitch.Val(degrees);
++    }
++    state.pitch = pitch.Val();
++    state.yaw = yaw.Val();
++    // Let the common post-collision close-view check hide Link's head/body
++    // when a wall pushes the eye into him. This flag is cleared by Run each
++    // frame, and preparation clears the resulting player-draw status.
++    setFlag(0x10000000);
++    // Track Link through the same attention anchor as the other cameras.
++    // Keep the entering distance so merely touching C-stick does not zoom.
++    cXyz offset(mCamParam.Val(style, dCamStyleParam_UNK1),
++                mCamParam.Val(style, dCamStyleParam_CENTER_HEIGHT_BASE),
++                mCamParam.Val(style, dCamStyleParam_UNK0));
++    cXyz center = relationalPos(mpPlayerActor, &offset);
++    float blendXZ = limitf(mCamParam.Val(style, dCamStyleParam_UNK3), 0.0f, 1.0f);
++    float blendY = limitf(mCamParam.Val(style, dCamStyleParam_UNK4), 0.0f, 1.0f);
++    mViewCache.mCenter.x += (center.x - mViewCache.mCenter.x) * blendXZ;
++    mViewCache.mCenter.y += (center.y - mViewCache.mCenter.y) * blendY;
++    mViewCache.mCenter.z += (center.z - mViewCache.mCenter.z) * blendXZ;
++    mViewCache.mDirection.Val(state.radius, pitch, yaw);
++    mViewCache.mEye = mViewCache.mCenter + mViewCache.mDirection.Xyz();
++    memcpy(&mWork, &state, sizeof(state));
++    return true;
++#else
++    return false;
++#endif
+ }
+ 
+ /* 801795C8-801799C0       .text nonOwnerCamera__9dCamera_cFl */

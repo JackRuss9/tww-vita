@@ -24,14 +24,14 @@ Las tareas posteriores de la isla y el embarque siguen pendientes.
 | Compilación PC con datos reales | Superada con los parches actuales | No demuestra que la historia sea completable |
 | Inicio directo de diagnóstico en Isla Initia | Link camina, gira, se detiene, rueda y sigue la altura del terreno | Usa `--outset`: salta menú e introducción y omite la escena de entrada; permite los eventos posteriores |
 | Agua en la isla | Se alcanzan estados de natación y reaparece en la isla | No es una prueba de progreso de la historia |
-| Cámara | Seguimiento y recentrado con L funcionan | La cámara manual con C-stick está sin implementar |
+| Cámara | Seguimiento, recentrado con L y cámara orbital PC con C-stick | Límites por zona; no reproduce toda la cámara manual original ni sus variantes especiales |
 | Ropajes y catalejo de Abril | Superada la secuencia aislada, conversación posterior y movimiento al recuperar el control | Inyecta solicitudes de escenario para omitir desplazamientos; no valida todo el recorrido desde el menú |
 | Estabilidad del movimiento | Pruebas de 120 y 75 segundos tras corregir el temporizador y las animaciones | No valida todas las zonas ni interacciones |
 | Arranque normal, nombre, historia y despertar | Superada la secuencia completa y entregado el control; Link recorre 166,342 unidades con entrada de teclado | Diagnóstico sin ventana y con audio mudo; no valida las tareas posteriores |
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 49 de tww y 4 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 50 de tww y 4 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -388,11 +388,68 @@ Conserva las banderas e inventario obtenidos por los eventos reales; **no
 valida el recorrido completo desde el menú hasta Abril**. `tools/normal_flow.gdb`
 sigue siendo la prueba independiente del arranque normal.
 
-La cámara libre todavía está pendiente. También siguen pendientes la música
+En esta comprobación todavía no estaba disponible la cámara libre (ver el
+avance 0050 a continuación). También siguen pendientes la música
 de fondo, la fanfarria de objeto, las voces de Link y el recorrido posterior
 con el catalejo, espada, bosque y embarque. El usuario confirma que los sonidos
 de menú y diálogo, la sincronización de la voltereta y el parpadeo de la torre
 han mejorado; esas observaciones no equivalen a fidelidad de todo el audio.
+
+## Cámara libre en PC (parche 0050)
+
+La entrada del C-stick ya llegaba al juego, pero `manualCamera` devolvía sin
+actualizar la vista. El parche 0050 añade una cámara orbital PC alrededor de
+Link: giro horizontal, inclinación acotada por el estilo de cada zona,
+seguimiento al caminar y conservación de la distancia al entrar. Reutiliza
+la selección de modos, el recentrado con L y las colisiones del juego.
+
+**Es una implementación funcional PC, no una reconstrucción exacta de toda
+la función original.** La entrada vertical inclina la vista; todavía no
+recupera su acoplamiento original con zoom/campo de visión ni todos los casos
+de combate, navegación y otros actores. No se da por validada en todo el juego.
+
+Controles: **I/J/K/L** equivalen al C-stick; **Q** al botón L de recentrado.
+El stick derecho de un mando usa la misma entrada y lógica, aunque las pruebas
+automáticas siguientes utilizan teclado.
+
+`probe-IPp5jo` supera giro a ambos lados, inclinación, más de dos vueltas
+completas sin discontinuidades numéricas, ausencia de deriva al soltar,
+movimiento de Link y vuelta al seguimiento con L en la playa (resultado 0).
+`probe-Ae4oIf` detecta un error del primer intento en la casa: el estilo MM18
+guarda los límites como 35/0, mientras que MM01 usa 0/30. Se corrigió la lectura
+de ambos extremos; el fallo fue una aserción del observador, no un cierre nativo.
+`probe-nZDFXv` supera exterior e interior con esa corrección (resultado 0),
+con inclinaciones máximas de 29,998° y 34,997° respectivamente. Girar la cámara
+no desplaza a Link y al soltar el C-stick no se mide deriva horizontal.
+
+La inspección de capturas encuentra que la pared puede acercar la vista al
+modelo de Link. Se habilita el mecanismo común de ocultación de cabeza/cuerpo
+cuando la distancia cae por debajo del umbral original, sin cambiar el modelo
+ni las colisiones. `probe-kFU55x` repite la prueba completa **con ventana y reloj normal** en la
+compilación final, resultado 0. Comprueba 100 fotogramas de vista cercana con
+la señal de ocultación activa y su retirada al volver al seguimiento con L.
+Las capturas permiten revisar el resultado; no se ha validado cada ángulo
+posible dentro de habitaciones estrechas.
+
+```sh
+./tools/probe-pc.sh --outset --headless --deterministic --seconds 180 \
+  --gdb "$PWD/tools/manual_camera.gdb"
+```
+
+La prueba entra en `LinkRM` mediante una solicitud de escenario; no valida
+la interacción con la puerta ni avanza la historia. Audio silenciado.
+
+`probe-VX57Ad` gira la cámara manual antes de acercarse a Abril y supera
+ropajes, felicitación, entrega del catalejo, diálogo y movimiento final de
+234,579 unidades (resultado 0). Comprueba el relevo entre cámara manual y
+cámaras de eventos; precede al último ajuste de visibilidad del modelo.
+`tools/aryll_story.gdb` incluye esa entrada de C-stick para repetirlo.
+`probe-Pkl2hc` amplía la regresión final con movimiento y giro simultáneos,
+también en ambas zonas: resultado 0. Link se desplaza mientras la cámara gira
+471,885° en cada tramo; se comprueban además 111 fotogramas de ocultación en
+vista cercana. La serie de 50 parches se aplica sobre fuentes limpias y reproduce
+el archivo de cámara usado para compilar.
+
 
 ## Próximos hitos
 

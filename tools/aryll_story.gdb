@@ -125,6 +125,9 @@ class Navigate(gdb.Breakpoint):
         if not hero_done:return False
         if gdb.parse_and_eval('g_dComIfG_gameInfo.play.mCurStage.mName').string()!='sea':return False
         self.n+=1
+        # Rotate the live manual camera before approaching Aryll, so this
+        # regression also checks manual -> event/TALK -> gameplay handover.
+        gdb.selected_inferior().write_memory(keybase+15,bytes([self.n<=45]))
         if self.n%5:return False
         obj=gdb.parse_and_eval('this')
         xyz=tuple(float(obj['current']['pos'][x]) for x in ('x','y','z'))
