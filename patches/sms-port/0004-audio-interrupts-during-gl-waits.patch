@@ -1,0 +1,135 @@
+Reason: service guest audio interrupts during published GL waits, with native-thread guards and no GL mutex held; keep ring reservations non-reentrant.
+
+--- a/platform/os/os_thread.cpp
++++ b/platform/os/os_thread.cpp
+@@ -156,6 +156,12 @@
+ // An idle wait of at most 1 ms for a kick (g_cpu held).
+ void idle_wait(const struct timespec& ts);
+ OSThread* g_cur;
++#ifndef __vita__
++// Native helper/render/audio threads must never deliver guest interrupts.
++// A guest host executes only while it owns g_cpu; this also covers fibers
++// on the registered boot host, without reading the scheduler from outsiders.
++thread_local bool g_host_runs_guest = false;
++#endif
+ std::atomic<OSThread*> g_cur_spin; // g_cur, for threads spinning without g_cpu
+ OSThread g_default_thread;
+ std::map<OSThread*, Host*> g_hosts;
+@@ -836,6 +842,9 @@
+ #endif
+ 	OSThread* self = (OSThread*)p;
+ 	pthread_mutex_lock(&g_cpu);
++#ifndef __vita__
++	g_host_runs_guest = true;
++#endif
+ 	Host* h = host_of(self);
+ 	while (g_cur != self || host_of(self) != h) {
+ 		pthread_cond_wait(&h->cv, &g_cpu);
+@@ -914,6 +923,16 @@
+ 	g_check_ra = __builtin_return_address(0);
+ 	irq_check();
+ }
++// Called between host GL wait slices, with no GL queue mutex held.
++// Render threads (including Vita's separate draw thread) are not guest CPUs.
++extern "C" void port_os_poll_gl_wait(void)
++{
++#ifndef __vita__
++	if (g_host_runs_guest)
++		port_irq_check();
++#endif
++}
++
+ static void irq_check()
+ {
+ 	if (!g_irq_enabled || g_in_irq)
+@@ -1030,6 +1049,9 @@
+ {
+ 	port_crash_set_thread_describer(describe_threads_for_crash);
+ 	pthread_mutex_lock(&g_cpu); // the boot thread owns the CPU from here on
++#ifndef __vita__
++	g_host_runs_guest = true;
++#endif
+ 	OSThread* t = &g_default_thread;
+ 	memset(t, 0, sizeof(*t));
+ 	t->state    = OS_THREAD_STATE_RUNNING;
+--- a/platform/gx/src/gx_glthread.cpp
++++ b/platform/gx/src/gx_glthread.cpp
+@@ -14,6 +14,10 @@
+ #include <CoreFoundation/CoreFoundation.h>
+ #include <pthread.h>
+ #endif
++
++// Optional when this renderer is built without the emulated OS. The OS
++// checks that the caller is a guest host before servicing audio/VI/DSP work.
++extern "C" void port_os_poll_gl_wait(void) __attribute__((weak));
+ 
+ namespace gx {
+ namespace glt {
+@@ -86,7 +90,8 @@
+ uint64_t s_wokenAt = 0;  // producer: s_head when the GL thread was last woken
+ Mutex s_mtx;
+ Cond s_glCv, s_mainCv;
+-std::atomic<bool> s_glSleeping{false}, s_mainSleeping{false};
++std::atomic<bool> s_glSleeping{false};
++std::atomic<unsigned> s_mainSleeping{0};
+ 
+ inline void relax() {
+ #if defined(__x86_64__) || defined(__i386__)
+@@ -116,7 +121,7 @@
+ // (dispatch_sync) after the window changed size.
+ double s_waited = 0;  // seconds the game's threads waited for the GL thread
+ 
+-template <class C> void mainWait(const C& cond) {
++template <class C> void mainWait(const C& cond, bool serviceGuest = false) {
+     if (cond()) return;
+     const double t0 = monoSeconds();
+     struct Timed {
+@@ -135,9 +140,18 @@
+     }
+ #endif
+     std::unique_lock<Mutex> l(s_mtx);
+-    s_mainSleeping.store(true);
+-    while (!cond()) s_mainCv.wait_for(l, std::chrono::milliseconds(1));
+-    s_mainSleeping.store(false);
++    s_mainSleeping.fetch_add(1);
++    while (!cond()) {
++        s_mainCv.wait_for(l, std::chrono::milliseconds(1));
++        if (cond()) break;
++        // A shader/cache/readback wait must not stall JAudio's DMA clock.
++        // Interrupts can switch guest threads, so release the producer's
++        // mutex first; GL completion notifications remain safe meanwhile.
++        l.unlock();
++        if (serviceGuest && port_os_poll_gl_wait) port_os_poll_gl_wait();
++        l.lock();
++    }
++    s_mainSleeping.fetch_sub(1);
+ }
+ 
+ void threadMain(void (*bind)(void*), void* arg, std::atomic<int>* ready) {
+@@ -209,6 +223,8 @@
+     if (total > kRing / 2) fatal("GL thread: a %zu-byte command does not fit its queue", bytes);
+     size_t at = size_t(s_head % kRing);
+     const size_t pad = at + total > kRing ? kRing - at : 0;  // the command does not fit before the end: wrap
++    // Keep this reservation non-reentrant: at/pad refer to the current head.
++    // Guest interrupts are serviced only after a command is published.
+     mainWait([&] { return s_head + pad + total - s_tail.load(std::memory_order_acquire) <= kRing; });
+     if (pad) {
+         Header* w = reinterpret_cast<Header*>(s_ring + at);
+@@ -231,7 +247,7 @@
+ }
+ 
+ void waitFlag(const std::atomic<int>& done) {
+-    mainWait([&] { return done.load(std::memory_order_acquire) != 0; });
++    mainWait([&] { return done.load(std::memory_order_acquire) != 0; }, true);
+ }
+ 
+ void signalFlag(std::atomic<int>& done) {
+@@ -242,7 +258,7 @@
+ void finish() {
+     if (!s_running.load() || t_onGl) return;
+     const uint64_t upto = s_head;
+-    mainWait([&] { return s_tail.load(std::memory_order_acquire) >= upto; });
++    mainWait([&] { return s_tail.load(std::memory_order_acquire) >= upto; }, true);
+ }
+ 
+ bool start(void (*bind)(void*), void* arg) {

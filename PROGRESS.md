@@ -30,7 +30,7 @@ Las tareas posteriores de la isla y el embarque siguen pendientes.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 41 de tww y 3 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 42 de tww y 4 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -115,6 +115,49 @@ también conserva vacías las funciones principales de cámaras de eventos y
 los puntos de entrada de audio citados; no se ha sustituido la dependencia
 local por esa revisión.
 
+## Seguimiento: audio y escena de la torre
+
+El recorrido `probe-P48Du2`, con ventana y salida de audio, termina con éxito
+hasta el control y movimiento inicial de Link. Registra tres interrupciones
+de audio, 228 ms en total y 95 ms la mayor, durante una ejecución con GDB.
+No demuestra reproducción continua ni corrección visual de la escena.
+
+El parche de plataforma 0004 entrega interrupciones del sistema invitado
+durante esperas de comandos gráficos ya publicados, sin mantener el mutex
+gráfico. Los hilos auxiliares nativos no pueden entregar esas interrupciones;
+la reserva del anillo de comandos sigue sin ser reentrante. Tras la corrección,
+`probe-ozyhmy` completa 90 segundos sin GDB ni capturas, con audio real, sin
+registrar interrupciones. Solo valida ese tramo, no toda la isla.
+
+El parche 0042 recupera del código original las variantes de sonido de avance
+y cierre de mensajes de escenas y sus reglas de supresión. Las trazas distinguen
+el avance cinematográfico (0x08fd, banco 2/programa 52), la confirmación de menú
+(0x0801, banco 2/programa 1) y la rupia (0x0826, banco 2/programa 24). La prueba
+`check/test_ui_audio.cpp` pasa. **El usuario sigue percibiendo incorrecto el
+sonido de avance**: identificar la secuencia correcta no valida muestras,
+envolventes, afinación ni mezcla.
+
+También queda abierto el parpadeo comunicado en la escena 3D de la torre.
+`probe-b5SQLh` vuelve a superar el arranque normal y movimiento, esta vez con
+300 capturas consecutivas distribuidas en cinco tramos de 60 fotogramas.
+Usa reloj determinista y no valida audio. Es un diagnóstico parcial: no se
+considera solucionado el parpadeo ni se ha capturado toda la escena.
+
+### Alcance de la primera isla
+
+Abril, la abuela, Orca, Tetra, los Bokoblin, el Helmaroc de esta parte y el
+barco pirata tienen cuerpos de código implementados en la revisión fijada.
+Esto permite mantener el objetivo de llegar al embarque, pero no prueba que
+sus interacciones funcionen en PC. Faltan funciones de cámaras de conversación,
+obtención de objetos y otras escenas; también faltan NPC secundarios y el
+actor compartido por Zuko, Niko y Mako. Todavía no se ha demostrado un límite
+obligatorio anterior al embarque por una ausencia concreta de decompilación.
+
+El límite verificado sigue siendo el control inicial de Link. Conversaciones,
+ropa, catalejo, entrenamiento, espada, escudo, bosque, rescate, transiciones y
+despedida deben probarse en orden, sin dar por superados los eventos que se
+omitan o desbloqueen artificialmente.
+
 ## Cómo repetir las comprobaciones
 
 ```sh
@@ -140,7 +183,7 @@ que produce quedarse sin datos en el dispositivo de salida.
 
 ## Próximos hitos
 
-- Repetir con ventana y audio el arranque normal ya validado sin ventana.
+- Corregir el parpadeo comunicado en la torre y verificar la escena completa.
 - Corregir cámaras, diálogos y actores que bloqueen las tareas de la isla.
 - Comprobar espada, escudo, bosque y rescate, cambios de habitación, regreso,
   despedida y embarque. Ninguno se considera validado todavía.

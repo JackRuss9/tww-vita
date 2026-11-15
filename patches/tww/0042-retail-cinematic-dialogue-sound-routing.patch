@@ -1,0 +1,43 @@
+Reason: select the original cinematic message-next/end sounds and dialogue suppression rules before native UI dispatch; retain distinct menu and rupee IDs.
+
+--- a/src/JAZelAudio/JAIZelBasic.cpp
++++ b/src/JAZelAudio/JAIZelBasic.cpp
+@@ -4,6 +4,9 @@
+ //
+ 
+ #include "JAZelAudio/JAIZelBasic.h"
++#ifdef TARGET_PC
++#include "tww_ui_audio.h"
++#endif
+ #include "JAZelAudio/JAIZelParam.h"
+ #include "JAZelAudio/JAIZelSound.h"
+ #include "JSystem/JAudio/JAIConst.h"
+@@ -713,9 +716,27 @@
+     // Recovered common dispatch at 802A8268..802A850C. Limit this first
+     // implementation to non-positional menu/dialogue effects: the rest of
+     // retail seStart performs sound-specific remapping that is still absent.
+-    if (i_seNum >= 0x0800 && i_seNum <= 0x083f && !position && flags == 0) {
++    if (((i_seNum >= 0x0800 && i_seNum <= 0x083f) ||
++         i_seNum == JA_SE_DEMO_MSG_NEXT || i_seNum == JA_SE_DEMO_MSG_END) && !position && flags == 0) {
+         if (field_0x0201 == 1)
+             return NULL;
++        // These requests are not interchangeable with their cinematic
++        // variants. Keep retail remapping before allocating a sound handle.
++        bool blockedStream = JAInter::StreamMgr::streamUpdate && checkStreamPlaying(JA_STRM_DEMO_GO_MAJU);
++        i_seNum = tww_ui_sound_id(i_seNum, isDemo(), blockedStream,
++                                  field_0x0207 != 0, field_0x00be != 0,
++                                  checkSePlaying(JA_SE_TAKT_MATCHED));
++        if (i_seNum == UINT32_MAX)
++            return NULL;
++        if (i_seNum == JA_SE_ITM_MENU_IN) menuIn();
++        if (i_seNum == JA_SE_ITM_MENU_OUT) menuOut();
++        if (i_seNum == JA_SE_L_FOCUS_SET || i_seNum == JA_SE_CAMERA_L_MOVE) {
++            seStop(JA_SE_L_FOCUS_RESET, 0);
++            seStop(JA_SE_CAMERA_L_CANCEL, 0);
++        } else if (i_seNum == JA_SE_L_FOCUS_RESET || i_seNum == JA_SE_CAMERA_L_CANCEL) {
++            seStop(JA_SE_L_FOCUS_SET, 0);
++            seStop(JA_SE_CAMERA_L_MOVE, 0);
++        }
+         int slot = -1;
+         for (int n = 0; n < MAX_CONCURRENT_SE_NUM; n++) {
+             int candidate = (field_0x01f4 + n) % MAX_CONCURRENT_SE_NUM;
