@@ -7,6 +7,8 @@ set print static-members off
 handle SIGUSR1 SIGUSR2 SIGPIPE nostop noprint
 python
 import gdb
+import json
+import os
 keys = {'a': 44, 'start': 40, 'left': 80, 'up': 26}
 keybase = int(gdb.parse_and_eval("&'(anonymous namespace)::g_key'"))
 opening_done = False
@@ -15,6 +17,47 @@ free_frames = 0
 free_since = None
 move_origin = None
 camera_cut = None
+
+# Opt-in render diagnosis. Capture only display data; never change the
+# camera, actor positions, event flags or simulation clock.
+# TWW_CAPTURE_TOWER=sample: five 60-frame bursts; =all: first 4000 frames.
+class TowerFrames(gdb.Breakpoint):
+    def __init__(self, mode):
+        super().__init__('(anonymous namespace)::dumpFrame(void const*)')
+        self.mode, self.age = mode, 0
+        self.path = os.path.join(os.environ['SMS_GX_DUMP_DIR'], 'camera.jsonl')
+
+    def stop(self):
+        if not opening_done:
+            return False
+        stage = gdb.parse_and_eval('g_dComIfG_gameInfo.play.mCurStage.mName').string()
+        if stage != 'sea':
+            return False
+        camera = gdb.parse_and_eval('g_dComIfG_gameInfo.play.mCameraInfo[0].mpCamera')
+        if int(camera) == 0:  # Stage name changes before its camera is created.
+            return False
+        self.age += 1
+        capture = (self.age <= 4000 if self.mode == 'all' else
+                   any(first <= self.age < last for first, last in
+                       ((20, 80), (250, 310), (700, 760), (1500, 1560), (2400, 2460))))
+        gdb.execute('set variable every = %d' % int(capture))
+        if capture:
+            # These are the actual rendered view values. CameraInfo's
+            # cached mCameraPos/mCameraTarget remain zero in this path.
+            view = camera.dereference()['view']
+            xyz = lambda field: [float(view['mLookat'][field][axis]) for axis in ('x', 'y', 'z')]
+            row = dict(scene_frame=self.age, gx_frame=int(gdb.parse_and_eval('s_frame')),
+                       eye=xyz('mEye'), target=xyz('mCenter'), fovy=float(view['mFovy']),
+                       near=float(view['mNear']), far=float(view['mFar']))
+            with open(self.path, 'a') as output:
+                output.write(json.dumps(row) + '\n')
+        return False
+
+capture_mode = os.environ.get('TWW_CAPTURE_TOWER')
+if capture_mode:
+    if capture_mode not in ('sample', 'all'):
+        raise gdb.GdbError('TWW_CAPTURE_TOWER must be sample or all')
+    TowerFrames(capture_mode)
 
 def press(key):
     for name, code in keys.items():
@@ -69,12 +112,18 @@ class Flow(gdb.Breakpoint):
                 key = 'a'
             press(key)
         elif self.kind == 'message':
-            state = val(obj, 'field_0x164')
+            # Gameplay and cinematic messages have separate implementations
+            # sharing this function name, with different derived layouts.
+            gameplay = obj.type.target().tag == 'sub_msg_class'
+            state = val(obj, 'mStatus' if gameplay else 'field_0x164')
             if state != self.last:
                 self.last = state
-                control = gdb.parse_and_eval('dMesg_gpControl')
-                print('[flow] dialogue state=%d group=%d index=%d' %
-                      (state, val(control, 'mGroupID'), val(control, 'mMessageIndex')))
+                if gameplay:
+                    print('[flow] gameplay dialogue status=%d message=%d' % (state, val(obj, 'mMsgNo')))
+                else:
+                    control = gdb.parse_and_eval('dMesg_gpControl')
+                    print('[flow] dialogue state=%d group=%d index=%d' %
+                          (state, val(control, 'mGroupID'), val(control, 'mMessageIndex')))
         elif self.kind == 'opening':
             state = val(obj, 'mState')
             if state != self.last:

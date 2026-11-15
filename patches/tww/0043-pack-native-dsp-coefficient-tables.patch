@@ -1,0 +1,32 @@
+Reason: adapt native TWW u16 DSP tables to the host mixer ABI of numeric high/low u32 pairs; otherwise both AFC predictors and resampling taps are reversed on little-endian PCs.
+
+--- a/src/JSystem/JAudio/JASDSPInterface.cpp
++++ b/src/JSystem/JAudio/JASDSPInterface.cpp
+@@ -6,6 +6,9 @@
+ #include "JSystem/JSystem.h" // IWYU pragma: keep
+ 
+ #include "JSystem/JAudio/JASDSPInterface.h"
++#ifdef TARGET_PC
++#include "tww_dsp_tables.h"
++#endif
+ #include "JSystem/JAudio/JASCalc.h"
+ #include "JSystem/JAudio/JASDriverTables.h"
+ #include "JSystem/JAudio/JASSystemHeap.h"
+@@ -61,7 +64,17 @@
+ 
+ /* 8028A240-8028A28C       .text setupBuffer__Q28JASystem12DSPInterfaceFv */
+ void JASystem::DSPInterface::setupBuffer() {
++#ifdef TARGET_PC
++    // The host DSP mixer expects numeric u32 pairs, high half first.
++    // TWW's native u16 constants otherwise arrive pair-swapped on x86.
++    static u32 ATTRIBUTE_ALIGN(32) resFilter[256];
++    static u32 ATTRIBUTE_ALIGN(32) adpcmFilter[16];
++    tww_pack_dsp_table(resFilter, DSPRES_FILTER, 256);
++    tww_pack_dsp_table(adpcmFilter, DSPADPCM_FILTER, 16);
++    DsetupTable(64, (uintptr_t)CH_BUF, (uintptr_t)resFilter, (uintptr_t)adpcmFilter, (uintptr_t)FX_BUF);
++#else
+     DsetupTable(64, (uintptr_t)CH_BUF, (uintptr_t)DSPRES_FILTER, (uintptr_t)DSPADPCM_FILTER, (uintptr_t)FX_BUF);
++#endif
+     DsetDolbyDelay((uintptr_t)DOLBY2_DELAY_BUF, 10);
+ }
+ 

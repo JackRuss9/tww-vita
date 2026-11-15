@@ -687,3 +687,16 @@ Verification:
   samples: game thread waits in gx::glt::mainWait -> shaderSetup, while the GL
   thread is reading programCacheLoad. That host wait does not service emulated
   interrupts. This is a specific cause to fix, not proof every hitch has it.
+- TWW's DSPADPCM_FILTER and DSPRES_FILTER are native u16 arrays. The inherited
+  mixer setup consumes numeric u32 pairs, first coefficient in the high half.
+  Patch 0043 packs the tables at TWW's TARGET_PC setup boundary; casting their
+  addresses directly swapped AFC predictor pairs and resampling taps on x86.
+  check/test_dsp_tables.py links the actual TWW constants and native mixer,
+  checks a synthetic AFC frame against hand-calculated samples, and proves
+  either unadapted table changes the rendered output. The decode-only mixer
+  hook falls back to default predictors when coefficient [1][0] is zero, so
+  it alone would have hidden this defect; the regression uses render too.
+- TWW_CAPTURE_TOWER=sample/all enables consecutive XFB and active-view camera
+  captures in normal_flow.gdb. A changing stage name does not mean its camera
+  exists yet; guard the pointer. CameraInfo.mCameraPos/mCameraTarget are saved
+  camera state, not the live view, and were zero in these startup probes.

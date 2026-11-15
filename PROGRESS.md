@@ -30,7 +30,7 @@ Las tareas posteriores de la isla y el embarque siguen pendientes.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 42 de tww y 4 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 43 de tww y 4 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -137,11 +137,36 @@ el avance cinematográfico (0x08fd, banco 2/programa 52), la confirmación de me
 sonido de avance**: identificar la secuencia correcta no valida muestras,
 envolventes, afinación ni mezcla.
 
+El parche 0043 corrige otra causa comprobada de distorsión: `DSPRES_FILTER`
+y `DSPADPCM_FILTER` son tablas nativas de `u16` en Wind Waker, mientras que
+el mezclador espera parejas empaquetadas en `u32`, primer coeficiente en la
+mitad alta. Leerlas directamente invertía las parejas en x86, tanto los
+predictores AFC como los coeficientes de remuestreo. Se adaptan en la entrega
+al mezclador sin modificar las constantes del juego ni el ABI de Sunshine.
+`check/test_dsp_tables.py` compila las constantes de producción y el mezclador
+real: una trama AFC sintética produce exactamente las muestras calculadas;
+el renderizado con cualquiera de las dos tablas invertidas difiere de la
+referencia. `probe-QuRgAl` confirma en el ejecutable los valores recibidos
+por el mezclador (`res[0]=0x0c3966ad`, `adpcm[1]=0x08000000`) y ejercita los
+tres efectos de referencia sin salida audible. Falta la comparación auditiva
+posterior: no se declara fidelidad completa por esta prueba numérica.
+
+En esa inspección, los tres efectos usan filtro IIR identidad y paso bajo
+desactivado. Los filtros de voz no implementados no explican por sí solos
+la diferencia de estos efectos concretos.
+
 También queda abierto el parpadeo comunicado en la escena 3D de la torre.
 `probe-b5SQLh` vuelve a superar el arranque normal y movimiento, esta vez con
 300 capturas consecutivas distribuidas en cinco tramos de 60 fotogramas.
 Usa reloj determinista y no valida audio. Es un diagnóstico parcial: no se
 considera solucionado el parpadeo ni se ha capturado toda la escena.
+
+`probe-gDDiXm` repite los cinco tramos con el reloj normal y también supera
+el arranque y el movimiento. Las 300 muestras de cámara tienen valores
+finitos, campo de visión válido y planos cercano/lejos ordenados. Los dos
+cambios grandes entre imágenes consecutivas de esos tramos corresponden a
+cambios de plano; no se ha reproducido una alternancia rápida en esas muestras.
+Esto no descarta fallos fuera de los tramos ni en la presentación de la ventana.
 
 ### Alcance de la primera isla
 
@@ -158,12 +183,35 @@ ropa, catalejo, entrenamiento, espada, escudo, bosque, rescate, transiciones y
 despedida deben probarse en orden, sin dar por superados los eventos que se
 omitan o desbloqueen artificialmente.
 
+**Primer bloqueo reproducido después de obtener el control:** `probe-ZKKyqJ`
+supera de nuevo el arranque y el movimiento con el parche de audio 0043.
+Se acerca a Abril usando teclado, activa `DEFAULT_TALK` (evento 106) y entra
+en la cámara `TALK` (corte 1146). El mensaje 3033 (`0x0bd9`) permanece en
+`MSG_PREPARING`, y Link queda en modo de conversación. Se detuvo el diagnóstico
+con SIGINT tras observar el estado repetido; resultado 255, **no superado**.
+`dMsg_initProc` espera la señal de cámara preparada; `talktoEvCamera` y
+`talktoCamera` siguen vacías y no producen esa señal. Recuperar esas cámaras
+es necesario antes de poder validar esta primera conversación. No se ha
+forzado la señal ni marcado el diálogo como completado para continuar.
+
+`probe-exvnqW` recoge 3206 fotogramas consecutivos desde la transición a la
+isla hasta abrir esa conversación, incluyendo toda la escena `awake` y el
+movimiento inicial. Las dos vistas inicialmente no preparadas producen
+imágenes negras durante la transición; las restantes tienen perspectiva válida.
+La revisión de cambios grandes de imagen muestra cortes de escena y giros de
+cámara al controlar a Link, sin reproducir una alternancia continua de destellos
+en el XFB. Esta ejecución se detuvo por una lectura de diagnóstico incorrecta
+al entrar en el segundo tipo de mensajes, no por un fallo nativo del juego.
+El observador se corrigió distinguiendo mensajes cinemáticos y de juego;
+`probe-ZKKyqJ` pudo entonces observar el bloqueo de conversación real.
+
 ## Cómo repetir las comprobaciones
 
 ```sh
 ./build-pc.sh
 python3 check/test_animation.py
 python3 check/test_jstudio.py
+python3 check/test_dsp_tables.py
 g++ -std=c++11 -O2 -Iport/include check/test_timing.cpp -o /tmp/tww-timing-test
 /tmp/tww-timing-test
 
@@ -173,7 +221,17 @@ g++ -std=c++11 -O2 -Iport/include check/test_timing.cpp -o /tmp/tww-timing-test
 # Diagnóstico sin ventana, con reloj determinista; no valida audio audible:
 ./tools/probe-pc.sh --headless --deterministic --seconds 300 \
   --gdb "$PWD/tools/normal_flow.gdb"
+
+# Cinco tramos de 60 fotogramas consecutivos y cámara activa en camera.jsonl:
+TWW_CAPTURE_TOWER=sample ./tools/probe-pc.sh --headless --seconds 420 \
+  --gdb "$PWD/tools/normal_flow.gdb"
 ```
+
+`TWW_CAPTURE_TOWER=all` captura hasta los primeros 4000 fotogramas de la isla
+con cámara creada (aproximadamente 3,5 GiB a la resolución actual). Las capturas
+y el depurador alteran el rendimiento: no usar este modo para medir cortes de
+audio. Este diagnóstico solo cambia la frecuencia de captura, no la cámara
+ni el progreso de la partida.
 
 El conductor deja reproducirse la historia ilustrada completa. Un tiempo
 límite (estado 124) no es un resultado satisfactorio por sí solo: hay que leer
