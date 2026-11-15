@@ -22,15 +22,16 @@ Las tareas posteriores de la isla y el embarque siguen pendientes.
 | Prueba | Resultado | Límite de la comprobación |
 |---|---|---|
 | Compilación PC con datos reales | Superada con los parches actuales | No demuestra que la historia sea completable |
-| Inicio directo de diagnóstico en Isla Initia | Link camina, gira, se detiene, rueda y sigue la altura del terreno | Usa `--outset`: salta menú e introducción y desactiva escenas automáticas |
+| Inicio directo de diagnóstico en Isla Initia | Link camina, gira, se detiene, rueda y sigue la altura del terreno | Usa `--outset`: salta menú e introducción y omite la escena de entrada; permite los eventos posteriores |
 | Agua en la isla | Se alcanzan estados de natación y reaparece en la isla | No es una prueba de progreso de la historia |
 | Cámara | Seguimiento y recentrado con L funcionan | La cámara manual con C-stick está sin implementar |
+| Ropajes y catalejo de Abril | Superada la secuencia aislada, conversación posterior y movimiento al recuperar el control | Inyecta solicitudes de escenario para omitir desplazamientos; no valida todo el recorrido desde el menú |
 | Estabilidad del movimiento | Pruebas de 120 y 75 segundos tras corregir el temporizador y las animaciones | No valida todas las zonas ni interacciones |
 | Arranque normal, nombre, historia y despertar | Superada la secuencia completa y entregado el control; Link recorre 166,342 unidades con entrada de teclado | Diagnóstico sin ventana y con audio mudo; no valida las tareas posteriores |
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 45 de tww y 4 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 49 de tww y 4 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -323,6 +324,75 @@ límite (estado 124) no es un resultado satisfactorio por sí solo: hay que leer
 el registro. La opción `--audio` añade un WAV y estadísticas de interrupciones;
 la grabación de las muestras mezcladas no incluye necesariamente las pausas
 que produce quedarse sin datos en el dispositivo de salida.
+
+## Cámaras de Abril y entrega del catalejo (15 de noviembre)
+
+El parche 0046 elimina una restricción demasiado amplia de `--outset`:
+rechazaba todas las órdenes de eventos en la habitación 44, incluidas las de
+Abril después de los ropajes. Se conserva únicamente la omisión de la escena
+de entrada de ese modo de diagnóstico. En este punto de la historia, Abril
+inicia automáticamente `omedeto` al acercarse; no necesita el indicador Hablar.
+`probe-f4966f` comprueba que el inicio directo sigue entregando control y
+movimiento (238,604 unidades, resultado 0).
+
+El parche 0047 añade `FIXEDFRM` relativo a `@STARTER` con máscara `oo`:
+transforma los desplazamientos originales usando la atención y orientación
+del actor. Los tres planos de `omedeto` se comparan con una rotación calculada
+independientemente; el error máximo medido es 0,141 unidades. Otros actores
+relativos y máscaras siguen pendientes. Una primera comprobación numérica
+detectó una modificación incorrecta de los accesores angulares; se retiró.
+
+El parche 0048 recupera `GETITEM` desde el ensamblador original: espera de
+27 fotogramas, selección de cámara con colisiones, transición de 5 fotogramas
+y señal de preparado. El catalejo entra en la ranura 0 con ID `0x20`. La prueba
+anterior `probe-snn1vG` llegaba aquí pero se detenía en el diálogo posterior:
+`TALK` seguía vacío. Esa prueba no se considera superada.
+
+El parche 0049 recupera el envoltorio de evento `TALK` y añade una cámara PC
+funcional para el plano normal (comando de mensaje 0): usa los actores reales,
+los parámetros del estilo, un encuadre para ambos interlocutores y una
+transición de 20 fotogramas antes de dar la señal al sistema de mensajes.
+**No es una reconstrucción exacta de toda la cámara original.** Los comandos
+especiales de cámara de mensaje aún se rechazan expresamente. No marca
+objetos ni diálogos como completados para saltarlos.
+
+`probe-b4vlMv` supera ropajes, felicitación, entrega del catalejo, conversación
+posterior y devolución del control: movimiento final de 234,527 unidades,
+resultado 0. La captura de conversación detectó un poste tapando a Link;
+se añadió una búsqueda de ángulos con líneas de visión de ambos actores.
+`probe-sRpzuV` repite la secuencia con esa mejora: resultado 0, ambos
+personajes visibles en la captura y movimiento final de 234,549 unidades.
+El observador comprueba que las señales de preparado permanecen apagadas
+antes del fotograma 20, que se activan al completar el encuadre y que el centro
+y campo de visión llegan a sus valores objetivo. `probe-LQEGlr` fue un fallo
+del nombre del símbolo en el observador GDB, corregido antes de esta prueba;
+no fue un cierre nativo del juego.
+
+`probe-QXA2ta` comprueba también el arranque normal con la compilación final:
+menú, nueva partida y nombre, historia, despertar en la torre y devolución del
+control, resultado 0 y movimiento de 166,342 unidades. Sin ventana y con audio
+mudo; no es una nueva comprobación auditiva ni una prueba hasta el embarque.
+La aplicación limpia de los 49 parches reproduce los dos archivos de cámara
+usados en esta compilación.
+
+Regresión reproducible:
+
+```sh
+./tools/probe-pc.sh --outset --headless --deterministic --seconds 600 \
+  --gdb "$PWD/tools/aryll_story.gdb"
+```
+
+Esta prueba usa solicitudes de escenario para entrar en la escena de los
+ropajes y volver a la torre, y teclado para avanzar mensajes y caminar.
+Conserva las banderas e inventario obtenidos por los eventos reales; **no
+valida el recorrido completo desde el menú hasta Abril**. `tools/normal_flow.gdb`
+sigue siendo la prueba independiente del arranque normal.
+
+La cámara libre todavía está pendiente. También siguen pendientes la música
+de fondo, la fanfarria de objeto, las voces de Link y el recorrido posterior
+con el catalejo, espada, bosque y embarque. El usuario confirma que los sonidos
+de menú y diálogo, la sincronización de la voltereta y el parpadeo de la torre
+han mejorado; esas observaciones no equivalen a fidelidad de todo el audio.
 
 ## Próximos hitos
 

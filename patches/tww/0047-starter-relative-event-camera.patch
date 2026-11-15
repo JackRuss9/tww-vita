@@ -1,0 +1,44 @@
+Reason: recover the retail FIXEDFRM @STARTER/oo branch used by Aryll's omedeto cuts, using the existing actor-attention/yaw transform. Other relative masks remain unsupported.
+
+--- a/src/d/d_ev_camera.cpp
++++ b/src/d/d_ev_camera.cpp
+@@ -132,17 +132,31 @@
+ bool dCamera_c::fixedFrameEvCamera() {
+     /* Nonmatching */
+ #ifdef TARGET_PC
+-    // Recover the absolute-frame branch used at the end of awake. Relative
+-    // actor masks require additional retail branches; never finish those
+-    // unsupported cuts using an invented view or a forced skip.
+-    if (pcCameraArgument(this, "RelActor", 4)) {
+-        if (m11C == 0)
+-            OSReport("[tww] relative FIXEDFRM event camera is still unimplemented\n");
+-        return false;
++    // Retail FIXEDFRM: resolve the actor once when this cut starts. The
++    // ordinary "oo" mask rotates both offsets about its attention point.
++    // Keep unsupported mirror/player masks explicit rather than skipping.
++    fopAc_ac_c* relativeActor = NULL;
++    const char* relativeName = (const char*)pcCameraArgument(this, "RelActor", 4);
++    if (relativeName) {
++        const char* mask = (const char*)pcCameraArgument(this, "RelUseMask", 4);
++        if (strcmp(relativeName, "@STARTER") != 0 || (mask && strcmp(mask, "oo") != 0)) {
++            if (m11C == 0)
++                OSReport("[tww] unsupported FIXEDFRM relative actor/mask: %s/%s\n", relativeName, mask ? mask : "oo");
++            return false;
++        }
++        relativeActor = dComIfGp_event_getPt1();
++        if (!relativeActor) {
++            if (m11C == 0) OSReport("[tww] FIXEDFRM starter is not available\n");
++            return false;
++        }
+     }
+-    if (m11C == 0) {
++    if (m11C == 0 || (relativeActor && !m100 && !m101 && !m102)) {
+         getEvXyzData(&mViewCache.mEye, "Eye", mEye);
+         getEvXyzData(&mViewCache.mCenter, "Center", mCenter);
++        if (relativeActor) {
++            mViewCache.mEye = relationalPos(relativeActor, &mViewCache.mEye);
++            mViewCache.mCenter = relationalPos(relativeActor, &mViewCache.mCenter);
++        }
+         getEvFloatData(&mViewCache.mFovy, "Fovy", mFovy);
+         f32* bank = (f32*)pcCameraArgument(this, "Bank", 0);
+         if (bank) {

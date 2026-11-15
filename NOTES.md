@@ -720,3 +720,37 @@ Verification:
   keyboard movement after the scene. It injects a next-stage request, not a
   complete normal-story path. The roll SFX timing is now user-confirmed good;
   Link voices and shoreline animation pacing remain open.
+
+## Outset conversation checkpoint (15 Nov 2026)
+
+- 0046 removes only the overly broad room-44 event-order filter from the
+  --outset diagnostic route; keep entrance setStartDemo suppression. Aryll's
+  post-clothes omedeto is automatic, so a Talk prompt is not expected here.
+- 0047 implements FIXEDFRM @STARTER/oo with actor attention/yaw. Independent
+  numeric checks for all three omedeto cuts pass within 0.15 game units.
+  Beware cSGlobe's inconsistent getter/setter names: V(angle) writes the
+  horizontal component while U() reads it. Do not swap those calls casually.
+- 0048 recovers GETITEM wait 27 / transition 5 / completion from retail
+  800BBD88..800BC360. The actual engine earns telescope inventory slot 0=0x20.
+- 0049 restores TALK's retail event wrapper (saved type, style slot 3).
+  talktoCamera is a functional PC implementation ONLY for message cut 0,
+  not a matching reconstruction of 8016D8D0..80170434. It frames actual
+  interlocutors using style dimensions and a 20-frame triangular transition.
+  Ready flags only follow completed framing. Other cuts report unsupported.
+  Added candidate yaw search with both speakers' sight lines after seeing
+  the tower pillar obscure Link in the first successful capture.
+- probe-b4vlMv status 0: real clothes, automatic Aryll events, telescope,
+  following dialogue, control and 234.527 units keyboard movement. Isolated
+  next-stage requests skip travel, not story flags. tools/aryll_story.gdb
+  repeats this and additionally checks actual TALK timing and target view.
+- No full-menu-through-telescope route or later rescue/boat verified yet.
+  Manual C-stick, background music, item fanfare and Link voices still open.
+- Final obstacle-search build: probe-sRpzuV status 0, post-telescope movement
+  234.549. Frame 4500 shows both speakers clear of the pillar. TALK observer
+  checks finite view, no early ready flags, frame-20 ready and target center/FOV.
+  LQEGlr failed before run due to GDB's int/long symbol spelling; corrected.
+- All 49 patches apply to a clean pinned archive and reproduce both camera
+  source files byte-for-byte. Existing dependency trees were preserved.
+- Final normal-start regression probe-QXA2ta status 0: title/file/name, full
+  opening and tower awake, control and 166.342 units movement. Headless, dummy
+  audio; no new claims about audio fidelity or completion of all Outset.

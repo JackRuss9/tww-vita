@@ -17,8 +17,9 @@ See [PROGRESS.md](PROGRESS.md) for verified PC milestones, reproducible tests
 and known blockers (Spanish). Normal startup through the complete opening to controlling Link is verified.
 Full Outset story progression and uninterrupted audio are not verified yet.
 Grandma's house loading and the Hero's Clothes scene also pass isolated PC
-tests, including movement after the scene. Ordinary NPC conversations still
-encounter missing camera implementations; see the progress log for limits.
+tests, including movement after the scene. Aryll's telescope delivery and
+subsequent control return also pass an isolated test. Special conversation
+cameras remain incomplete; see the progress log for limits.
 
 ## Builds
 
@@ -42,9 +43,9 @@ it does not provide the assets needed for gameplay.
 
 For PC bring-up, `./run-pc.sh --outset` starts a fresh in-memory game at
 Outset Island's beach spawn (point 204), bypassing file selection and the story opening.
-Automatic story cutscenes on the island are disabled in this route because
-their event cameras are still undecompiled. This is a free-walk test, not a
-saved-game load or a complete story mode. Actors whose creation
+The entrance cutscene is omitted in this route; later story event orders
+are allowed. This is a diagnostic start, not a saved-game load or a verified
+complete story mode. Actors whose creation
 code is still absent in the decompilation are omitted; they would otherwise
 keep the whole room loading forever. Their profiles are generated at CMake
 configure time by `tools/gen_missing_actors.py`.

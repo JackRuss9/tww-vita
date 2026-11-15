@@ -1,0 +1,111 @@
+Reason: recover the GETITEM event camera wait, collision-tested candidate views, timed interpolation and ready state from 800BBD88..800BC360, so real item presentation can advance without forced event flags.
+
+--- a/src/d/d_ev_camera.cpp
++++ b/src/d/d_ev_camera.cpp
+@@ -7,6 +7,11 @@
+ #include "d/d_camera.h"
+ #include "dolphin/types.h"
+ #include "string.h"
++#ifdef TARGET_PC
++#include "d/d_cc_s.h"
++#include "f_pc/f_pc_searcher.h"
++#include "f_pc/f_pc_name.h"
++#endif
+ 
+ #ifdef TARGET_PC
+ namespace {
+@@ -296,8 +301,92 @@
+ 
+ /* 800BBD88-800BC364       .text getItemEvCamera__9dCamera_cFv */
+ bool dCamera_c::getItemEvCamera() {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++#ifdef TARGET_PC
++    // Recovered state machine at 800BBD88..800BC360. Keep its private
++    // working state in the camera's existing scratch union, without changing
++    // the game object's layout. Copying a plain state avoids aliasing it.
++    struct State {
++        int step, elapsed, limit, waitFrames, moveFrames;
++        f32 radius;
++        s16 pitch, yaw;
++    } state = {};
++    static_assert(sizeof(State) <= sizeof(mWork), "GETITEM scratch state");
++    if (!mpPlayerActor) return false;
++    if (m11C != 0) memcpy(&state, &mWork, sizeof(state));
++    if (state.step == 0) {
++        getEvIntData(&state.waitFrames, "Timer1", 27);
++        getEvIntData(&state.moveFrames, "Timer2", 5);
++        state.limit = state.waitFrames;
++        state.step = 1;
++    }
++    bool complete = false;
++    cXyz centerOffset(-0.095f, 0.428f, -7.177f);
++    if (state.step == 1) {
++        setFlag(1);
++        if (state.elapsed >= state.limit) state.step = 10;
++    } else {
++        if (state.step == 10) {
++            state.elapsed = 0;
++            cXyz center = relationalPos(mpPlayerActor, &centerOffset);
++            const cXyz offsets[4] = {
++                cXyz(0.17f, 97.0f, -57.78f),
++                cXyz(35.098f, 100.791f, -31.185f),
++                cXyz(-28.844f, 99.996f, -41.073f),
++                cXyz(0.17f, 97.0f, -57.78f)
++            };
++            fopAc_ac_c* ship = NULL;
++            if (dComIfGp_checkPlayerStatus0(mPadId, daPyStts0_SHIP_RIDE_e))
++                ship = (fopAc_ac_c*)fpcM_SearchByName(fpcNm_SHIP_e);
++            cXyz eye;
++            for (int i = 0; i < 4; ++i) {
++                cXyz offset = offsets[i];
++                eye = relationalPos(mpPlayerActor, &offset);
++                f32 minimum = positionOf(mpPlayerActor).y + m368;
++                if (eye.y < minimum) eye.y = minimum;
++                if (!lineBGCheck(&center, &eye, 0x8f) &&
++                    !dComIfG_Ccsp()->ChkCamera(center, eye, 15.0f, mpPlayerActor, ship))
++                    break;
++            }
++            cSGlobe target(eye - center);
++            state.radius = target.R();
++            state.pitch = target.V().Val();
++            state.yaw = target.U().Val();
++            state.limit = state.moveFrames;
++            state.step = 11;
++        }
++        if (state.step == 11) {
++            // A zero-duration transition reaches its endpoint directly.
++            f32 ratio = state.limit > 0 ? (f32)state.elapsed / state.limit : 1.0f;
++            if (ratio > 1.0f) ratio = 1.0f;
++            mViewCache.mFovy += (79.0f - mViewCache.mFovy) * ratio;
++            cXyz center = relationalPos(mpPlayerActor, &centerOffset);
++            mViewCache.mCenter += (center - mViewCache.mCenter) * ratio;
++            cSGlobe& current = mViewCache.mDirection;
++            f32 radius = current.R() + (state.radius - current.R()) * ratio;
++            cSAngle pitch = current.V() + (cSAngle(state.pitch) - current.V()) * ratio;
++            cSAngle yaw = current.U() + (cSAngle(state.yaw) - current.U()) * ratio;
++            current.Val(radius, pitch, yaw);
++            mViewCache.mEye = mViewCache.mCenter + current.Xyz();
++            if (state.elapsed >= state.limit) state.step = 12;
++        }
++        if (state.step == 12) {
++            mViewCache.mCenter = relationalPos(mpPlayerActor, &centerOffset);
++            mViewCache.mEye = mViewCache.mCenter + mViewCache.mDirection.Xyz();
++            state.step = 99;
++        }
++        if (state.step == 99) {
++            m100 = m101 = m102 = 1;
++            mViewCache.mCenter = relationalPos(mpPlayerActor, &centerOffset);
++            mViewCache.mEye = mViewCache.mCenter + mViewCache.mDirection.Xyz();
++            complete = true;
++        }
++    }
++    ++state.elapsed;
++    memcpy(&mWork, &state, sizeof(state));
++    return complete;
++#else
++    return {}; // tww-vita: not decompiled yet
++#endif
+ }
+ 
+ /* 800BC364-800BC9D8       .text possessedEvCamera__9dCamera_cFv */

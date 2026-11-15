@@ -1,0 +1,138 @@
+Reason: restore the retail TALK event wrapper and a functional PC cut-0 conversation camera with actual actor framing, obstacle checks and a 20-frame ready handshake. Special message-camera cuts remain unsupported; this is not a matching reconstruction.
+
+--- a/src/d/d_camera.cpp
++++ b/src/d/d_camera.cpp
+@@ -32,6 +32,9 @@
+ #include "d/actor/d_a_npc_cb1.h"
+ #include "d/actor/d_a_canon.h"
+ #include "math.h"
++#ifdef TARGET_PC
++#include "string.h"
++#endif
+ 
+ namespace {
+ 
+@@ -3674,9 +3677,98 @@
+ }
+ 
+ /* 8016D8D0-80170434       .text talktoCamera__9dCamera_cFl */
+-bool dCamera_c::talktoCamera(s32) {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++bool dCamera_c::talktoCamera(s32 style) {
++#ifdef TARGET_PC
++    // Functional PC implementation of the ordinary two-person shot (cut 0).
++    // This is not a matching reconstruction of the special retail talk cuts.
++    // Use real actors, style dimensions and a bounded camera transition;
++    // never advance the message while its framing is still pending.
++    struct State {
++        fopAc_ac_c* partner;
++        int cut, elapsed;
++        float remaining, radius, fovy;
++        cXyz center;
++        s16 pitch, yaw;
++    } state = {};
++    static_assert(sizeof(State) <= sizeof(mWork), "TALK scratch state");
++    if (m11C != 0) memcpy(&state, &mWork, sizeof(state));
++    fopAc_ac_c* player = mpPlayerActor;
++    fopAc_ac_c* partner = getMsgCmdSpeaker();
++    if (!partner || partner == player) partner = dComIfGp_event_getTalkPartner();
++    if (!partner || partner == player) partner = mpLockonTarget;
++    int cut = getMsgCmdCut();
++    if (!player || !partner || player == partner || cut != 0) {
++        if (m11C == 0 || cut != state.cut)
++            OSReport("[camera] unsupported TALK cut=%d player=%p partner=%p\n", cut, player, partner);
++        m100 = m101 = m102 = 0;
++        state.cut = cut;
++        memcpy(&mWork, &state, sizeof(state));
++        return false;
++    }
++    if (m11C == 0 || state.partner != partner || state.cut != cut) {
++        state.partner = partner;
++        state.cut = cut;
++        state.elapsed = 0;
++        state.remaining = 210.0f; // retail 20-frame triangular transition
++        m100 = m101 = m102 = 0;
++        cXyz offset(mCamParam.Val(style, dCamStyleParam_UNK1),
++                    mCamParam.Val(style, dCamStyleParam_CENTER_HEIGHT_BASE),
++                    mCamParam.Val(style, dCamStyleParam_UNK0));
++        state.center = relationalPos(player, partner, &offset, 0.5f);
++        cXyz first = attentionPos(player), second = attentionPos(partner);
++        // Retain the side nearest the entering view and frame both speakers.
++        cSGlobe axis(first - second);
++        cSAngle side = mViewCache.mDirection.U() - axis.U();
++        cSAngle yaw = axis.U() + cSAngle(side.Val() < 0 ? -75.0f : 75.0f);
++        float pitch = limitf(mViewCache.mDirection.V().Degree(),
++                            mCamParam.Val(style, dCamStyleParam_LOCKON_LATITUDE_MIN),
++                            mCamParam.Val(style, dCamStyleParam_LOCKON_LATITUDE_MAX));
++        state.radius = mCamParam.Val(style, dCamStyleParam_UNK10);
++        state.fovy = mCamParam.Val(style, dCamStyleParam_FOVY_BASE);
++        state.pitch = cSAngle(pitch).Val();
++        state.yaw = yaw.Val();
++        // Search around the entering side for an unobstructed two-person
++        // shot. Testing both actor sight lines also avoids a pillar between
++        // the camera and just one of the speakers (Outset's lookout tower).
++        float baseRadius = state.radius;
++        for (int i = 0; i < 37; ++i) {
++            float angle = i == 0 ? 0.0f : ((i + 1) / 2) * (i & 1 ? 10.0f : -10.0f);
++            cSAngle candidateYaw = yaw + cSAngle(angle);
++            cSGlobe desired(baseRadius, cSAngle(state.pitch), candidateYaw);
++            cXyz eye = state.center + desired.Xyz();
++            float extra = radiusActorInSight(player, partner, &state.center, &eye, state.fovy, 0);
++            float radius = baseRadius + (extra > 0.0f ? extra : 0.0f);
++            desired.Val(radius, cSAngle(state.pitch), candidateYaw);
++            eye = state.center + desired.Xyz();
++            if (!lineBGCheck(&state.center, &eye, 0x8f) &&
++                !lineBGCheck(&first, &eye, 0x8f) &&
++                !lineBGCheck(&second, &eye, 0x8f)) {
++                state.radius = radius;
++                state.yaw = candidateYaw.Val();
++                break;
++            }
++        }
++        OSReport("[camera] TALK cut=0 style=%d partner=%p transition=20\n", style, partner);
++    }
++    int framesLeft = 20 - state.elapsed;
++    float ratio = framesLeft > 0 ? framesLeft / state.remaining : 1.0f;
++    if (ratio > 1.0f) ratio = 1.0f;
++    mViewCache.mCenter += (state.center - mViewCache.mCenter) * ratio;
++    cSAngle pitch = mViewCache.mDirection.V();
++    cSAngle yaw = mViewCache.mDirection.U();
++    pitch += (cSAngle(state.pitch) - pitch) * ratio;
++    yaw += (cSAngle(state.yaw) - yaw) * ratio;
++    mViewCache.mDirection.Val(mViewCache.mDirection.R() +
++                             (state.radius - mViewCache.mDirection.R()) * ratio, pitch, yaw);
++    mViewCache.mEye = mViewCache.mCenter + mViewCache.mDirection.Xyz();
++    mViewCache.mFovy += (state.fovy - mViewCache.mFovy) * ratio;
++    state.remaining -= framesLeft;
++    if (++state.elapsed >= 20) m100 = m101 = m102 = 1;
++    memcpy(&mWork, &state, sizeof(state));
++    return true;
++#else
++    return false;
++#endif
+ }
+ 
+ namespace {
+--- a/src/d/d_ev_camera.cpp
++++ b/src/d/d_ev_camera.cpp
+@@ -229,8 +229,17 @@
+ 
+ /* 800B7E00-800B7EBC       .text talktoEvCamera__9dCamera_cFv */
+ bool dCamera_c::talktoEvCamera() {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++#ifdef TARGET_PC
++    // Retail wrapper, 800B7E00..800B7EBC: use the saved event type's
++    // conversation style and acknowledge only a completed camera framing.
++    s32 style = types[mEventData.field_0x0c].mStyles[3];
++    if (m108 == 0) clrFlag(0x200000);
++    if (style < 0) style = mCamParam.SearchStyle('TT01');
++    talktoCamera(style);
++    return m100 && m101 && m102;
++#else
++    return false;
++#endif
+ }
+ 
+ /* 800B7EBC-800B8108       .text maptoolIdEvCamera__9dCamera_cFv */
