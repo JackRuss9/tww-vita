@@ -45,6 +45,17 @@ function(tww_game_setup target)
   target_compile_options(${target} PRIVATE ${TWW_FLAGS})
 endfunction()
 
+# A missing creation callback returns cPhs_INIT forever; never enqueue it.
+execute_process(COMMAND ${Python3_EXECUTABLE} ${ROOT}/tools/gen_missing_actors.py
+  ${TWW_DIR} ${CMAKE_BINARY_DIR}/tww_missing_actors.inc
+  RESULT_VARIABLE _missing_rc)
+if(NOT _missing_rc EQUAL 0)
+  message(FATAL_ERROR "tools/gen_missing_actors.py failed")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  ${ROOT}/tools/gen_missing_actors.py ${ROOT}/tools/stub_returns.py ${TWW_REL_SOURCES})
+list(APPEND TWW_INCLUDE_DIRS ${CMAKE_BINARY_DIR})
+
 # The actor modules, a library of their own: each one's static
 # constructors are moved to a section named after it (tools/rel_cc.py) and
 # run when the game links the module (rel_ctors.cpp).

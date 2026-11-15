@@ -13,14 +13,57 @@ functions. The port follows it as it fills in (`TWW_COMMIT` in
 
 No game data is included. You need your own disc image.
 
+See [PROGRESS.md](PROGRESS.md) for verified PC milestones, reproducible tests
+and known blockers (Spanish). Full Outset story progression and uninterrupted
+audio are not verified yet.
+
 ## Builds
 
 | | Command | Status |
 |---|---|---|
-| PC test version (WSL, 32-bit Linux) | `TWW_ISO=/path/GZLE01.iso ./build-pc.sh`, then `./run-pc.sh` | builds, starts; bring-up |
-| PS Vita | `./build.sh` | next |
+| PC test version (Linux / WSL, 32-bit) | `TWW_ISO=/path/GZLE01.iso ./build-pc.sh`, then `./run-pc.sh` | builds; direct Outset free-walk verified; story bring-up continues |
+| PS Vita | not implemented yet | deferred until PC works |
 
-See the top of `build-pc.sh` for the one-time setup.
+See the top of `build-pc.sh` for the one-time Ubuntu / WSL setup. A working
+X11/WSLg display and 32-bit OpenGL driver are required to run the window.
+Software rendering (llvmpipe) works for debugging but can be slow.
+
+```sh
+TWW_ISO=/absolute/path/GZLE01.ciso ./build-pc.sh
+./run-pc.sh
+```
+
+The first build extracts the embedded assets from GZLE01 Rev 0. Subsequent
+builds reuse them. `TWW_PLACEHOLDER_ASSETS=ON` is for compile/link checks;
+it does not provide the assets needed for gameplay.
+
+For PC bring-up, `./run-pc.sh --outset` starts a fresh in-memory game at
+Outset Island's beach spawn (point 204), bypassing file selection and the story opening.
+Automatic story cutscenes on the island are disabled in this route because
+their event cameras are still undecompiled. This is a free-walk test, not a
+saved-game load or a complete story mode. Actors whose creation
+code is still absent in the decompilation are omitted; they would otherwise
+keep the whole room loading forever. Their profiles are generated at CMake
+configure time by `tools/gen_missing_actors.py`.
+
+The normal follow camera and L recentering are available. The manual C-stick
+camera is still undecompiled.
+
+Keyboard defaults: Enter = Start, Space = A, Shift = B, WASD / arrows =
+left stick, IJKL = C-stick, Q / E = L / R, V / F = X / Y, Escape = quit.
+Saves made through `run-pc.sh` are kept in `run-pc/card-a` (override with
+`SMS_SAVE_DIR`). The runner writes `tww-pc.log`; `TWW_NO_GDB=1` disables gdb.
+
+Local edits in `tww/` and `sms-port/` are preserved. If the patch set changes
+and a dependency checkout has edits, the build stops without replacing it.
+Save those edits and move the checkout aside before fetching a fresh copy;
+keep `tww/orig/` and the extracted `tww/build/GZLE01/` assets to avoid
+extracting them again. Port fixes must also live in `patches/`, because the
+dependency directories are ignored by this repository.
+
+This is still an incomplete port: some game functions and sound effects are
+missing in the pinned decompilation. Reaching a menu does not establish that
+a full playthrough, sound or saving works.
 
 ## Layout
 
@@ -32,3 +75,39 @@ See the top of `build-pc.sh` for the one-time setup.
   SDK functions the Sunshine platform layer did not have (`port/src`).
 - `check/` is the fast compile check: `cmake -S check -B build-check -G Ninja && ninja -C build-check -k 0`.
 - `NOTES.md` records the state of the port, measurements and decisions.
+
+## PC diagnostics
+
+`tools/probe-pc.sh` runs a bounded test with isolated saves and captures in
+`run-pc/probe-*`. For example, from the repository root:
+
+```sh
+./tools/probe-pc.sh --outset --seconds 75 --gdb "$PWD/tools/movement.gdb" \
+  --input stick_down@1200+120,l@1500+30,stick_left@1800+120
+```
+
+Probes use dummy audio by default. Add `--audio` for audible SDL output and
+an `audio.wav` recording in the probe directory. For example:
+
+```sh
+./tools/probe-pc.sh --audio --seconds 360 --gdb "$PWD/tools/normal_flow.gdb"
+```
+
+`normal_flow.gdb` navigates the title, save selection and name entry using
+virtual buttons, then lets the complete illustrated opening play. It logs
+the island's opening event and checks whether control returns to Link.
+`--deterministic` accelerates offline diagnostics and disables the audio
+device; omit it for an audible test. `--save-dir PATH` reuses an explicit
+test card instead of creating a new isolated one.
+
+Add `--headless` for EGL without a window. Status 124 denotes the requested
+timeout; inspect the log and captures for actual progress. `movement.gdb`
+records player positions, ground height, movement state, input and demo state.
+The numerical regression checks need no display:
+
+```sh
+python3 check/test_animation.py
+python3 check/test_jstudio.py
+g++ -std=c++11 -O2 -Iport/include check/test_timing.cpp -o /tmp/tww-timing-test
+/tmp/tww-timing-test
+```

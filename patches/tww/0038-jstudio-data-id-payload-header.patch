@@ -1,0 +1,14 @@
+Reason: keep the embedded STB data-ID header big-endian when locating actor parameters.
+
+--- a/include/JSystem/JStudio/JStudio/stb-data-parse.h
++++ b/include/JSystem/JStudio/JStudio/stb-data-parse.h
+@@ -98,7 +98,8 @@
+     TParse_TParagraph_dataID(const void* pContent) : TParseData_aligned<4>(pContent) {}
+ 
+     const TParagraph* get() const { return (TParagraph*)getRaw(); }
+-    u16 get_IDSize() const { return get()->id_size; }
++    // This header is inside a paragraph payload, which stays big-endian.
++    u16 get_IDSize() const { return beLoad<u16>(&get()->id_size); }
+     const void* get_ID() const { return get()->id; }
+     const void* getContent() const {
+         return ((TParagraph*)getRaw())->id + align_roundUp(get_IDSize(), 4);

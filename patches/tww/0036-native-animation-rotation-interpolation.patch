@@ -1,0 +1,15 @@
+Reason: signed-key Hermite interpolation was PowerPC assembly only and returned an uninitialized float on PC, corrupting Link bone rotations. Supply the native arithmetic path.
+--- a/src/JSystem/J3DGraphAnimator/J3DAnimation.cpp
++++ b/src/JSystem/J3DGraphAnimator/J3DAnimation.cpp
+@@ -361,6 +361,11 @@
+         fmadds fout, f5, f7, fout
+         fsubs fout, fout, f3
+     }
++#else
++    // The Gekko psq_l instructions above load signed 16-bit key data as
++    // floats. Hosts need the same interpolation, not an uninitialized FPR.
++    fout = JMAHermiteInterpolation(t, (f32)*time0, (f32)*value0, (f32)*tangent0,
++                                  (f32)*time1, (f32)*value1, (f32)*tangent1);
+ #endif
+     return fout;
+ }

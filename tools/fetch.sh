@@ -16,9 +16,18 @@ apply_patches() {
   want=$(cat patches/"$name"/*.patch tools/stub_returns.py | sha256sum | cut -d' ' -f1)
   have=$(cat "$dir/.tww-vita-patches" 2>/dev/null || true)
   if [[ "$want" != "$have" ]]; then
+    # Patched dependencies are deliberately dirty. Never reset an existing
+    # checkout implicitly: it may also contain work that is not in our patches.
+    if [[ -n "$(git -C "$dir" status --porcelain --untracked-files=normal)" ]]; then
+      echo "ERROR: $dir has local changes and its patch set has changed."
+      echo "Preserving the checkout. Save your work, then move $dir aside and rerun to create a fresh checkout."
+      return 1
+    fi
+    if [[ "$(git -C "$dir" rev-parse HEAD)" != "$(git -C "$dir" rev-parse "$commit^{commit}")" ]]; then
+      echo "ERROR: $dir is not at the pinned commit $commit; preserving the checkout."
+      return 1
+    fi
     echo "== Applying patches/$name to a clean $dir"
-    git -C "$dir" reset -q --hard "$commit"
-    git -C "$dir" clean -q -fd -e orig -e build -e .tww-vita-patches
     if [[ "$name" == tww ]]; then
       # The decomp's still-empty functions that return a value get one
       # (tools/stub_returns.py); the patches are made on top of this.

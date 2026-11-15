@@ -1,0 +1,68 @@
+Reason: do not enqueue actors whose creation callback is undecompiled: a cPhs_INIT stub otherwise keeps the whole room loading forever. Check before allocating spawn parameters.
+--- a/src/f_op/f_op_actor_mng.cpp
++++ b/src/f_op/f_op_actor_mng.cpp
+@@ -152,6 +152,11 @@
+ 
+ /* 8002451C-80024598       .text fopAcM_create__FsUlP4cXyziP5csXyzP4cXyzScPFPv_i */
+ fpc_ProcID fopAcM_create(s16 procName, u32 parameter, cXyz* pPos, int roomNo, csXyz* pAngle, cXyz* pScale, s8 i_argument, createFunc createFunc) {
++#ifdef TARGET_PC
++    extern bool tww_actor_creation_missing(s16);
++    if (tww_actor_creation_missing(procName))
++        return fpcM_ERROR_PROCESS_ID_e;
++#endif
+     fopAcM_prm_class* params = createAppend(parameter, pPos, roomNo, pAngle, pScale, i_argument, fpcM_ERROR_PROCESS_ID_e);
+     if (params == NULL)
+         return fpcM_ERROR_PROCESS_ID_e;
+@@ -170,6 +175,11 @@
+ 
+ /* 80024614-8002468C       .text fopAcM_fastCreate__FsUlP4cXyziP5csXyzP4cXyzScPFPv_iPv */
+ void* fopAcM_fastCreate(s16 procName, u32 parameter, cXyz* pPos, int roomNo, csXyz* pAngle, cXyz* pScale, s8 i_argument, createFunc createFunc, void* pUserData) {
++#ifdef TARGET_PC
++    extern bool tww_actor_creation_missing(s16);
++    if (tww_actor_creation_missing(procName))
++        return NULL;
++#endif
+     fopAcM_prm_class* params = createAppend(parameter, pPos, roomNo, pAngle, pScale, i_argument, fpcM_ERROR_PROCESS_ID_e);
+     if (params == NULL)
+         return NULL;
+@@ -188,6 +198,11 @@
+ 
+ /* 80024710-80024790       .text fopAcM_createChild__FsUiUlP4cXyziP5csXyzP4cXyzScPFPv_i */
+ fpc_ProcID fopAcM_createChild(s16 procName, fpc_ProcID parentPcId, u32 parameter, cXyz* pPos, int roomNo, csXyz* pAngle, cXyz* pScale, s8 i_argument, createFunc createFunc) {
++#ifdef TARGET_PC
++    extern bool tww_actor_creation_missing(s16);
++    if (tww_actor_creation_missing(procName))
++        return fpcM_ERROR_PROCESS_ID_e;
++#endif
+     fopAcM_prm_class* params = createAppend(parameter, pPos, roomNo, pAngle, pScale, i_argument, parentPcId);
+     if (params == NULL)
+         return fpcM_ERROR_PROCESS_ID_e;
+@@ -206,6 +221,11 @@
+ 
+ /* 80024814-800249D4       .text fopAcM_createChildFromOffset__FsUiUlP4cXyziP5csXyzP4cXyzScPFPv_i */
+ fpc_ProcID fopAcM_createChildFromOffset(s16 procName, fpc_ProcID parentPcId, u32 parameter, cXyz* pPosOffs, int roomNo, csXyz* pAngleOffs, cXyz* pScale, s8 i_argument, createFunc createFunc) {
++#ifdef TARGET_PC
++    extern bool tww_actor_creation_missing(s16);
++    if (tww_actor_creation_missing(procName))
++        return fpcM_ERROR_PROCESS_ID_e;
++#endif
+     fopAc_ac_c * pParent = fopAcM_SearchByID(parentPcId);
+     s16 parentAngleY = pParent->current.angle.y;
+ 
+--- a/src/d/d_stage.cpp
++++ b/src/d/d_stage.cpp
+@@ -1300,7 +1300,13 @@
+ void dStage_actorCreate(stage_actor_data_class* i_actorData, fopAcM_prm_class* i_actorPrm) {
+     dStage_objectNameInf* nameinf_p = dStage_searchName(i_actorData->name);
+ 
+-    if (nameinf_p == NULL) {
++#ifdef TARGET_PC
++    extern bool tww_actor_creation_missing(s16);
++    const bool missing = nameinf_p && tww_actor_creation_missing(nameinf_p->procname);
++#else
++    const bool missing = false;
++#endif
++    if (nameinf_p == NULL || missing) {
+         JKRHeap::free(i_actorPrm, NULL);
+     } else {
+         i_actorPrm->argument = nameinf_p->argument;

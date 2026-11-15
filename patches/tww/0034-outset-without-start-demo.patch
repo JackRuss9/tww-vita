@@ -1,0 +1,43 @@
+Reason: the explicit Outset movement-test route must skip the automatic entrance demo; its undecompiled event camera otherwise locks input and leaves a black screen. Normal starts retain their events.
+--- a/src/d/d_event_manager.cpp
++++ b/src/d/d_event_manager.cpp
+@@ -22,6 +22,18 @@
+ 
+ /* 800737F4-80073900       .text setStartDemo__18dEvent_exception_cFi */
+ int dEvent_exception_c::setStartDemo(int eventInfoIdx) {
++#ifdef TARGET_PC
++    const char* outset = getenv("TWW_START_OUTSET");
++    if (outset && strcmp(outset, "1") == 0 &&
++        strcmp(dComIfGp_getStartStageName(), "sea") == 0 &&
++        dComIfGp_getStartStageRoomNo() == 44) {
++        // Even event 0xFF normally schedules DEFAULT_START, whose event
++        // camera is undecompiled. The movement-test route starts under
++        // the regular player camera instead of waiting for that cutscene.
++        init();
++        return 0xFF;
++    }
++#endif
+     dStage_EventInfo_c* stageEventInfo = dComIfGp_getStage().getEventInfo();
+     if (eventInfoIdx == 0xFF) {
+         mEventInfoIdx = 206;
+--- a/src/d/d_event.cpp
++++ b/src/d/d_event.cpp
+@@ -35,6 +35,18 @@
+ 
+ /* 8006FEE8-8007002C       .text order__14dEvt_control_cFUsUsUsUsPvPvsUc */
+ s32 dEvt_control_c::order(u16 eventType, u16 priority, u16 flag, u16 hindFlag, void* ac1, void* ac2, s16 eventIdx, u8 eventInfoIdx) {
++#ifdef TARGET_PC
++    const char* outset = getenv("TWW_START_OUTSET");
++    if (outset && strcmp(outset, "1") == 0 &&
++        strcmp(dComIfGp_getStartStageName(), "sea") == 0 &&
++        dComIfGp_getStartStageRoomNo() == 44 &&
++        (eventType == dEvtType_OTHER_e || eventType == dEvtType_COMPULSORY_e ||
++         eventType == dEvtType_POTENTIAL_e)) {
++        // Free-walk testing must not enter automatic story cameras that
++        // still have no implementation. Explicit interactions are retained.
++        return FALSE;
++    }
++#endif
+     if (mOrderCount >= 8)
+         return FALSE;
+ 

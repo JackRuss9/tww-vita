@@ -6,6 +6,11 @@ set pagination off
 set confirm off
 handle SIGUSR1 SIGUSR2 SIGPIPE nostop noprint
 run
+# A normal exit has no stack. Let --return-child-result report its status.
+python
+if gdb.selected_inferior().pid == 0:
+    gdb.execute("quit")
+end
 echo \n== crash: backtrace\n
 bt 40
 echo \n== crash: registers and code\n
@@ -36,7 +41,7 @@ for i in range(1024):
         break
 end
 echo \n== all threads\n
-thread apply all bt 8
+thread apply all bt 24
 echo \n== recent disc files and game context\n
 python
 try:

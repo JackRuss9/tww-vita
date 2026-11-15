@@ -1,0 +1,83 @@
+Reason: prefill SDL audio before playback and expose cumulative output underruns for PC verification.
+
+--- a/platform/audio/ai.cpp
++++ b/platform/audio/ai.cpp
+@@ -103,6 +103,11 @@
+ 	std::vector<int16_t> fifo;
+ 	size_t head, count;
+ 	bool sdl;
++	uint32_t sdlDevice;
++	PFN_SDL_PauseAudioDevice sdlPause;
++	bool sdlStarted;
++	bool reportStats;
++	time_t nextStats;
+ 	bool fed; // a block has reached the FIFO
+ 	s16 lastL, lastR;
+ 	// Blocks queued beyond kBaseBlocks, added when the output ran dry and
+@@ -333,7 +338,10 @@
+ 		port_log("[audio] no SDL audio device: %s\n", err());
+ 		return false;
+ 	}
+-	pa(dev, 0);
++	// SDL opens paused. Fill the normal queue before allowing its callback
++	// to consume the first block; otherwise startup itself can underrun.
++	g.sdlDevice = dev;
++	g.sdlPause = pa;
+ 	port_log("[audio] SDL output: %d Hz, %u-frame device buffer\n", have.freq, have.samples);
+ 	return true;
+ #endif
+@@ -350,6 +358,8 @@
+ 	g.volume      = e && *e ? std::max(0, std::min(100, atoi(e))) * 256 / 100 : 256;
+ 	if (g.volume != 256)
+ 		port_log("[audio] master volume %d%%\n", (g.volume * 100 + 128) / 256);
++	e = getenv("SMS_AUDIO_STATS");
++	g.reportStats = e && strcmp(e, "0") != 0;
+ 	g.fifo.assign(32768 * 2, 0);
+ 	g.head = g.count = 0;
+ 	if (!g.enabled) {
+@@ -406,6 +416,7 @@
+ 				fflush(g.wav);
+ 			}
+ 		}
++		bool startDevice = false;
+ 		if (g.sdl) {
+ 			std::lock_guard<std::mutex> lk(g.mu);
+ 			g.fed      = true;
+@@ -416,6 +427,16 @@
+ 				g.fifo[p * 2 + 1] = g.mix[i * 2 + 1];
+ 				g.count++;
+ 			}
++			if (g.sdlPause && !g.sdlStarted && g.count >= fifo_target(playback_speed())) {
++				g.sdlStarted = true;
++				startDevice = true;
++			}
++		}
++		// SDL may wait for its callback: never unpause while holding g.mu.
++		if (startDevice) {
++			port_log("[audio] SDL queue primed before playback (%u ms)\n",
++			         (unsigned)(fifo_target(playback_speed()) * 1000 / kRate));
++			g.sdlPause(g.sdlDevice, 0);
+ 		}
+ 	}
+ 	if (g.cb)
+@@ -441,6 +462,20 @@
+ // Interrupt source, polled on the emulated CPU when kicked.
+ void ai_poll()
+ {
++	if (g.reportStats && g.sdl) {
++		struct timespec now;
++		clock_gettime(CLOCK_MONOTONIC, &now);
++		if (!g.nextStats) g.nextStats = now.tv_sec + 10;
++		if (now.tv_sec >= g.nextStats) {
++			std::lock_guard<std::mutex> lk(g.mu);
++			unsigned missing = s_dryFrames.load() + g.dryFrames;
++			unsigned longest = std::max(s_dryLongest.load(), (unsigned)g.dryFrames);
++			port_log("[audio] underruns: %u completed, %u ms missing, longest %u ms, queue %u ms\n",
++			         s_drySpells.load(), (unsigned)(missing * 1000u / kRate),
++			         (unsigned)(longest * 1000u / kRate), (unsigned)(g.count * 1000 / kRate));
++			g.nextStats = now.tv_sec + 10;
++		}
++	}
+ 	if (!g.running)
+ 		return;
+ 	if (port_audio_dsp_frame_pending && port_audio_dsp_frame_pending()) {

@@ -474,3 +474,183 @@ Built with -DTWW_PLACEHOLDER_ASSETS=ON.
     iterators, and ~20 direct reads in JStudio objects/adaptors).
   Synthetic test: structure native, payloads BE, FVB constant converted,
   second pass a no-op.
+
+
+## PC review (14 Nov 2026)
+
+- Kept both existing dependency checkouts. Their original tracked diffs
+  were captured before editing and compared afterwards: unchanged outside
+  JAIStreamMgr.cpp and f_op_msg_mng.cpp, the two deliberately edited files.
+  The complete tww and sms-port patch series also applies successfully to
+  temporary copies of the pinned checkouts.
+- The previous tww-pc.log stopped in StreamLib::LoadADPCM (codec assertion
+  at JAIStreamMgr.cpp:992), reading Audiores/Stream/title.afc. Patch 0030
+  converts the copied 0x20-byte stream header, whether sourced from DVD or
+  the AAF list. Also converts PCM16 samples when the stream uses codec 2;
+  decoded ADPCM samples are already native. The title stream no longer
+  hits this assertion. Audible output was not checked: automated runs used
+  SDL_AUDIODRIVER=dummy.
+- The next failure was a SIGSEGV in itemMsgGet_c::getMessage while creating
+  the Name scene. Patch 0031 keeps the shared BMG resource big-endian (the
+  JMessage stream reader expects that), but reads raw INF1 sizes, counts,
+  offsets and message numbers in disc order. Copies of JMSMesgEntry_c have
+  their numeric fields converted. The two raw text control-word reads and
+  BMC colour reads are corrected as well.
+- Verified screenshots: File Selection, Name Entry, and the opening text
+  "This is but one of the legends of which the people speak...". A
+  60-second window run completed its test interval without crashing.
+  The extended X11 navigation run stopped advancing after opening text;
+  two timed gdb samples locate the game waiting for GXPC_Present, with the
+  GL thread in SDL_GL_SwapWindow / Mesa and llvmpipe workers active. This
+  identifies the wait site, not its underlying cause. Do not call it fixed.
+- Additional smoke runs: headless EGL, 180 seconds, captured through frame
+  5400; Wayland window, 100 seconds, captured through frame 2700. Both
+  ended at the requested timeout without a crash. Scripted input timing
+  reached different menu states; they do not prove that starting a new
+  game, completing the opening, or a full playthrough works. Later Wayland
+  captures show the cloud background without the menu, another item to
+  investigate. No graphics-backend default was changed on this evidence.
+- ./build-pc.sh configures, builds and links successfully with the existing
+  extracted real assets. Build failures used to be hidden by `|| true`
+  resetting PIPESTATUS; now Ninja/tee errors fail the build. The runner
+  propagates game failures, and gdb uses --return-child-result. crash.gdb
+  skips stack commands after normal exit and captures 24 frames per thread
+  after an interruption/crash, enough to see past the GL driver.
+- Fetch no longer resets or cleans existing dependencies. When a patch
+  fingerprint changes it requires a clean checkout at the pinned commit,
+  otherwise it stops preserving the work. Tested with an untracked local
+  file and with a mismatched clean revision. Build/game exit-code handling
+  was tested with failing stand-ins. Bash syntax and git diff --check pass.
+- run-pc.sh now defaults SMS_SAVE_DIR to run-pc/card-a, separate from the
+  Sunshine platform's shared default. Existing saves at the old location
+  are not moved or deleted; SMS_SAVE_DIR can select that location explicitly.
+- Logs, before-edit dependency diffs and screenshots from this review are
+  under run-pc/review and run-pc/*-frames (ignored local artifacts).
+  Next: diagnose the X11 presentation wait and the menu disappearing during
+  scripted navigation, verify entry into gameplay with controlled input,
+  then test actual audio and saving. Vita work remains deferred.
+
+
+## Outset free-walk on PC (14 Nov 2026, continued)
+
+The reproducible entry point is now `./run-pc.sh --outset` (environment
+`TWW_START_OUTSET=1`). It starts a new game in memory at `sea`, room 44,
+layer 0, point 204: the beach. No existing save is loaded or overwritten by
+the start hook. The default startup path remains available without the flag.
+This is a free-walk bring-up route, not completed story progression.
+
+Corrections, in addition to the preceding review:
+
+- 0032: optional direct launch from the logo scene to PLAY_SCENE, initializing
+  the new-save state once, rather than on every logo draw. Tested point 0
+  first (the pier), then selected actual beach spawn 204 from the room's
+  native player-spawn table. Point 206 is the story's initial lookout spawn.
+- 0033: the real island never completed creation because NPC profiles 317,
+  318, 319, 321, 322, 333 and 334 returned cPhs_INIT forever. Gdb recorded
+  600+ SubCreateProcess visits for them, while the play/room nodes waited
+  for their child creation queues. `gen_missing_actors.py` identifies the
+  creation functions carrying the explicit stub-return marker (including
+  bodies containing only static collision definitions), or empty marked
+  bodies. It generates 82 missing profiles at configure time. Implemented
+  creators retaining a Nonmatching comment are kept. Spawn helpers reject
+  these before allocating parameters; the stage's preallocated route frees
+  its parameters before declining the spawn. NPCs/enemies whose creators
+  are missing will be absent; implemented partial actors are not blanket
+  excluded merely because other methods have stubs.
+- 0034: even event 0xFF schedules DEFAULT_START, and its undecompiled event
+  camera left Link in system-demo wait with input suppressed. The explicit
+  beach route skips the entrance demo. Later automatic story triggers on
+  the island could similarly lock Link in DEMO_LOOK_AROUND2, so OTHER,
+  COMPULSORY and POTENTIAL orders are rejected in this route on sea/44.
+  Explicit interaction types are retained, but dialogue/story progression
+  is not validated. Normal starts retain their event behavior.
+- 0035: a subsequent timed gdb sample found the actual main-thread freeze
+  in JFWDisplay::calcCombinationRatio, inside its signed tick-accumulation
+  loop, with the GL thread idle. Host retraces can have unsuitable timing
+  for that loop; native tick arithmetic now calculates the boundary in
+  constant time with 64-bit intermediates, zero guards and a bounded blend
+  ratio. `check/test_timing.cpp` compares against the retail loop for normal
+  timing and covers degenerate/wrap values. Do not attribute all earlier
+  freezes to SDL_GL_SwapWindow from a single interrupted sample.
+- 0036: Link's idle head/body posture was wrong. The signed rotation-key
+  Hermite interpolator, J3DHermiteInterpolationS, had only an MWCC assembly
+  implementation and returned an uninitialized float on GCC. The host path
+  now calls the existing JMAHermiteInterpolation with signed key values.
+  The pose and walking animations now render normally. Numerical tests
+  compile the actual J3DAnimation.cpp/JMath.cpp on the host, retaining active
+  assertions, and check curves, slopes, signs and both key-table layouts.
+
+Verification:
+
+- Full PC build passes with real extracted assets. The complete patch series
+  applies to a temporary clean copy of the pinned tww tree, and regenerates
+  the identical 82-profile list. Existing dependency changes outside the
+  intentionally edited files remain byte-for-byte identical to the initial
+  diff snapshots. sms-port was not edited.
+- Gdb-backed headless and normal X11 window tests verified Link execution,
+  camera/HUD rendering, idle, walking in different directions, stopping on
+  release, and following changing ground height in room 44. A water-entry
+  test switched to swim states 54/55, and later respawned on the island.
+- After the timer correction, a 120-second window test remained active and
+  controllable. After the animation correction, a further 75-second window
+  test recorded movement through more than 3,900 player frames with demo
+  type 0 throughout, reached procFrontRoll_init, and returned to idle.
+  Sample positions: beach start (-201085.562, 83.113, 315016.000), then
+  (-201722.719, 80.983, 314789.250) and (-203655.359, 333.128, 315821.156).
+  At the latter position the collision ground height was also 333.128.
+  Final idle was (-204101.438, 45.398, 314860.656), matching the ground.
+- Final animation run: `run-pc/probe-dDRGgN`; timer stability run:
+  `run-pc/probe-iKgj7L`. Logs and PNG/PPM captures stay in those ignored
+  local directories. `tools/probe-pc.sh` / `tools/movement.gdb` reproduce
+  bounded runs with separate save directories and sampled player state.
+- Audio was muted with SDL's dummy driver in these automated tests. Manual
+  C-stick camera is still a decomp stub; the follow camera and L recentering
+  work. NPC interactions, saving and full story progression are still
+  separate unfinished areas. Vita work remains deferred.
+
+
+2026-11-15 normal startup and audible output investigation:
+
+- Added tools/normal_flow.gdb: virtual-keyboard-only navigation through title,
+  card creation/selection and naming; the illustrated opening plays completely.
+  No game scene, name buffer, save flags or player position is injected.
+- Probe w2HnTO completed the illustrated opening, reached original sea room 44
+  point 206 and ordered event 38 (awake). It then crashed loading a BTK into
+  the BTP heap. Link dProcTool bypassed the big-endian parser for one animation
+  ID. Patch 0037 routes that read through the existing parser. Build passes.
+  Both deterministic probe 8QQnHJ and visible/audio probe qPQyMp passed that
+  resource-loading failure but then faulted reading sp88 hand parameters in
+  dProcTool. Normal startup is still blocked at awake; it is not playable yet.
+- Probe --audio explicitly selects real SDL output and records audio.wav.
+  Probe qPQyMp opened the 32000 Hz / 512-frame SDL device, with audible-output
+  routing enabled. A 111.936-second recording contained nonzero PCM, peak
+  8384, zero clipped samples. These measurements do not verify perceptual
+  correctness or all music/effects. bgmStart and seStart in JAIZelBasic remain
+  undecompiled, and DSP command 0x8d (Dolby delay) is not implemented by HLE.
+- Diagnostics default to dummy audio and can run headless; that explains why
+  earlier tests did not show a window or play through the host speakers.
+  Use --audio without --headless/--deterministic for a window and host audio.
+
+
+2026-11-15 continuation: original startup, audio and publication baseline:
+
+- Patch 0038 reads STB paragraph data-ID sizes big-endian. The enclosing STB
+  structure is converted on load, but this embedded header remains part of
+  the raw payload. The native size displaced actor data by hundreds of bytes.
+  check/test_jstudio.py exercises the actual header/parser and u16 iterators
+  against a synthetic aligned ID, unaligned animation IDs and hand data.
+- Complete PC rebuild passes. Timing, signed-key animation, JStudio payload
+  and the platform's native-width mixer regression all pass. All 38 tww and
+  3 sms-port patches apply to temporary clean copies of the pinned sources;
+  both patch stamps match. Existing dependency checkouts are preserved.
+- sms-port patch 0003 opens SDL paused, primes the existing 52 ms queue and
+  then unpauses outside its mutex. SMS_AUDIO_STATS=1 logs cumulative missing
+  device frames every ten seconds; --audio probes enable it. It does not
+  claim to eliminate load hitches: probe-oDQ0o0 reports three startup gaps,
+  331 ms total / 279 ms largest, with no additional gaps in the next observed
+  intervals. This run was concurrent with a headless startup diagnosis and
+  is not a final isolated performance measurement. WAV data alone cannot
+  measure device underruns because it records produced, not consumed, PCM.
+- PROGRESS.md documents the first-island objective through departure, real
+  successful tests, limitations and reproduction commands. GitHub publication
+  is explicitly authorized by the user; no game data will be uploaded.

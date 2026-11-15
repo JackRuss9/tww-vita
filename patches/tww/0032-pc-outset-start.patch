@@ -1,0 +1,31 @@
+Reason: optional in-memory new-game start at Outset beach for PC movement tests; preserves the normal opening path.
+--- a/src/d/d_com_inf_game.cpp
++++ b/src/d/d_com_inf_game.cpp
+@@ -493,7 +493,26 @@
+     dComIfGp_offEnableNextStage();
+ #endif
+ 
+-    dComIfGp_setNextStage("sea_T", 0, 44, 0);
++#ifdef TARGET_PC
++    // Optional PC bring-up route: new save and the beach spawn.
++    // Skip menus/cutscenes so player movement can be tested independently.
++    const char* outset = getenv("TWW_START_OUTSET");
++    if (outset && strcmp(outset, "1") == 0 && fpcM_GetName(i_scene) == fpcNm_LOGO_SCENE_e) {
++        static bool initialized;
++        if (!initialized) {
++            initialized = true;
++            dComIfGs_init();
++            dComIfGp_itemDataInit();
++            dComIfGs_setPlayerName("Link");
++            dComIfGp_setNextStage("sea", 204, 44, 0);
++            OSReport("[tww] PC direct start: Outset Island, new game in memory\n");
++        }
++        i_procName = fpcNm_PLAY_SCENE_e;
++    } else
++#endif
++    {
++        dComIfGp_setNextStage("sea_T", 0, 44, 0);
++    }
+     mDoAud_setSceneName(dComIfGp_getNextStageName(), dComIfGp_getNextStageRoomNo(), dComIfGp_getNextStageLayer());
+ 
+ #if VERSION > VERSION_DEMO

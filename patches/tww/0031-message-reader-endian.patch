@@ -1,0 +1,133 @@
+Reason: read BMG INF1 tables, copied entries, control words and BMC colours in disc byte order; shared JMessage resources must remain big-endian. Fixes file-select crash.
+diff --git a/src/f_op/f_op_msg_mng.cpp b/src/f_op/f_op_msg_mng.cpp
+index e6c6c871..881d8305 100644
+--- a/src/f_op/f_op_msg_mng.cpp
++++ b/src/f_op/f_op_msg_mng.cpp
+@@ -21,6 +21,24 @@
+ #include "d/d_s_play.h"
+ #endif
+ 
++// BMG resources stay big-endian for JMessage's stream parser.
++#ifdef TARGET_PC
++#define MSG_BE16(value) port_be16(&(value))
++#define MSG_BE32(value) port_be32(&(value))
++#else
++#define MSG_BE16(value) (value)
++#define MSG_BE32(value) (value)
++#endif
++
++static JMSMesgEntry_c messageEntryNative(JMSMesgEntry_c entry) {
++    entry.mDataOffs = MSG_BE32(entry.mDataOffs);
++    entry.mMsgNo = MSG_BE16(entry.mMsgNo);
++    entry.mItemPrice = (s16)MSG_BE16(entry.mItemPrice);
++    entry.mNextMsgNo = MSG_BE16(entry.mNextMsgNo);
++    entry.field_0x0a = MSG_BE16(entry.field_0x0a);
++    return entry;
++}
++
+ STControl stick;
+ 
+ fpc_ProcID i_msgID = fpcM_ERROR_PROCESS_ID_e;
+@@ -568,7 +586,7 @@ char* fopMsgM_messageGet(char* i_dest, u32 i_msgNo) {
+ 
+     while (*src != '\0') {
+         if ((u8)*src == 0x1A) {
+-            u32 next_as_int = *(u32*)(++src);
++            u32 next_as_int = MSG_BE32(*(u32*)(++src));
+             if ((next_as_int & 0xFFFFFF) == MsgCtrlCode_SELECT_YOKO_LEFT) {
+                 *dst = 0x1A;
+                 dst++;
+@@ -635,7 +653,7 @@ char* fopMsgM_passwordGet(char* i_dest, u32 i_msgNo) {
+ 
+     while (*src != '\0') {
+         if ((u8)*src == 0x1A) {
+-            u32 next_as_int = *(u32*)(++src);
++            u32 next_as_int = MSG_BE32(*(u32*)(++src));
+             if ((next_as_int & 0xFFFFFF) == MsgCtrlCode_PLAYER_NAME) {
+ #if VERSION <= VERSION_JPN
+                 const char* player_name_p = dComIfGs_getPlayerName();
+@@ -1470,13 +1488,13 @@ mesg_info* fopMsgM_msgGet_c::getMesgInfo(mesg_header* i_head) {
+ /* 8002E2E0-8002E308       .text getMesgData__16fopMsgM_msgGet_cFP11mesg_header */
+ mesg_data* fopMsgM_msgGet_c::getMesgData(mesg_header* i_head) {
+     mesg_info* info = getMesgInfo(i_head);
+-    return (mesg_data*)((u8*)info + info->mSize);
++    return (mesg_data*)((u8*)info + MSG_BE32(info->mSize));
+ }
+ 
+ /* 8002E308-8002E378       .text getMesgEntry__16fopMsgM_msgGet_cFP11mesg_header */
+ JMSMesgEntry_c fopMsgM_msgGet_c::getMesgEntry(mesg_header* i_head) {
+     mesg_info* info = getMesgInfo(i_head);
+-    return info->mEntries[mMsgIdx];
++    return messageEntryNative(info->mEntries[mMsgIdx]);
+ }
+ 
+ /* 8002E378-8002E430       .text getMessage__16fopMsgM_msgGet_cFP11mesg_header */
+@@ -1486,14 +1504,14 @@ const char* fopMsgM_msgGet_c::getMessage(mesg_header* i_head) {
+ 
+     const char* ret = NULL;
+ 
+-    for (u16 i = 0; i < info->mNumEntry; i++) {
+-        if (info->mEntries[i].mDataOffs == 0)
++    for (u16 i = 0; i < MSG_BE16(info->mNumEntry); i++) {
++        if (MSG_BE32(info->mEntries[i].mDataOffs) == 0)
+             continue;
+ 
+         mMsgIdx = i;
+-        if (mMsgNo == info->mEntries[i].mMsgNo) {
+-            ret = &data[info->mEntries[mMsgIdx].mDataOffs];
+-            mResMsgNo = info->mEntries[mMsgIdx].mMsgNo;
++        if (mMsgNo == MSG_BE16(info->mEntries[i].mMsgNo)) {
++            ret = &data[MSG_BE32(info->mEntries[mMsgIdx].mDataOffs)];
++            mResMsgNo = MSG_BE16(info->mEntries[mMsgIdx].mMsgNo);
+             break;
+         }
+     }
+@@ -1536,13 +1554,13 @@ mesg_info* fopMsgM_itemMsgGet_c::getMesgInfo(mesg_header* i_head) {
+ /* 8002E4B4-8002E4DC       .text getMesgData__20fopMsgM_itemMsgGet_cFP11mesg_header */
+ mesg_data* fopMsgM_itemMsgGet_c::getMesgData(mesg_header* i_head) {
+     mesg_info* info = getMesgInfo(i_head);
+-    return (mesg_data*)((u8*)info + info->mSize);
++    return (mesg_data*)((u8*)info + MSG_BE32(info->mSize));
+ }
+ 
+ /* 8002E4DC-8002E54C       .text getMesgEntry__20fopMsgM_itemMsgGet_cFP11mesg_header */
+ JMSMesgEntry_c fopMsgM_itemMsgGet_c::getMesgEntry(mesg_header* i_head) {
+     mesg_info* info = getMesgInfo(i_head);
+-    return info->mEntries[mMsgIdx];
++    return messageEntryNative(info->mEntries[mMsgIdx]);
+ }
+ 
+ /* 8002E54C-8002E5FC       .text getMessage__20fopMsgM_itemMsgGet_cFP11mesg_header */
+@@ -1550,18 +1568,18 @@ const char* fopMsgM_itemMsgGet_c::getMessage(mesg_header* i_head) {
+     mesg_info* info = getMesgInfo(i_head);
+     const char* data = getMesgData(i_head)->mData;
+ 
+-    for (u16 i = 0; i < info->mNumEntry; i++) {
+-        if (info->mEntries[i].mDataOffs == 0)
++    for (u16 i = 0; i < MSG_BE16(info->mNumEntry); i++) {
++        if (MSG_BE32(info->mEntries[i].mDataOffs) == 0)
+             continue;
+ 
+         mMsgIdx = i;
+-        if (mMsgNo == info->mEntries[i].mMsgNo) {
++        if (mMsgNo == MSG_BE16(info->mEntries[i].mMsgNo)) {
+             break;
+         }
+     }
+ 
+-    const char* result = &data[info->mEntries[mMsgIdx].mDataOffs];
+-    mResMsgNo = info->mEntries[mMsgIdx].mMsgNo;
++    const char* result = &data[MSG_BE32(info->mEntries[mMsgIdx].mDataOffs)];
++    mResMsgNo = MSG_BE16(info->mEntries[mMsgIdx].mMsgNo);
+     return result;
+ }
+ 
+@@ -5679,7 +5697,7 @@ u32 fopMsgM_getColorTable(u16 i_colorNo) {
+     JKRArchive* arc = dComIfGp_getMsgDtArchive();
+     JUTDataFileHeader* bmc = (JUTDataFileHeader*)JKRGetTypeResource('ROOT', "color.bmc", arc);
+     clt1_header* clt1 = (clt1_header*)&bmc->mFirstBlock;
+-    return clt1->mColors[i_colorNo];
++    return MSG_BE32(clt1->mColors[i_colorNo]);
+ }
+ 
+ /* 800350B8-80035170       .text fopMsgM_int_to_char__FPcib */

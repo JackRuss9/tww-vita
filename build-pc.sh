@@ -39,6 +39,10 @@ cmake -S . -B "$B" -G Ninja -DTWW_PC=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DTWW_PLACEHOLDER_ASSETS="${TWW_PLACEHOLDER_ASSETS:-OFF}" \
   -DTWW_VITA_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo "== Building with ${JOBS:-$(nproc)} jobs (the first build compiles about 1,100 files)"
-ninja -C "$B" -j "${JOBS:-$(nproc)}" 2>&1 | tee "$B/last-build.log" | grep -vE "^\[[0-9]+/[0-9]+\] (Building|Linking)" || true
-[[ ${PIPESTATUS[0]} -eq 0 ]] || { echo "ERROR: the build failed (see above)."; exit 1; }
+if ninja -C "$B" -j "${JOBS:-$(nproc)}" 2>&1 | tee "$B/last-build.log"; then
+  :
+else
+  echo "ERROR: the build failed (see $B/last-build.log)."
+  exit 1
+fi
 echo "SUCCESS: $B/tww (run it with ./run-pc.sh)"

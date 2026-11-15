@@ -1,0 +1,39 @@
+Reason: read AFC stream headers and PCM samples big-endian; otherwise the native reader rejects codec 0x0400 and aborts at the title. Headers may come from DVD or the AAF list.
+diff --git a/src/JSystem/JAudio/JAIStreamMgr.cpp b/src/JSystem/JAudio/JAIStreamMgr.cpp
+index 0a5df6b9..09c90bcf 100644
+--- a/src/JSystem/JAudio/JAIStreamMgr.cpp
++++ b/src/JSystem/JAudio/JAIStreamMgr.cpp
+@@ -492,8 +492,13 @@ void JAInter::StreamLib::__DecodePCM() {
+     s16* src = adpcm_buffer;
+ 
+     for (i = 0; i < loadsize / 4; i++) {
++#ifdef TARGET_PC
++        *dst1++ = (s16)port_be16(src++);
++        *dst2++ = (s16)port_be16(src++);
++#else
+         *dst1++ = *src++;
+         *dst2++ = *src++;
++#endif
+     }
+ 
+     loadup_samples += loadsize / 2 / 2;
+@@ -799,6 +804,19 @@ void JAInter::StreamLib::__start() {
+ 
+     adpcm_loadpoint = 0x20;
+     header = *(StreamHeader_*)adpcm_buffer;
++#ifdef TARGET_PC
++    // Both DVD headers and the AAF stream list are stored big-endian.
++    header.field_0x0 = port_be32(&header.field_0x0);
++    header.field_0x4 = port_be32(&header.field_0x4);
++    header.field_0x8 = port_be16(&header.field_0x8);
++    header.field_0xa = port_be16(&header.field_0xa);
++    header.field_0xc = port_be16(&header.field_0xc);
++    header.field_0xe = port_be16(&header.field_0xe);
++    header.field_0x10 = port_be32(&header.field_0x10);
++    header.field_0x14 = port_be32(&header.field_0x14);
++    header.field_0x18.field_0x00 = port_be32(&header.field_0x18.field_0x00);
++    header.field_0x18.field_0x04 = port_be32(&header.field_0x18.field_0x04);
++#endif
+ 
+     adpcm_remain = header.field_0x0;
+     playback_samples = header.field_0x4;
