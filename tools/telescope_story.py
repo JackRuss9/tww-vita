@@ -4,6 +4,7 @@ The parent driver earns the items/events and requests diagnostic stages.
 This observer supplies native pad axes/buttons, never quest/camera state.
 """
 import math
+import os
 import struct
 import gdb
 
@@ -69,6 +70,17 @@ class TelescopeStory:
                 assert {1,2,3,4}.issubset(self.phases), self.phases
                 assert distance > 10, distance
                 print('[telescope] SUCCESS: tutorial, zelda_fly, following dialogue and movement=%.3f' % distance)
+                if os.environ.get('TWW_TEST_ORCA')=='1':
+                    checkpoint=os.environ.get('TWW_ORCA_SAVE_CHECKPOINT')
+                    if checkpoint:
+                        saved=gdb.parse_and_eval('g_dComIfG_gameInfo.save.mSavedata')
+                        with open(checkpoint,'wb') as output:
+                            output.write(bytes(gdb.selected_inferior().read_memory(int(saved.address),saved.type.sizeof)))
+                        print('[orca] retained earned native savedata checkpoint locally')
+                    from orca_story import OrcaStory
+                    OrcaStory(self.keys)
+                    self.free_age=-1000000
+                    return False
                 gdb.set_convenience_variable('tww_probe_success',1)
                 return True
             return False

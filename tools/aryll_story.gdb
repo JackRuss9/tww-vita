@@ -16,7 +16,7 @@ import gdb
 import struct
 import math
 import os
-test_telescope_story=os.environ.get("TWW_TEST_TELESCOPE_STORY")=="1"
+test_telescope_story=os.environ.get("TWW_TEST_TELESCOPE_STORY")=="1" or os.environ.get("TWW_TEST_ORCA")=="1"
 test_telescope_model=test_telescope_story or os.environ.get("TWW_TEST_TELESCOPE_MODEL")=="1"
 if test_telescope_story:
     import sys

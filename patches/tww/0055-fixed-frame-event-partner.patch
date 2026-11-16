@@ -1,0 +1,31 @@
+Reason: resolve FIXEDFRM @PARTNER/oo through the second event participant, as retail getEvActor does at 800B0858..800B0874. The message talk partner is a different slot.
+
+--- a/src/d/d_ev_camera.cpp
++++ b/src/d/d_ev_camera.cpp
+@@ -144,14 +144,23 @@
+     const char* relativeName = (const char*)pcCameraArgument(this, "RelActor", 4);
+     if (relativeName) {
+         const char* mask = (const char*)pcCameraArgument(this, "RelUseMask", 4);
+-        if (strcmp(relativeName, "@STARTER") != 0 || (mask && strcmp(mask, "oo") != 0)) {
++        if (mask && strcmp(mask, "oo") != 0) {
+             if (m11C == 0)
+                 OSReport("[tww] unsupported FIXEDFRM relative actor/mask: %s/%s\n", relativeName, mask ? mask : "oo");
+             return false;
+         }
+-        relativeActor = dComIfGp_event_getPt1();
++        // Retail getEvActor (800B0834..800B0874) resolves the event's
++        // STARTER/PARTNER slots, not the separate message talk partner.
++        if (strcmp(relativeName, "@STARTER") == 0) {
++            relativeActor = dComIfGp_event_getPt1();
++        } else if (strcmp(relativeName, "@PARTNER") == 0) {
++            relativeActor = dComIfGp_event_getPt2();
++        } else {
++            if (m11C == 0) OSReport("[tww] unsupported FIXEDFRM relative actor: %s\n", relativeName);
++            return false;
++        }
+         if (!relativeActor) {
+-            if (m11C == 0) OSReport("[tww] FIXEDFRM starter is not available\n");
++            if (m11C == 0) OSReport("[tww] FIXEDFRM actor %s is not available\n", relativeName);
+             return false;
+         }
+     }

@@ -31,7 +31,7 @@ Las tareas posteriores de la isla y el embarque siguen pendientes.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 54 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 55 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -628,12 +628,56 @@ la petición de silencio) no cuentan como pruebas superadas. Se conservaron
 las partidas del usuario. Compilación PC y aplicación limpia de **54 parches
 tww / 5 sms-port** pasan; el árbol limpio reproduce la cámara compilada.
 
+## Punto de parada: casa y entrenamiento de Orca (0055, trabajo en curso)
+
+**Sesión detenida a petición del usuario. No se ha conseguido aún la espada.**
+La última ejecución se cerró de forma deliberada; el resultado 255 de ese
+ensayo no representa un cierre inesperado del juego.
+
+- La casa `Ojhous` carga con Orca y sus objetos. El ensayo inicial `probe-vpQ1Lc`
+  partía del estado anterior al catalejo: servía para comprobar carga y diálogo,
+  no la petición de espada posterior a la cinemática.
+- El parche 0055 resuelve FIXEDFRM `@PARTNER/oo` mediante el **segundo
+  participante del evento** (`getPt2`), siguiendo 800B0858..800B0874. Es un
+  identificador diferente del interlocutor de mensajes. La entrada usa la
+  puerta como participante; no se sustituye por Orca ni por Link.
+- `probe-cvG47g` repite con éxito el tutorial, `zelda_fly`, la conversación y
+  movimiento (234,382 unidades), y continúa a Orca conservando ese estado.
+  Se detiene por una suposición incorrecta del observador de participantes,
+  posteriormente corregida; no se cuenta como entrenamiento superado.
+- `probe-flFuZa` y `probe-gImrnP` reanudan una copia local del estado realmente
+  obtenido en `cvG47g`. Comprueban numéricamente Eye/Center y disponibilidad
+  de la cámara PARTNER, navegación dentro de la casa, diálogo 0x965 → 0x966
+  → 0x94e y aceptación de la propuesta de entrenamiento. Esta reanudación
+  diagnóstica no demuestra el recorrido completo desde el menú ni la puerta.
+- **Bloqueo identificado:** evento `Ji1_linkmove`, cámara `UNITRANS`, corte 24.
+  Al detener la prueba, Link, Orca, director/fundido y temporizador habían
+  terminado sus partes; la cámara seguía sin completar su bandera 52 y con
+  disponibilidad 0/0/0. `uniformTransEvCamera()` todavía está vacía en la
+  dependencia. No se ha forzado esa bandera para continuar.
+
+Lo siguiente es implementar y comprobar la transición UNITRANS que pide
+este evento: 60 fotogramas, posiciones iniciales/finales explícitas, FOV 51,
+`BSpCurve=0`, `BGCheck=0`. Después se podrá probar el entrenamiento real
+(cortes horizontal/vertical, estocada, giro, contraataque y salto) y la entrega
+de la espada. **Ni esas lecciones ni la espada se consideran validadas.**
+
+El controlador experimental está en `tools/orca_story.py`, activado con
+`TWW_TEST_ORCA=1` en el recorrido de Abril. Su lógica de golpes todavía no
+ha podido probarse por ese bloqueo. Todas las ejecuciones de este apartado
+usan salida de sonido desactivada y tarjetas separadas. La compilación y la
+aplicación limpia de 55 parches tww / 5 sms-port pasan y reproducen ambos
+archivos de cámara. Los registros, prototipos y la copia de estado se conservan
+en `run-pc/orca-regression/` y `run-pc/probe-*/`, sin subir datos de juego.
+
 ## Próximos hitos
 
 - Confirmar la revisión del parpadeo en menú y conversaciones; comprobar
   también el movimiento de las olas. El usuario confirmó la sincronía al rodar.
 - Confirmar visualmente el tutorial y su escena posterior en una partida
   normal, y comprobar la precisión de apuntado con teclado.
+- Resolver primero UNITRANS en `Ji1_linkmove`, completar el entrenamiento de
+  Orca y comprobar la entrega de la espada.
 - Corregir cámaras, diálogos y actores que bloqueen las tareas de la isla.
 - Comprobar espada, escudo, bosque y rescate, cambios de habitación, regreso,
   despedida y embarque. Ninguno se considera validado todavía.

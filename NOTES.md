@@ -882,3 +882,40 @@ Verification:
 - BdLGzo failed due to an observer UnboundLocalError, not a native crash;
   A7jD2v/Oq922E controllers were interrupted; gnQLD2 stopped to silence tests.
   No completion claims for them. Final clean reproduction: 54 tww / 5 sms-port.
+
+## User-requested stop: Orca continuation, 0055, pending UNITRANS
+
+- Session explicitly stopped by user; do not launch further tests until resume.
+  Last active debugger PID 29293 was interrupted; probe-gImrnP exits 255
+  deliberately. All newly created source/scripts and diagnostics retained.
+- 0055 adds FIXEDFRM @PARTNER/oo using event getPt2, per retail 800B0858..74.
+  The entrance event participant is the DOOR, not Orca or message talk partner.
+  flFuZa/gImrnP numerically verify actual Eye/Center transforms and readiness.
+- cvG47g repeats telescope full success (234.382 walking) then requests Ojhous,
+  preserving earned state. Camera observer initially assumed NPC/player only;
+  fixed by caching daKnob00_Execute(i_this), not inlined execute(this). AKoHU0
+  was an observer error due to that inline wrapper. These are not native crashes
+  or successful training runs. Existing Aryll STARTER observer is disabled only
+  when Orca continuation begins because it assumes Aryll's actor.
+- Local earned native savedata: run-pc/orca-regression/earned-savedata.bin,
+  0x778 bytes from cvG47g after genuine telescope/fly/dialogue events. Diagnostic
+  replay run-pc/orca-regression/replay.gdb restores that savedata then requests
+  Ojhous point 0 room 0. Not a complete normal traversal, not shipped as save.
+- flFuZa/gImrnP reach correct Orca dialogue 0x965 -> 0x966 -> 0x94e, choose yes,
+  enter plmoveAction. Sword is still 0xff; NO sword/training completion claim.
+- Last diagnosis gImrnP: active event 1 Ji1_linkmove. CAMERA staff 8 cut 24
+  UNITRANS is unfinished (flag 52 false, ready0/0/0). Link cut11 001n_wait,
+  TIMEKEEPER cut16 WAIT, Ji1 cut20 03_dummy and DIRECTOR cut22 FADE all done.
+  uniformTransEvCamera is still an empty stub at d_ev_camera.cpp:209.
+  Arguments: StartCenter=(-245,16,-38), StartEye=(411,414,-428), StartFovy=51;
+  Center=(-245,-29,-38), Eye=(411,369,-428), Fovy=51, Timer=60, BSpCurve=0,
+  BGCheck=0. Implement real transition/ready/completion, never skip event flags.
+- Experimental tools/orca_story.py continuation is opt-in via TWW_TEST_ORCA=1;
+  training input code unvalidated because UNITRANS blocks before lessons.
+  TWW_ORCA_SAVE_CHECKPOINT optionally retains earned savedata locally only.
+- Native PC build succeeds; clean 55-patch reproduction matches d_camera.cpp
+  and d_ev_camera.cpp; local tww patch stamp updated. sms-port 5 unchanged.
+  Renderer/audio not changed this continuation; all probes explicitly muted.
+- Local research retained: orca-regression/initial.gdb, replay.gdb,
+  unitrans-retail.txt; shared disassembler user-camera-regression/disasm-retail.py.
+  No extracted assets, saves or recordings are added to Git.
