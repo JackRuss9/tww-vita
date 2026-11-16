@@ -784,3 +784,70 @@ Verification:
   passes outside and inside (471.885 degrees per combined-input segment),
   plus 111 close-view hiding checks and restoration after L. No code changes
   after the final visible test; this only expands the input regression.
+
+## User regression after the normal startup / 0051 and sms-port 0005
+
+- User observed flashing in title and first Aryll conversation, story-movie
+  audio stutter, black view after I and no movement after drowning/respawn.
+  Prior orbit tests started sideways and missed the first-up subjective path.
+- MbsFJx catches invalid camera values after entry into mode 4 / SX31. Ordinary
+  subjectCamera never set ready: the completion block was incorrectly nested
+  inside telescope flag 0x10. Retail 80170FC0..80171000 makes it common.
+  Moved it, bounded the reciprocal, corrected target/extended-target guards
+  from 80171310..80171498, and used whole spherical assignments to avoid the
+  known getter/setter naming mismatch. e7ba1F passes ordinary subjective view
+  plus Q exit. PC C-stick up now enters orbit like every other direction.
+- bN1DwK first-up orbit passes. A76HLF: keyboard-only first up, up swimming,
+  natural restart and 306.431 units post-respawn movement, status 0. u940tc
+  was interrupted due to an observer requiring land after walking off the
+  respawn bridge; that was not a native crash. camera_recovery.gdb covers it.
+- XGetImage captures of the original live X11 window confirmed alternating
+  complete and mostly-black partial pictures (RGB mean about 77 vs 21).
+  Internal headless title captures did not expose this presentation defect.
+- sms-port 0005 moves GXPC_EndPresent into the GL presentation callback after
+  swap. The EFB must be bound before any next queued guest draw, rather than
+  only after the waiting caller resumes. Keep swap targeting the window and
+  keep audio IRQ servicing. Production-function ordering test fails before,
+  passes after (SDL/HDR/minimized). JTmT0c window captures no longer contain
+  the partial-black frames; title/dialogue user confirmation still pending.
+- User requested arrow-key camera: project PC bindings override main stick
+  to WASD and camera to arrows/IJKL. Honor explicit SMS_BINDINGS and local
+  run-pc/bindings.txt. Both launchers use them; normal_flow uses A for left
+  menu navigation. c8fJRc validates arrow camera with stationary/walking Link
+  in exterior and interior, status 0. Controls on a physical pad unchanged.
+- Original log copied before launching again. Its 60 SDL stats samples report
+  zero underruns. Do NOT claim story-movie audio stutter is fixed on that
+  evidence; decoded/audio scheduling gaps still need measurement.
+
+## Follow-up: presentation isolation, telescope allocation and stream analysis
+
+- User reported title flashing again after the first sms-port 0005 candidate.
+  Current patch drains GL with audio service, then syncs the presentation with
+  serviceGuest=false and restores EFB before releasing the command. Eeu9DA
+  title/file menu observer exits 0; 19 valid file-menu window captures remain
+  complete. Capture process outlived the window (XBadDrawable), not a game crash.
+  Human verification of current title/conversation presentation is pending.
+- 0052 preserves both reusable equipment solid heaps on PC. The user crash
+  attempted a 0x108-byte model allocation from a zero-capacity heap: unused
+  dummy allocations may be elided before adjustSolidHeap. blwa07 exits 0,
+  earns telescope, observes both capacities 0xe610, creates equipment model
+  and verifies finite initial scope view. Opt-in TWW_TEST_TELESCOPE_MODEL=1
+  assigns the earned inventory slot directly; assignment UI is not tested.
+- Guided telescope/postman tutorial is NOT validated. Experimental controllers
+  did not complete its aiming/zoom stages; these are not successful tests and
+  do not alone establish a native tutorial bug. Missing Sturgeon is AJ1 with
+  empty creation/logic and excluded actor profile, not a targeting-camera fix.
+- Opening story uses StreamLib title.afc. Independently decoded disc bytes
+  match 409600 runtime samples per channel exactly. Eight-second internal
+  mix comparison shows stable 15.610..15.611 s offset, with no lost chunks.
+  Internal WAV precedes SDL playback and cannot prove audible continuity.
+  Stream buffer retains >1 s; GDB-induced output starvation is not evidence
+  of the user's cause. User explicitly confirms sound cuts, still unresolved.
+- Final clean reproduction passes 52 tww / 5 sms-port patches, comparing
+  d_camera.cpp, d_a_player_main.cpp and all three changed GL platform files.
+  Presentation ordering regression and shell syntax checks pass.
+- Follow-up real-device measurement: keyboard startup on isolated card, GDB
+  detached as opening music starts, then 30 s with no debugger/captures. All
+  six subsequent SDL reports show zero underruns, queue 56..69 ms. Test process
+  explicitly terminated afterward. This does not validate host/device delivery
+  or disprove user-reported cuts; no audio fix is claimed.

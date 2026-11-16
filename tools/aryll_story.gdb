@@ -1,7 +1,10 @@
 # Isolated Outset story-camera regression, NOT a complete normal playthrough.
+# TWW_TEST_TELESCOPE_MODEL=1 additionally equips the earned telescope and
+# checks its model/opening view, not completion of Aryll's guided tutorial.
 # Earns Hero's Clothes in LinkRM, requests sea point 6 and walks to Aryll.
-# Only next-stage requests and keyboard input are injected; story/inventory
-# flags must be earned by the actual events. Checks framing and control return.
+# Default driver injects next-stage requests and keyboard input; the optional
+# model check also assigns the earned item to X. Story flags are earned by
+# actual events. Checks framing and control return.
 # ./tools/probe-pc.sh --outset --headless --deterministic --seconds 600 --gdb "$PWD/tools/aryll_story.gdb"
 set pagination off
 set confirm off
@@ -10,6 +13,8 @@ python
 import gdb
 import struct
 import math
+import os
+test_telescope_model=os.environ.get("TWW_TEST_TELESCOPE_MODEL")=="1"
 hero_done = False
 npc_xyz = None
 npc_address = None
@@ -117,9 +122,36 @@ class Navigate(gdb.Breakpoint):
     def __init__(self):
         super().__init__('daPy_lk_c::execute')
         self.n,self.last,self.origin,self.free_since=0,None,None,None
+        self.scope_since,self.scope_seen=None,False
     def press(self,key):
         for name,code in {'up':26,'down':22,'left':4,'right':7,'a':44}.items():
             gdb.selected_inferior().write_memory(keybase+code,bytes([key==name]))
+    def scope_model(self,obj):
+        if self.scope_since is None:
+            assert int(gdb.parse_and_eval('g_dComIfG_gameInfo.save.mSavedata.mPlayer.mPlayerItem.mItems[0]'))==0x20
+            for i in (0,1):
+                size=int(obj['mpItemHeaps'][i]['mSize'])
+                print('[scope-model] equipment heap %d capacity=0x%x'%(i,size))
+                assert size>=0xe000
+            # Assign X to the inventory slot earned by the event, without
+            # testing the inventory assignment UI or modifying quest flags.
+            for address,value in [('&g_dComIfG_gameInfo.save.mSavedata.mPlayer.mPlayerStatusA.mSelectItem[0]',0),('&g_dComIfG_gameInfo.play.mSelectItem[0]',0x20)]:
+                gdb.selected_inferior().write_memory(int(gdb.parse_and_eval(address)),bytes([value]))
+            self.scope_since=self.n
+        age=self.n-self.scope_since
+        self.press(None)
+        gdb.selected_inferior().write_memory(keybase+25,bytes([5<=age<20]))
+        if int(obj['mCurProc'])==0:
+            assert int(obj['mpEquipItemModel'])!=0
+            self.scope_seen=True
+            cam=gdb.parse_and_eval('((camera_process_class*)g_dComIfG_gameInfo.play.mCameraInfo[0].mpCamera)->mCamera')
+            assert all(math.isfinite(float(cam[f][x])) for f in ('mEye','mCenter') for x in ('x','y','z'))
+            assert math.isfinite(float(cam['mFovy'])) and 0<float(cam['mFovy'])<180
+        if age>=80 and self.scope_seen:
+            print('[scope-model] SUCCESS: earned telescope, model allocation and finite opening view; guided tutorial not validated')
+            gdb.set_convenience_variable('tww_probe_success',1)
+            return True
+        return False
     def stop(self):
         global saw_telescope
         if not hero_done:return False
@@ -142,8 +174,9 @@ class Navigate(gdb.Breakpoint):
             self.press('up' if 60<=age<90 else None)
             if age>=100 and self.origin:
                 distance=sum((xyz[i]-self.origin[i])**2 for i in (0,2))**0.5
-                print('[aryll] post-telescope movement=%.3f' % distance)
+                if not test_telescope_model or age==100:print('[aryll] post-telescope movement=%.3f' % distance)
                 if distance>10:
+                    if test_telescope_model:return self.scope_model(obj)
                     print('[aryll] SUCCESS: earned hero clothes, automatic Aryll scenes, telescope inventory and control return')
                     gdb.set_convenience_variable('tww_probe_success',1)
                     return True

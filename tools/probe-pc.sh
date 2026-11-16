@@ -34,6 +34,9 @@ if [[ "$probe_audio" == 1 ]]; then
 fi
 export SMS_GX_DUMP_DIR="$out" SMS_GX_DUMP_EVERY="${SMS_GX_DUMP_EVERY:-300}"
 cd "$root/run-pc"
+if [[ -z "${SMS_BINDINGS:-}" && ! -f bindings.txt ]]; then
+  export SMS_BINDINGS="$root/config/pc-bindings.txt"
+fi
 if [[ -n "${TWW_PROBE_GDB:-}" ]]; then
   timeout --signal=INT --kill-after=10s "${TWW_PROBE_SECONDS:-90}s" gdb -q -batch --return-child-result -x "$TWW_PROBE_GDB" --args "$root/build-pc/tww" > "$out/run.log" 2>&1
 else

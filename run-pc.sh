@@ -24,6 +24,9 @@ mkdir -p run-pc
 cd run-pc
 # Keep Wind Waker saves separate from Sunshine and other platform users.
 export SMS_SAVE_DIR="${SMS_SAVE_DIR:-$PWD/card-a}"
+if [[ -z "${SMS_BINDINGS:-}" && ! -f bindings.txt ]]; then
+  export SMS_BINDINGS="$PWD/../config/pc-bindings.txt"
+fi
 echo "== tww-vita $(git -C .. rev-parse --short HEAD 2>/dev/null), disc $ISO" > ../tww-pc.log
 if command -v gdb >/dev/null && [[ -z "${TWW_NO_GDB:-}" ]]; then
   SMS_DISC_IMAGE="$ISO" gdb -q -batch --return-child-result -x ../tools/crash.gdb \

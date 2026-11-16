@@ -9,7 +9,7 @@ python
 import gdb
 import json
 import os
-keys = {'a': 44, 'start': 40, 'left': 80, 'up': 26}
+keys = {'a': 44, 'start': 40, 'left': 4, 'up': 26}
 keybase = int(gdb.parse_and_eval("&'(anonymous namespace)::g_key'"))
 opening_done = False
 seen_game_demo = False

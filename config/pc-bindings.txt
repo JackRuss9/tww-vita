@@ -1,0 +1,10 @@
+# PC keyboard layout. Other keys and controller bindings keep platform defaults.
+# WASD moves Link and navigates menus; arrows move only the C-stick camera.
+STICK_UP = W
+STICK_DOWN = S
+STICK_LEFT = A
+STICK_RIGHT = D
+CSTICK_UP = UP I
+CSTICK_DOWN = DOWN K
+CSTICK_LEFT = LEFT J
+CSTICK_RIGHT = RIGHT L

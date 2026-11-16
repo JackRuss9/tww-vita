@@ -1,0 +1,143 @@
+Reason: complete ordinary subjective-camera entry outside the telescope-only branch, avoid a zero transition divisor, restore retail target guards, update spherical components atomically, and let every PC C-stick direction enter the orbit camera.
+
+--- a/src/d/d_camera.cpp
++++ b/src/d/d_camera.cpp
+@@ -1036,6 +1036,14 @@
+                     m144 = 1;
+                     m184 = 0;
+                 }
++#ifdef TARGET_PC
++                // Every C-stick direction enters the PC orbit camera.
++                // In retail, pushing up first requests subjective mode.
++                else if (mStickCValueLast > mCamSetup.mManualStartCThreshold) {
++                    m144 = 0;
++                    m184 = 0;
++                }
++#else
+                 else if (mStickCPosYLast <= 0.0f && mStickCValueLast > mCamSetup.mManualStartCThreshold) {
+                     m144 = 0;
+                 }
+@@ -1064,6 +1072,7 @@
+                         }
+                     }
+                 }
++#endif
+                 break;
+             case 12:
+                 if ((mStickCValueLast < 0.01f && mDirection.R() < mCamSetup.m098) || chkFlag(0x80000000)) {
+@@ -3997,14 +4006,14 @@
+         }
+ 
+         const int framesLeft = end - m108;
+-        const f32 t = 1.0f / (f32)framesLeft;
++        const f32 t = framesLeft > 0 ? 1.0f / (f32)framesLeft : 1.0f;
+ 
+         cXyz targetPos;
+ 
+         switch (mWork.subject.m3C0) {
+             case 1: {
+                 cSGlobe g(camRel);
+-                g.U(directionOf(mpPlayerActor) + g.U());
++                g.V(directionOf(mpPlayerActor) + g.U());
+                 targetPos = eyePos(mpPlayerActor) + g.Xyz();
+                 break;
+             }
+@@ -4026,8 +4035,9 @@
+         desired.Val(p10, cSAngle::_0, baseYaw);
+ 
+         mViewCache.mDirection.R(mViewCache.mDirection.R() + (desired.R() - mViewCache.mDirection.R()) * t);
+-        mViewCache.mDirection.U(mViewCache.mDirection.U() + (desired.U() - mViewCache.mDirection.U()) * t);
+-        mViewCache.mDirection.V(mViewCache.mDirection.V() + (desired.V() - mViewCache.mDirection.V()) * t);
++        mViewCache.mDirection.Val(mViewCache.mDirection.R(),
++                                  mViewCache.mDirection.V() + (desired.V() - mViewCache.mDirection.V()) * t,
++                                  mViewCache.mDirection.U() + (desired.U() - mViewCache.mDirection.U()) * t);
+ 
+         mViewCache.mEye = mViewCache.mCenter + mViewCache.mDirection.Xyz();
+ 
+@@ -4075,19 +4085,20 @@
+                 }
+             }
+ 
+-            if (m108 == end - 1) {
+-                m100 = 1;
+-                m101 = 1;
+-                m102 = 1;
+-
+-                mWork.subject.m384 = 0.0f;
+-                mWork.subject.m388 = 0.0f;
+-                mWork.subject.m38C = 0.0f;
+-
+-                mWork.subject.m39C = mViewCache.mFovy;
+-                mWork.subject.m398 = 0;
+-                mWork.subject.m390 = 0.0f;
+-            }
++        }
++
++        if (m108 >= (u32)(end - 1)) {
++            m100 = 1;
++            m101 = 1;
++            m102 = 1;
++
++            mWork.subject.m384 = 0.0f;
++            mWork.subject.m388 = 0.0f;
++            mWork.subject.m38C = 0.0f;
++
++            mWork.subject.m39C = mViewCache.mFovy;
++            mWork.subject.m398 = 0;
++            mWork.subject.m390 = 0.0f;
+         }
+ 
+         return TRUE;
+@@ -4148,7 +4159,7 @@
+     }
+ 
+     // lock-on / attention smoothing blocks
+-    if ((((mEventFlags >> 0x19) & 1) == 0 && (mLockOnActorId == -1)) || mpLockonTarget == NULL) {
++    if (((mEventFlags & 0x2000000) || mLockOnActorId != -1) && mpLockonTarget != NULL) {
+         cXyz at = attentionPos(mpLockonTarget);
+         at.y -= 25.0f;
+ 
+@@ -4157,8 +4168,9 @@
+         mViewCache.mDirection.R(mViewCache.mDirection.R() + (p10 - mViewCache.mDirection.R()) * 0.04f);
+         desired.R(p10);
+ 
+-        mViewCache.mDirection.U(mViewCache.mDirection.U() + (desired.U() - mViewCache.mDirection.U()) * 0.04f);
+-        mViewCache.mDirection.V(mViewCache.mDirection.V() + (desired.V() - mViewCache.mDirection.V()) * 0.04f);
++        mViewCache.mDirection.Val(mViewCache.mDirection.R(),
++                                  mViewCache.mDirection.V() + (desired.V() - mViewCache.mDirection.V()) * 0.04f,
++                                  mViewCache.mDirection.U() + (desired.U() - mViewCache.mDirection.U()) * 0.04f);
+ 
+         cSAngle dy = mViewCache.mDirection.U() - baseYaw;
+         cSAngle ax = mViewCache.mDirection.U();
+@@ -4167,15 +4179,16 @@
+         mWork.subject.m388 = ax.Degree() / p19;
+         mWork.subject.m3A8 = 0;
+         mWork.subject.m37C = 0;
+-    } else if (!mWork.subject.m3BC || ((mEventFlags & 0x2000000) == 0)) {
++    } else if (mWork.subject.m3BC && (mEventFlags & 0x2000000)) {
+         cSGlobe g;
+         g.Val(mExtendedPos - mViewCache.mCenter);
+ 
+         mViewCache.mDirection.R(mViewCache.mDirection.R() + (p10 - mViewCache.mDirection.R()) * 0.05f);
+         g.R(p10);
+ 
+-        mViewCache.mDirection.U(mViewCache.mDirection.U() + (g.U() - mViewCache.mDirection.U()) * 0.05f);
+-        mViewCache.mDirection.V(mViewCache.mDirection.V() + (g.V() - mViewCache.mDirection.V()) * 0.05f);
++        mViewCache.mDirection.Val(mViewCache.mDirection.R(),
++                                  mViewCache.mDirection.V() + (g.V() - mViewCache.mDirection.V()) * 0.05f,
++                                  mViewCache.mDirection.U() + (g.U() - mViewCache.mDirection.U()) * 0.05f);
+ 
+         cSAngle dy;
+         cSAngle ax;
+@@ -4192,8 +4205,9 @@
+         g.Val(p10, angX, baseYaw + angY);
+ 
+         mViewCache.mDirection.R(mViewCache.mDirection.R() + (g.R() - mViewCache.mDirection.R()) * p20);
+-        mViewCache.mDirection.U(mViewCache.mDirection.U() + (g.U() - mViewCache.mDirection.U()) * p20);
+-        mViewCache.mDirection.V(mViewCache.mDirection.V() + (g.V() - mViewCache.mDirection.V()) * p20);
++        mViewCache.mDirection.Val(mViewCache.mDirection.R(),
++                                  mViewCache.mDirection.V() + (g.V() - mViewCache.mDirection.V()) * p20,
++                                  mViewCache.mDirection.U() + (g.U() - mViewCache.mDirection.U()) * p20);
+ 
+         if (mWork.subject.m3A8 < 10) {
+             mWork.subject.m3A8++;

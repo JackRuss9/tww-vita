@@ -55,8 +55,10 @@ camera supports rotation and tilt around Link, with zone-specific limits and
 the existing collision handling. Retail vertical zoom/FOV coupling and special
 combat/vehicle camera behavior are not fully reconstructed.
 
-Keyboard defaults: Enter = Start, Space = A, Shift = B, WASD / arrows =
-left stick, IJKL = C-stick, Q / E = L / R, V / F = X / Y, Escape = quit.
+Keyboard defaults: Enter = Start, Space = A, Shift = B, WASD = left stick
+and menu navigation, arrow keys (or IJKL) = C-stick camera, Q / E = L / R,
+V / F = X / Y, Escape = quit. The runner loads `config/pc-bindings.txt` unless
+`SMS_BINDINGS` or a local `run-pc/bindings.txt` supplies a custom layout.
 Saves made through `run-pc.sh` are kept in `run-pc/card-a` (override with
 `SMS_SAVE_DIR`). The runner writes `tww-pc.log`; `TWW_NO_GDB=1` disables gdb.
 

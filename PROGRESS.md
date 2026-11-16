@@ -31,7 +31,7 @@ Las tareas posteriores de la isla y el embarque siguen pendientes.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 50 de tww y 4 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 52 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -451,10 +451,133 @@ vista cercana. La serie de 50 parches se aplica sobre fuentes limpias y reproduc
 el archivo de cámara usado para compilar.
 
 
+## Regresión de I, reaparición y parpadeo en ventana (0051 / sms-port 0005)
+
+La prueba manual desde el menú detectó fallos que las pruebas anteriores no
+cubrían: parpadeo en título y primera conversación, cortes en la música del
+vídeo, pantalla negra después de I y pérdida de movimiento tras reaparecer.
+Por tanto, los ensayos de 0050 **no demostraban que la experiencia completa
+fuera correcta**.
+
+`probe-MbsFJx` reproduce el primer fallo de cámara: pulsar I antes de girar a
+los lados entra en la vista subjetiva, estilo SX31. Su transición ordinaria
+nunca activaba las señales de preparado, porque estaban dentro de la rama
+reservada al catalejo. Al agotarse los siete fotogramas, dividía por cero y
+corrompía la vista. El parche 0051 recupera el cierre común de la transición,
+acota el divisor y corrige las condiciones de objetivo y las actualizaciones
+angulares contrastadas con el ensamblador original. `probe-e7ba1F` completa
+esa vista y sale con Q, resultado 0.
+
+Además, en PC todas las direcciones del C-stick entran ahora en la cámara
+orbital: I/arriba ya no solicita primero la vista subjetiva. `probe-bN1DwK`
+comprueba esa entrada y el recentrado, resultado 0. `probe-A76HLF` reproduce
+I primero, I nadando, agotamiento natural del temporizador, reaparición y
+movimiento posterior de 306,431 unidades, con cámara válida (resultado 0).
+No modifica posiciones, temporizadores ni banderas de historia. El intento
+anterior `probe-u940tc` llegó a reaparecer y moverse, pero su observador
+esperaba seguir en tierra mientras la entrada automática volvía al agua; se
+interrumpió para corregir la comprobación y no se cuenta como superado.
+
+```sh
+./tools/probe-pc.sh --outset --headless --deterministic --seconds 180 \
+  --gdb "$PWD/tools/camera_recovery.gdb"
+```
+
+El parpadeo se pudo capturar directamente en la ventana X11 de la partida:
+alternaba una escena completa con una imagen mayormente negra, dibujada
+solo en una esquina. Las capturas internas sin ventana del título
+(`probe-8iG3Hj`, `probe-B2oLYx`) no mostraban esa alternancia; ambos ensayos
+terminan por su límite de tiempo, no son pruebas de historia superadas.
+
+El parche sms-port 0005 restaura el framebuffer del juego **dentro** de la
+misma orden de presentación en el hilo GL, inmediatamente después del swap.
+La primera revisión mejoró las capturas de la playa (`probe-JTmT0c`), pero el
+usuario volvió a observar parpadeos en el menú: **no bastaba para cerrar el fallo**.
+La revisión actual vacía primero la cola GL manteniendo el servicio de audio y
+protege la presentación breve frente a ejecución reentrante del juego. Las
+otras esperas siguen atendiendo las interrupciones de audio.
+
+La prueba de la función de presentación real comprueba la restauración antes
+del siguiente dibujo, la exclusión de ejecución reentrante, SDL, HDR y ventana
+minimizada. Falla con la implementación anterior y pasa con la actual:
+
+```sh
+python3 check/test_window_present.py
+```
+
+`probe-Eeu9DA` alcanza título y selección de fichero y termina con resultado 0.
+Las 19 capturas válidas del selector muestran imágenes completas, sin la
+alternancia negra anterior. El capturador intentó seguir después de que la
+prueba cerrara su ventana y recibió XBadDrawable; no fue un cierre inesperado
+del juego. **Falta confirmar el título y las conversaciones jugando normalmente**;
+estas muestras no demuestran la ausencia del defecto durante toda la partida.
+
+A petición del usuario, **las flechas controlan la cámara y WASD mueve a
+Link y navega los menús**. IJKL sigue como alternativa; Q recentra. La
+configuración está en `config/pc-bindings.txt`, respetando un archivo local o
+`SMS_BINDINGS` explícito. `probe-c8fJRc` repite exterior/interior con las flechas,
+movimiento y giro simultáneos, sin desplazar a Link al girar en reposo y con
+retorno mediante Q (resultado 0).
+
+Compilación y aplicación limpia: 52 parches de tww y 5 de sms-port; se
+reproducen byte a byte la cámara, Link y los tres archivos de presentación GL
+utilizados para compilar. Los cambios locales anteriores se conservan.
+
+## Cierre al sacar el telescopio (0052)
+
+El registro de la partida del usuario aborta al crear el modelo del catalejo:
+la reserva solicitada es de 0x108 bytes y el heap reutilizable tiene capacidad
+cero. Una reserva provisional sin uso puede ser eliminada por el compilador;
+reducir después el heap lo dejaba vacío. El parche 0052 conserva en PC la
+capacidad reservada de los dos heaps de equipamiento.
+
+`probe-blwa07` termina con resultado 0: obtiene ropajes y catalejo mediante
+los eventos, comprueba ambas capacidades (0xe610), equipa el objeto obtenido,
+crea su modelo y mantiene una vista finita durante la apertura. Es una prueba
+aislada: usa solicitudes de escenario y asigna el objeto a X directamente;
+**no valida la interfaz de asignación ni completa el tutorial del cartero**.
+
+```sh
+TWW_TEST_TELESCOPE_MODEL=1 ./tools/probe-pc.sh --outset --headless \
+  --deterministic --seconds 600 --gdb "$PWD/tools/aryll_story.gdb"
+```
+
+Los intentos automáticos de completar el tutorial todavía no lo han superado.
+La secuencia exige apuntar al cartero y ampliar, y después mirar al cielo;
+que el controlador de prueba no la complete no demuestra por sí solo otro
+fallo del juego. El NPC ausente que pide enfocar con L corresponde a Sturgeon
+(`d_a_npc_aj1.cpp`): su creación y lógica están vacías en esta dependencia y
+su perfil está excluido del ejecutable. Ese caso requiere implementar el actor.
+
+## Cortes de sonido de la historia inicial: diagnóstico abierto
+
+El usuario confirma que son cortes de sonido. La historia ilustrada reproduce
+`Audiores/Stream/title.afc`; no es una película THP. En ocho segundos analizados,
+el decodificador mantiene más de un segundo de datos disponibles. Una lectura
+y decodificación independiente del archivo del disco coincide exactamente con
+409600 muestras por canal del decodificador en ejecución (cero diferencias).
+La grabación interna mezclada conserva el avance musical, con un desfase
+estable de aproximadamente 15,61 segundos respecto al inicio del WAV de arranque.
+
+Esto comprueba el tramo del decodificador y la mezcla, **no la continuidad de
+la salida que escucha el usuario**. Las 60 estadísticas del registro original
+indican cero underruns SDL. En cambio, el ensayo instrumentado sí registra
+interrupciones: GDB detiene también el hilo de sonido, por lo que esas cifras
+no sirven para atribuir el fallo original. La verificación final debe hacerse
+sin depurador durante la reproducción.
+
+Una segunda medición arranca con teclado desde título y tarjeta aislada,
+desconecta GDB al comenzar la música y deja reproducir 30 segundos con salida
+SDL real, sin capturas. Las seis muestras posteriores informan cero underruns,
+con cola de 56–69 ms. El proceso de prueba se cierra de forma controlada al
+terminar. No es una validación auditiva ni mide el transporte del sistema hasta
+los altavoces: **los cortes comunicados por el usuario siguen abiertos**.
+
 ## Próximos hitos
 
-- Vigilar regresiones del parpadeo ya descartado por el usuario en la torre;
-  diagnosticar los tirones de las olas y el desfase del efecto de rodar.
+- Confirmar la revisión del parpadeo en menú y conversaciones; comprobar
+  también el movimiento de las olas. El usuario confirmó la sincronía al rodar.
+- Completar y validar el tutorial del telescopio en una partida normal.
 - Corregir cámaras, diálogos y actores que bloqueen las tareas de la isla.
 - Comprobar espada, escudo, bosque y rescate, cambios de habitación, regreso,
   despedida y embarque. Ninguno se considera validado todavía.

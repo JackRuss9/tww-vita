@@ -1,0 +1,29 @@
+Reason: keep both reusable equipment-model arenas at their reserved capacity on PC. An unused dummy allocation can be elided, and shrinking the empty arena leaves zero bytes for the first telescope model.
+
+--- a/src/d/actor/d_a_player_main.cpp
++++ b/src/d/actor/d_a_player_main.cpp
+@@ -12190,17 +12190,24 @@
+     mSeAnmIdx = -1;
+     m34F0 = -1;
+     
++    // These are reusable equipment-model arenas. On PC an unused dummy
++    // new[] can be elided; shrinking then turns the arena into a zero-byte
++    // heap and the first telescope model allocation aborts. Keep capacity.
+     mpItemHeaps[0] = mDoExt_createSolidHeapFromGameToCurrent(0xE600, 0x20);
+     u8* dummy_data = new u8[0xE600];
+     JUT_ASSERT(VERSION_SELECT(21464, 21571, 21651, 21651), dummy_data != NULL);
+     mDoExt_restoreCurrentHeap();
++#ifndef TARGET_PC
+     mDoExt_adjustSolidHeap(mpItemHeaps[0]);
++#endif
+     
+     mpItemHeaps[1] = mDoExt_createSolidHeapFromGameToCurrent(0xE600, 0x20);
+     dummy_data = new u8[0xE600];
+     JUT_ASSERT(VERSION_SELECT(21470, 21577, 21657, 21657), dummy_data != NULL);
+     mDoExt_restoreCurrentHeap();
++#ifndef TARGET_PC
+     mDoExt_adjustSolidHeap(mpItemHeaps[1]);
++#endif
+     
+     createAnimeHeap(&mpItemAnimeHeap, HEAP_TYPE_ITEM_ANIME_e);
+     

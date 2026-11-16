@@ -8,9 +8,9 @@ handle SIGUSR1 SIGUSR2 SIGPIPE nostop noprint
 python
 import gdb, math, struct
 keybase=int(gdb.parse_and_eval("&'(anonymous namespace)::g_key'"))
-phases=[('settle',180,None),('right',30,15),('hold',30,None),('left',30,13),
-        ('down',90,14),('up',90,12),('wrap',120,15),('idle',45,None),
-        ('walk',60,26),('walk_orbit',60,(26,13)),('L',5,20),('follow',60,None)]
+phases=[('settle',180,None),('right',30,79),('hold',30,None),('left',30,80),
+        ('down',90,81),('up',90,82),('wrap',120,79),('idle',45,None),
+        ('walk',60,26),('walk_orbit',60,(26,80)),('L',5,20),('follow',60,None)]
 expected_stage="sea"
 phase=0
 age=0
@@ -76,7 +76,7 @@ class Done(gdb.FinishBreakpoint):
             assert mode!=12
             status=int(gdb.parse_and_eval('g_dComIfG_gameInfo.play.mCameraInfo')[int(cam['mCameraID'])]['mCameraAttentionStatus'])
             assert not status & 0x20
-            for code in (12,13,14,15,20,26):gdb.selected_inferior().write_memory(keybase+code,b'\0')
+            for code in (79,80,81,82,20,26):gdb.selected_inferior().write_memory(keybase+code,b'\0')
             if expected_stage=='sea':
                 print('[manual] exterior passed; diagnostic next-stage request LinkRM point 1 room 0 wipe 10')
                 request=int(gdb.parse_and_eval('&g_dComIfG_gameInfo.play.mNextStage'))
@@ -98,11 +98,11 @@ class Done(gdb.FinishBreakpoint):
 class Camera(gdb.Breakpoint):
     def stop(self):
         if gdb.parse_and_eval('g_dComIfG_gameInfo.play.mCurStage.mName').string()!=expected_stage:
-            for code in (12,13,14,15,20,26):gdb.selected_inferior().write_memory(keybase+code,b'\0')
+            for code in (79,80,81,82,20,26):gdb.selected_inferior().write_memory(keybase+code,b'\0')
             return False
         key=phases[phase][2]
         keys=key if isinstance(key,tuple) else (key,)
-        for code in (12,13,14,15,20,26):gdb.selected_inferior().write_memory(keybase+code,bytes([code in keys]))
+        for code in (79,80,81,82,20,26):gdb.selected_inferior().write_memory(keybase+code,bytes([code in keys]))
         sp=int(gdb.parse_and_eval('$esp'))
         address=struct.unpack('<I',bytes(gdb.selected_inferior().read_memory(sp+4,4)))[0]
         Done(address)

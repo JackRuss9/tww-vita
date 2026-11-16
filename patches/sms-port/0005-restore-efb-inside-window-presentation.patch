@@ -1,0 +1,78 @@
+Reason: drain game drawing with audio service, then present without reentrant guest rendering and restore the EFB on the GL thread before releasing the presentation command.
+
+--- a/platform/gx/src/gx_platform.cpp
++++ b/platform/gx/src/gx_platform.cpp
+@@ -870,6 +870,10 @@
+         // the swap, as it did when it made it
+         bool shown = true;
+         const double waited0 = glt::waitedSeconds();
++        // Drain expensive game drawing while audio interrupts can run. The
++        // short presentation below changes shared render/cache state: do not
++        // let another guest render into it while this caller is suspended.
++        glt::finish();
+         glt::sync([&] {
+             t0 = nowSeconds();
+             if (hdr && !hdrFrameBegin(w, h)) {  // minimised: nothing to show
+@@ -888,7 +892,11 @@
+             if (hdr) hdrFramePresent(s_vsync != 0);
+             else SDL_GL_SwapWindow(s_window);
+             tSwapped = nowSeconds();
+-        });
++            // Restore the EFB before this presentation command completes.
++            // Guest work may be serviced while the caller waits for GL;
++            // queued game draws must never inherit the window framebuffer.
++            GXPC_EndPresent();
++        }, false);
+         {  // the wait for the frame's queued work counts as GX's, the rest is presenting
+             const double waited = glt::waitedSeconds() - waited0;
+             g_presentWaited += waited;
+@@ -902,7 +910,6 @@
+         g_swapSeconds += (tSwapped - t1) + (t2 - tBack);
+         s_lastPresent = (tSwapped - t0) + (t2 - tBack);
+         s_presentCost += (s_lastPresent - s_presentCost) * 0.1;
+-        GXPC_EndPresent();
+         sms_gx_pump_events();
+     }
+ #else
+--- a/platform/gx/src/gx_glthread.cpp
++++ b/platform/gx/src/gx_glthread.cpp
+@@ -246,8 +246,8 @@
+     if (s_head - s_wokenAt >= kWakeBytes) wakeGl();
+ }
+ 
+-void waitFlag(const std::atomic<int>& done) {
+-    mainWait([&] { return done.load(std::memory_order_acquire) != 0; }, true);
++void waitFlag(const std::atomic<int>& done, bool serviceGuest) {
++    mainWait([&] { return done.load(std::memory_order_acquire) != 0; }, serviceGuest);
+ }
+ 
+ void signalFlag(std::atomic<int>& done) {
+--- a/platform/gx/src/gx_glthread.h
++++ b/platform/gx/src/gx_glthread.h
+@@ -40,7 +40,7 @@
+ void* reserve(Thunk fn, size_t bytes);
+ void publish();
+ // Waits until `done` is set (by a command the GL thread runs).
+-void waitFlag(const std::atomic<int>& done);
++void waitFlag(const std::atomic<int>& done, bool serviceGuest = true);
+ void signalFlag(std::atomic<int>& done);
+ void finish();  // waits until everything queued so far has run
+ 
+@@ -70,7 +70,7 @@
+ 
+ // Runs f on the GL thread and waits for it (f may then use the caller's
+ // locals by reference).
+-template <class F> void sync(F&& f) {
++template <class F> void sync(F&& f, bool serviceGuest = true) {
+     if (onGlThread()) {
+         f();
+         return;
+@@ -86,7 +86,7 @@
+     };
+     std::atomic<int> done(0);
+     post(Call{&f, &done});
+-    waitFlag(done);
++    waitFlag(done, serviceGuest);
+ }
+ 
+ template <class F> void postData(const void* data, size_t n, const F& f) {
