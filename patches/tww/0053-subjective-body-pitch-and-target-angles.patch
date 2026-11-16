@@ -1,0 +1,33 @@
+Reason: restore the retail subjective-camera body pitch and separate yaw/pitch during target lock. Retail 80171128 reads Link body angle at 0x2B4; 8017144C and 80171578 use the direction pitch and yaw independently.
+
+--- a/src/d/d_camera.cpp
++++ b/src/d/d_camera.cpp
+@@ -4125,7 +4125,7 @@
+     } else {
+         // actor-angle path
+         if (is_player(mpPlayerActor)) {
+-            angX = (cSAngle)mpPlayerActor->shape_angle.x;
++            angX = ((daPy_py_c*)mpPlayerActor)->getBodyAngleX();
+         } else {
+             angX = mpPlayerActor->shape_angle.x;
+         }
+@@ -4173,7 +4173,7 @@
+                                   mViewCache.mDirection.U() + (desired.U() - mViewCache.mDirection.U()) * 0.04f);
+ 
+         cSAngle dy = mViewCache.mDirection.U() - baseYaw;
+-        cSAngle ax = mViewCache.mDirection.U();
++        cSAngle ax = mViewCache.mDirection.V();
+ 
+         mWork.subject.m384 = dy.Degree() / p24;
+         mWork.subject.m388 = ax.Degree() / p19;
+@@ -4192,8 +4192,8 @@
+ 
+         cSAngle dy;
+         cSAngle ax;
+-        dy = mViewCache.mDirection.V() - baseYaw;
+-        ax = mViewCache.mDirection.U();
++        dy = mViewCache.mDirection.U() - baseYaw;
++        ax = mViewCache.mDirection.V();
+ 
+         mWork.subject.m384 = dy.Degree() / p24;
+         mWork.subject.m388 = ax.Degree() / p19;

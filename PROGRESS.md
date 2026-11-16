@@ -25,13 +25,13 @@ Las tareas posteriores de la isla y el embarque siguen pendientes.
 | Inicio directo de diagnóstico en Isla Initia | Link camina, gira, se detiene, rueda y sigue la altura del terreno | Usa `--outset`: salta menú e introducción y omite la escena de entrada; permite los eventos posteriores |
 | Agua en la isla | Se alcanzan estados de natación y reaparece en la isla | No es una prueba de progreso de la historia |
 | Cámara | Seguimiento, recentrado con L y cámara orbital PC con C-stick | Límites por zona; no reproduce toda la cámara manual original ni sus variantes especiales |
-| Ropajes y catalejo de Abril | Superada la secuencia aislada, conversación posterior y movimiento al recuperar el control | Inyecta solicitudes de escenario para omitir desplazamientos; no valida todo el recorrido desde el menú |
+| Ropajes, catalejo y cinemática posterior | Superada la secuencia aislada: tutorial, `zelda_fly`, conversación posterior y movimiento | Solicitudes de escenario para omitir desplazamientos, asignación del objeto a X y mando simulado; sin ventana ni sonido; no valida todo el recorrido desde el menú |
 | Estabilidad del movimiento | Pruebas de 120 y 75 segundos tras corregir el temporizador y las animaciones | No valida todas las zonas ni interacciones |
 | Arranque normal, nombre, historia y despertar | Superada la secuencia completa y entregado el control; Link recorre 166,342 unidades con entrada de teclado | Diagnóstico sin ventana y con audio mudo; no valida las tareas posteriores |
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 52 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 54 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -569,20 +569,76 @@ sin depurador durante la reproducción.
 Una segunda medición arranca con teclado desde título y tarjeta aislada,
 desconecta GDB al comenzar la música y deja reproducir 30 segundos con salida
 SDL real, sin capturas. Las seis muestras posteriores informan cero underruns,
-con cola de 56–69 ms. El proceso de prueba se cierra de forma controlada al
-terminar. No es una validación auditiva ni mide el transporte del sistema hasta
+con cola de 56–69 ms. El cierre inicial del grupo de procesos no terminó el juego desconectado de
+GDB: quedó sonando sin ventana. Se cerró después de que el usuario lo comunicara,
+se comprobó que no quedaban procesos y se corrigió el cierre del controlador.
+No es una validación auditiva ni mide el transporte del sistema hasta
 los altavoces: **los cortes comunicados por el usuario siguen abiertos**.
+
+## Avance del tutorial y conversación posterior (0053 / 0054)
+
+El sonido queda en segundo plano por indicación del usuario: en su última
+prueba le parecía correcto. La prioridad vuelve al progreso de la historia.
+Todos los ensayos nuevos de este apartado desactivan la salida de sonido.
+
+El parche 0053 corrige cálculos de cámara subjetiva contrastados con el
+original: lee la inclinación del cuerpo de Link (0x2B4, instrucción 80171128),
+y separa inclinación y giro horizontal al fijar un objetivo (8017144C y
+80171578). No modifica banderas para superar el tutorial.
+
+`probe-KpMk8u` llega mediante entrada de mando al enfoque del cartero, zoom,
+reacción y orden real de `zelda_fly`. Después encuentra un bloqueo nuevo:
+la conversación solicita TALK 12 y la implementación PC solo aceptaba TALK 0;
+por eso la cámara nunca indicaba que estaba lista. El ensayo se interrumpió
+para implementar esa variante, sin contar como prueba completa superada.
+
+El parche 0054 implementa la familia de encuadres sobre el hombro TALK
+11/12/30/31 a partir de 8016F978..8016FCC8: posición relativa de los dos
+interlocutores, inversión de primer plano/objetivo, offsets de altura de los
+ojos, FOV 55/65 y disponibilidad inmediata del encuadre. Otras variantes
+especiales de conversación siguen sin estar implementadas. El uso real de
+TALK 12 queda comprobado; las otras tres comparten implementación pero no
+se han recorrido en sus conversaciones del juego.
+
+**`probe-5fUimA`, resultado 0:** obtiene los ropajes y el catalejo por sus
+eventos, abre el modelo, recorre las cuatro fases del tutorial, ordena y
+reproduce `zelda_fly`, supera la conversación posterior con TALK 12 listo y
+FOV 55, recupera el control y camina **234,382 unidades**. Se comprueban vistas
+finitas; no se fuerza la disponibilidad de la cámara ni el fin de los eventos.
+
+```sh
+SMS_AUDIO=0 SMS_AUDIO_OUT=null SDL_AUDIODRIVER=dummy \
+  TWW_TEST_TELESCOPE_STORY=1 ./tools/probe-pc.sh --outset --headless \
+  --deterministic --no-captures --seconds 900 --gdb "$PWD/tools/aryll_story.gdb"
+```
+
+El controlador reproducible está en `tools/telescope_story.py`. Usa ejes
+nativos de mando para apuntar, C-stick para ampliar y botones para pasar
+mensajes. El padre sigue usando solicitudes de escenario para omitir los
+desplazamientos hasta la abuela y Abril, y asigna el objeto obtenido a X.
+**No es una partida completa desde el menú, ni una comprobación visual o de
+sonido. El apuntado con teclado aún no está validado**: los controladores
+digitales anteriores oscilaban alrededor del objetivo. El port ya admite
+Ctrl izquierdo + WASD para media inclinación del stick; se documenta, sin
+presentarlo como una solución del tutorial comprobada con teclado.
+
+Los ensayos `probe-BdLGzo` (error del observador), `probe-A7jD2v` y
+`probe-Oq922E` (controladores incompletos), y `probe-gnQLD2` (detenido al atender
+la petición de silencio) no cuentan como pruebas superadas. Se conservaron
+las partidas del usuario. Compilación PC y aplicación limpia de **54 parches
+tww / 5 sms-port** pasan; el árbol limpio reproduce la cámara compilada.
 
 ## Próximos hitos
 
 - Confirmar la revisión del parpadeo en menú y conversaciones; comprobar
   también el movimiento de las olas. El usuario confirmó la sincronía al rodar.
-- Completar y validar el tutorial del telescopio en una partida normal.
+- Confirmar visualmente el tutorial y su escena posterior en una partida
+  normal, y comprobar la precisión de apuntado con teclado.
 - Corregir cámaras, diálogos y actores que bloqueen las tareas de la isla.
 - Comprobar espada, escudo, bosque y rescate, cambios de habitación, regreso,
   despedida y embarque. Ninguno se considera validado todavía.
-- Medir y corregir cortes de sonido sin usar el depurador para la prueba final;
-  recuperar música, efectos y voces necesarios y comprobar sus transiciones.
+- Audio en segundo plano: revisarlo si reaparecen fallos durante el recorrido;
+  el usuario indica que actualmente le parece correcto.
 - Publicar cada avance probado con comandos, resultado y fallos pendientes.
 
 No hay todavía una estimación fiable de sesiones: faltan partes del código

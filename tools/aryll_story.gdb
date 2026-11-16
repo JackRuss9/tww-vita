@@ -1,4 +1,6 @@
 # Isolated Outset story-camera regression, NOT a complete normal playthrough.
+# TWW_TEST_TELESCOPE_STORY=1 tests the guided tutorial with native pad axes,
+# the following cinematic/dialogue, and control return.
 # TWW_TEST_TELESCOPE_MODEL=1 additionally equips the earned telescope and
 # checks its model/opening view, not completion of Aryll's guided tutorial.
 # Earns Hero's Clothes in LinkRM, requests sea point 6 and walks to Aryll.
@@ -14,7 +16,13 @@ import gdb
 import struct
 import math
 import os
-test_telescope_model=os.environ.get("TWW_TEST_TELESCOPE_MODEL")=="1"
+test_telescope_story=os.environ.get("TWW_TEST_TELESCOPE_STORY")=="1"
+test_telescope_model=test_telescope_story or os.environ.get("TWW_TEST_TELESCOPE_MODEL")=="1"
+if test_telescope_story:
+    import sys
+    sys.dont_write_bytecode=True
+    sys.path.insert(0,os.path.abspath('../tools'))
+    from telescope_story import TelescopeStory
 hero_done = False
 npc_xyz = None
 npc_address = None
@@ -123,6 +131,7 @@ class Navigate(gdb.Breakpoint):
         super().__init__('daPy_lk_c::execute')
         self.n,self.last,self.origin,self.free_since=0,None,None,None
         self.scope_since,self.scope_seen=None,False
+        self.story=TelescopeStory(keybase) if test_telescope_story else None
     def press(self,key):
         for name,code in {'up':26,'down':22,'left':4,'right':7,'a':44}.items():
             gdb.selected_inferior().write_memory(keybase+code,bytes([key==name]))
@@ -147,6 +156,7 @@ class Navigate(gdb.Breakpoint):
             cam=gdb.parse_and_eval('((camera_process_class*)g_dComIfG_gameInfo.play.mCameraInfo[0].mpCamera)->mCamera')
             assert all(math.isfinite(float(cam[f][x])) for f in ('mEye','mCenter') for x in ('x','y','z'))
             assert math.isfinite(float(cam['mFovy'])) and 0<float(cam['mFovy'])<180
+        if self.story:return self.story.step(obj,npc_address,age)
         if age>=80 and self.scope_seen:
             print('[scope-model] SUCCESS: earned telescope, model allocation and finite opening view; guided tutorial not validated')
             gdb.set_convenience_variable('tww_probe_success',1)
@@ -157,6 +167,8 @@ class Navigate(gdb.Breakpoint):
         if not hero_done:return False
         if gdb.parse_and_eval('g_dComIfG_gameInfo.play.mCurStage.mName').string()!='sea':return False
         self.n+=1
+        if self.scope_since is not None:
+            return self.scope_model(gdb.parse_and_eval('this'))
         # Rotate the live manual camera before approaching Aryll, so this
         # regression also checks manual -> event/TALK -> gameplay handover.
         gdb.selected_inferior().write_memory(keybase+15,bytes([self.n<=45]))
@@ -274,6 +286,11 @@ class TalkReturn(gdb.FinishBreakpoint):
         state=struct.unpack('<Iiiffffffhh',bytes(gdb.selected_inferior().read_memory(address,40)))
         elapsed=state[2]
         assert all(math.isfinite(float(cam['mViewCache'][f][x])) for f in ('mEye','mCenter') for x in ('x','y','z'))
+        if state[1] in (11,12,30,31):
+            assert all(int(cam[field]) for field in ('m100','m101','m102'))
+            assert abs(float(cam['mViewCache']['mFovy'])-(55 if state[1] in (11,12) else 65))<.01
+            if elapsed==1:print('[talk-check] shoulder cut=%d ready on first update, finite view and retail FOV'%state[1])
+            return False
         if elapsed < 20:
             assert not int(cam['m100']) and not int(cam['m101']) and not int(cam['m102'])
         elif elapsed == 20:

@@ -1,0 +1,70 @@
+Reason: implement the shared retail TALK 11/12/30/31 shoulder-camera family (8016F978..8016FCC8), including swapped foreground/focus actors, eye-height offsets, immediate readiness and 55/65-degree FOV. TALK 12 blocks the dialogue after the Outset telescope cinematic.
+
+--- a/src/d/d_camera.cpp
++++ b/src/d/d_camera.cpp
+@@ -3688,8 +3688,8 @@
+ /* 8016D8D0-80170434       .text talktoCamera__9dCamera_cFl */
+ bool dCamera_c::talktoCamera(s32 style) {
+ #ifdef TARGET_PC
+-    // Functional PC implementation of the ordinary two-person shot (cut 0).
+-    // This is not a matching reconstruction of the special retail talk cuts.
++    // PC two-person shot (cut 0) and retail shoulder shots (11/12/30/31).
++    // Other special retail talk cuts remain unimplemented.
+     // Use real actors, style dimensions and a bounded camera transition;
+     // never advance the message while its framing is still pending.
+     struct State {
+@@ -3698,6 +3698,7 @@
+         float remaining, radius, fovy;
+         cXyz center;
+         s16 pitch, yaw;
++        cXyz eye;
+     } state = {};
+     static_assert(sizeof(State) <= sizeof(mWork), "TALK scratch state");
+     if (m11C != 0) memcpy(&state, &mWork, sizeof(state));
+@@ -3706,6 +3707,46 @@
+     if (!partner || partner == player) partner = dComIfGp_event_getTalkPartner();
+     if (!partner || partner == player) partner = mpLockonTarget;
+     int cut = getMsgCmdCut();
++    bool shoulder = cut == 11 || cut == 12 || cut == 30 || cut == 31;
++    if (player && partner && player != partner && shoulder) {
++        if (m11C == 0 || state.partner != partner || state.cut != cut) {
++            state.partner = partner;
++            state.cut = cut;
++            state.elapsed = 0;
++            // Retail 8016F978..8016FCC8: reverse foreground/focus actors
++            // for 12/31, retain the entering side, and frame immediately.
++            fopAc_ac_c* focus = cut == 12 || cut == 31 ? partner : player;
++            fopAc_ac_c* foreground = focus == player ? partner : player;
++            cXyz playerEye = eyePos(player), partnerEye = eyePos(partner);
++            cSGlobe enteringAxis(partnerEye - playerEye);
++            cSAngle side = enteringAxis.U() - mViewCache.mDirection.U();
++            bool mirror = side.Val() >= 0;
++            if (focus == player) mirror = !mirror;
++            cXyz at = attentionPos(focus), other = attentionPos(foreground);
++            cXyz focusEye = eyePos(focus), foregroundEye = eyePos(foreground);
++            float height = 0.25f * (foregroundEye.y - focusEye.y);
++            cSGlobe axis(other - at);
++            cXyz centerOffset(mirror ? -25.0f : 25.0f, 0.0f,
++                              0.25f * (partnerEye - playerEye).abs());
++            cXyz eyeOffset(mirror ? -75.0f : 75.0f, height, -75.0f);
++            cSGlobe centerGlobe(centerOffset), eyeGlobe(eyeOffset);
++            centerGlobe.V(centerGlobe.U() + axis.U());
++            eyeGlobe.V(eyeGlobe.U() + axis.U().Inv());
++            state.center = at + centerGlobe.Xyz();
++            state.center.y = at.y + 0.6f * (focusEye.y - at.y) + height;
++            state.eye = other + eyeGlobe.Xyz();
++            state.fovy = cut == 11 || cut == 12 ? 55.0f : 65.0f;
++            OSReport("[camera] TALK shoulder cut=%d partner=%p fovy=%.0f\n", cut, partner, state.fovy);
++        }
++        mViewCache.mCenter = state.center;
++        mViewCache.mEye = state.eye;
++        mViewCache.mDirection.Val(state.eye - state.center);
++        mViewCache.mFovy = state.fovy;
++        m100 = m101 = m102 = 1;
++        ++state.elapsed;
++        memcpy(&mWork, &state, sizeof(state));
++        return true;
++    }
+     if (!player || !partner || player == partner || cut != 0) {
+         if (m11C == 0 || cut != state.cut)
+             OSReport("[camera] unsupported TALK cut=%d player=%p partner=%p\n", cut, player, partner);

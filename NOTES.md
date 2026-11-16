@@ -849,5 +849,36 @@ Verification:
 - Follow-up real-device measurement: keyboard startup on isolated card, GDB
   detached as opening music starts, then 30 s with no debugger/captures. All
   six subsequent SDL reports show zero underruns, queue 56..69 ms. Test process
-  explicitly terminated afterward. This does not validate host/device delivery
+  was meant to terminate afterward, but process-group termination missed the
+  detached inferior (PID 6225). User reported audio without a window; explicitly
+  terminated it, confirmed no tww processes, and fixed the local runner to check
+  and terminate its detached PID. This does not validate host/device delivery
   or disprove user-reported cuts; no audio fix is claimed.
+
+## Telescope story progression: 0053 and 0054
+
+- 0053 restores Link body pitch in subjectCamera's actor-angle path (retail
+  80171128 reads 0x2B4), and separates pitch/yaw during target lock at
+  8017144C / 80171578. Build and clean patch reproduction pass.
+- Digital aiming controllers oscillated; those experiments are not successful
+  tests. Existing left Ctrl HALF_TILT support is now documented, but keyboard
+  telescope progression is not yet validated.
+- KpMk8u reaches telescope stages and real zelda_fly with native pad-axis input,
+  then blocks on unsupported TALK 12. Interrupted deliberately to fix framing.
+- 0054 adds retail shoulder-shot family TALK 11/12/30/31, swapped actors,
+  eye-height offsets, immediate readiness and 55/65 FOV (8016F978..8016FCC8).
+  Actual dialogue for cut 12 is exercised; other three remain unvisited.
+- 5fUimA exits 0: earned clothes/telescope, model creation, tutorial phases
+  1/2/3/4, real zelda_fly, following TALK 12 ready/FOV55, control return and
+  234.382 units of walking. No forced quest flags, actor positions or camera
+  readiness. Parent driver still requests diagnostic stages and assigns earned
+  item to X; new helper uses native g_axis input and normal keys, no game logic.
+- TWW_TEST_TELESCOPE_STORY=1 with tools/aryll_story.gdb imports the reproducible
+  tools/telescope_story.py observer. Once equipped, monitor every frame even
+  when the tutorial repositions Link; never gate it on old walking distance.
+- These are headless deterministic muted tests, not visual/audio verification
+  or a full normal playthrough. User prioritizes story and currently finds
+  sound correct. Audio output explicitly disabled in all recent story probes.
+- BdLGzo failed due to an observer UnboundLocalError, not a native crash;
+  A7jD2v/Oq922E controllers were interrupted; gnQLD2 stopped to silence tests.
+  No completion claims for them. Final clean reproduction: 54 tww / 5 sms-port.
