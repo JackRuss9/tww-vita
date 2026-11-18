@@ -1142,3 +1142,13 @@ Verification:
   returned in departure. p1pOFi departure VERIFIED; frame 2400 Tetra winks
   (g3qvo0 had neutral open eyes). 1GhtmF telescope story SUCCESS incl.
   zelda_fly; falling Tetra too small in captures to confirm eyes.
+
+## Full island run 4yK0MI exit 0; sword trail 0065
+
+- User run from title: event/stage log in run-pc/probe-4yK0MI, 19 checkpoints
+  (08 sword, 15 shield, 19 ship control). FULL ISLAND RUN REACHED SHIP.
+- Sword blur: setBlurPosResource JKRReadIdxResource copies LkAnm *_pos raw BE
+  floats ("not converted: cutl_pos", 4560 B = 190 base/tip pairs). PC swaps
+  the copy. H5tbhw (before) mean luma 157->240 per swing; 3iAs1g after stable.
+- Open: departure flicker (windowed only so far), Tetra eyes in rescue with
+  0064 to confirm visually.

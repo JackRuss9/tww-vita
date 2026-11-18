@@ -15,11 +15,10 @@ No game data is included. You need your own disc image.
 
 See [PROGRESS.md](PROGRESS.md) for verified PC milestones, reproducible tests
 and known blockers (Spanish). Normal startup through the complete opening to controlling Link is verified.
-Manual play now reaches Tetra's rescue, Aryll's abduction, the beach conversation,
-obtaining the shield and, in an automated replay from that earned state, the
-complete pirate departure cinematic up to control on the pirate ship. The full
-island from the menu in one run is not verified yet; see PROGRESS.md.
-Full Outset story progression and uninterrupted audio are not verified yet.
+**Outset Island has been completed in one continuous, user-played run from
+the title menu to controlling Link on the pirate ship** (no injected state).
+Background music, item fanfares and Link's voice are still missing, and the
+departure cinematic shows some flicker in a window; see PROGRESS.md.
 Grandma's house loading and the Hero's Clothes scene also pass isolated PC
 tests, including movement after the scene. Aryll's telescope delivery and
 subsequent control return also pass an isolated test. Special conversation

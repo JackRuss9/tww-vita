@@ -1,0 +1,22 @@
+Reason: the sword trail (daPy_swBlur_c) reads per-frame blade base/tip positions from LkAnm *_pos tables with JKRReadIdxResource. These are raw big-endian float pairs that the archive leaves unconverted ('resource format not converted: cutl_pos'), so on PC every swing drew enormous translucent white quads over most of the screen. Swap the copied words after the read; the trail becomes the thin retail arc (frame brightness no longer jumps from 157 to 240 per swing).
+
+--- a/src/d/actor/d_a_player_main.cpp
++++ b/src/d/actor/d_a_player_main.cpp
+@@ -577,7 +577,17 @@
+ 
+ /* 80104240-80104280       .text setBlurPosResource__9daPy_lk_cFUs */
+ void daPy_lk_c::setBlurPosResource(u16 i_resIdx) {
++#ifdef TARGET_PC
++    // The *_pos tables are raw big-endian float pairs (blade base/tip per
++    // frame) that the archive leaves unconverted; this read copies them, so
++    // swap the copy. Left big-endian, the sword trail became huge quads.
++    u32 size = JKRReadIdxResource(mSwBlur.mpPosBuffer, sizeof(Vec) * 2 * 0x300, i_resIdx, dComIfGp_getAnmArchive());
++    u32* words = (u32*)mSwBlur.mpPosBuffer;
++    for (u32 i = 0; i < size / sizeof(u32) && i < sizeof(Vec) * 2 * 0x300 / sizeof(u32); i++)
++        words[i] = __builtin_bswap32(words[i]);
++#else
+     JKRReadIdxResource(mSwBlur.mpPosBuffer, sizeof(Vec) * 2 * 0x300, i_resIdx, dComIfGp_getAnmArchive());
++#endif
+ }
+ 
+ /* 80104280-80104364       .text getItemAnimeResource__9daPy_lk_cFUs */

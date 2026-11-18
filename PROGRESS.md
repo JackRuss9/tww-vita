@@ -4,11 +4,12 @@ Objetivo: arrancar por el menú original, elegir o crear una partida, introducir
 el nombre, reproducir la introducción y completar Isla Initia hasta embarcar.
 La versión de PS Vita queda aplazada hasta conseguirlo en PC.
 
-**La isla completa todavía no está validada.** Ya se ha comprobado el arranque
-normal hasta recuperar el control y caminar con Link, sin saltar la historia.
-Una prueba manual desde el bosque ya llega al rescate de Tetra, el secuestro
-de Abril y la conversación posterior en la playa. La conversación ya termina en la prueba automática; el
-escudo ya se ha obtenido en prueba manual y, desde ese estado ganado, la prueba automática reproduce la despedida completa hasta controlar a Link en el barco pirata; no valida todo el recorrido desde el menú en una sola partida.
+**Objetivo de PC alcanzado: Isla Initia completa en una sola partida
+(`probe-4yK0MI`, resultado 0).** Partida nueva desde el título, jugada por el
+usuario, sin restaurar estados ni inyectar entradas, hasta controlar a Link en
+el barco pirata tras la despedida. Quedan defectos de presentación y audio
+anotados más abajo (música de fondo, fanfarrias y voces; parpadeos en la
+despedida); no impiden avanzar.
 
 ## Entorno de verificación
 
@@ -33,7 +34,7 @@ escudo ya se ha obtenido en prueba manual y, desde ese estado ganado, la prueba 
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 64 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 65 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -1116,3 +1117,31 @@ estaban vacías, así que ninguna cinemática podía cambiar los ojos o la boca
 - Catalejo y `zelda_fly` (`probe-1GhtmF`, resultado 0): la secuencia completa
   sigue superada. En las capturas Tetra se ve demasiado pequeña para confirmar
   visualmente sus ojos durante la caída.
+
+## Hito: Isla Initia completa desde el menú (18 de noviembre)
+
+**`probe-4yK0MI`, resultado 0.** El observador pasivo `tools/full_island.gdb`
+registra la partida del usuario (tarjeta nueva, título, unos 37 minutos de
+juego, ninguna señal de fallo): despertar, ropajes, felicitación y catalejo,
+tutorial del buzón con teclado, `zelda_fly`, entrenamiento con Orca y espada
+(0x38), bosque (`look_tetra`, `AMORI_DEMO_2/1`, `MEET_TETORA`), secuestro de
+Abril (`STOLENSISTER`), conversación de la playa (`yuukaigo`), escudo (0x3b,
+`get_shield`), despedida (`departure_DEMO`) y llegada a A_umikz con control.
+Línea final: `FULL ISLAND RUN REACHED SHIP: departure watched in this run,
+EventFlag 0x2401=1`. Se conservan localmente 19 volcados del estado real, uno
+por hito. El usuario no habló con Mesa ni con Abe en esta partida.
+
+Defectos observados por el usuario durante la partida:
+
+- **Estela de la espada gigante: corregida (0065).** Cada golpe cubría casi
+  toda la pantalla de blanco. Las tablas `*_pos` de la estela (pares de puntos
+  de la hoja en big-endian) se copiaban sin convertir. Reproducido con el
+  estado real de la espada (`probe-H5tbhw`: el brillo medio salta de 157 a
+  240 en cada golpe) y corregido (`probe-3iAs1g`: arco fino y brillo estable).
+- **Ojos de Tetra en las cinemáticas** (cerrados en el rescate, abiertos en la
+  caída): mismo origen que 0064. Esa partida usaba un ejecutable anterior a
+  0064; falta confirmarlo visualmente en el rescate.
+- **Parpadeos en la despedida** con la ventana visible: pendiente de describir
+  y reproducir. Las capturas sin ventana de la despedida no los muestran.
+- Música de fondo, fanfarria de objeto y voces de Link: pendientes, ya
+  documentado.
