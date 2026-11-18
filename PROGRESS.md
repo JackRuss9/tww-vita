@@ -1059,3 +1059,40 @@ TWW_DEPARTURE_CHECKPOINT="$PWD/run-pc/beach-regression/departure-earned-savedata
 El modo `TWW_DEPARTURE_EXPECT_BLOCKER` de la sección anterior ya no existe: el
 bloqueo que comprobaba está resuelto. La protección de 0062 frente a paquetes
 fallidos se mantiene.
+
+## Recorrido continuo en curso, actores ausentes y apuntado fino (18 de noviembre)
+
+**Recorrido continuo desde el menú: en curso, todavía sin resultado.** El
+usuario juega una partida nueva bajo `tools/full_island.gdb`. El observador no
+escribe memoria ni entradas: registra escenarios, eventos, equipo y
+conversaciones con Mesa y Abe, y exporta el estado real en cada hito. La prueba
+corta `probe-ironEw` confirma que Mesa (tipo 0) y Abe (tipo 2) se crean en la
+isla en partida normal.
+
+```sh
+SMS_AUDIO=1 SMS_AUDIO_OUT=sdl SDL_AUDIODRIVER=pulseaudio SMS_GX_DUMP_EVERY=1800 \
+./tools/probe-pc.sh --seconds 10800 --gdb "$PWD/tools/full_island.gdb"
+# continuar una partida guardada de ese recorrido: añadir --save-dir <tarjeta>
+```
+
+**Actores de Isla Initia sin crear: no bloquean la historia.** Son Sue-Belle
+(`yw1`), Joel y Zill (`ko1`), Rose (`ob1`) y Sturgeon (`aj1`). Se analizaron
+todos los `.stb` del disco y las listas de eventos de la isla, el bosque, las
+casas y el barco. Ninguna cinemática los usa. Solo aparecen en `Get_Rupee`
+(Rose), `AJ_SPEAK` y los enfados de `Ojhous` (Sturgeon), eventos que inicia el
+propio personaje. El mismo análisis encuentra a Mesa y Abe en `departure.stb`
+y a Abril en sus dos eventos, como era de esperar.
+
+**Apuntado con teclado (sms-port 0006).** El catalejo llega a la velocidad
+máxima con el 70 % de inclinación del stick. Ctrl (media inclinación) deja el
+valor en 0,93 y no reduce el giro. La nueva tecla Alt izquierdo
+(`FINE_TILT`, ajustable con `SMS_FINE_TILT`) deja el stick en 0,46 y el giro
+del catalejo en el 17,5 % del máximo, medido en el juego. Con ella Link no
+llega a andar; es solo para apuntar. Todavía falta que el usuario lo confirme
+en el paso del buzón.
+
+**Mando bajo WSL2.** Linux solo recibe mandos mediante `usbipd-win`. El
+receptor 8BitDo (`2dc8:310b`) en modo XInput expone el mando en una interfaz de
+clase propietaria que necesita `xpad`, ausente en el kernel de WSL. Solo se
+reconocen su teclado y ratón auxiliares, así que no es utilizable. No se ha
+probado un mando en modo DirectInput o Switch.

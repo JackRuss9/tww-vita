@@ -1115,3 +1115,18 @@ Verification:
 - Still skipped on sea/44: actors 319,321,322,333,334 (creation not
   decompiled). Next: continue on A_umikz (Niko/ship tasks); a continuous
   menu-to-ship run is not verified.
+
+## Continuous run, absent Outset actors, fine tilt (sms-port 0006)
+
+- tools/full_island.gdb: passive observer (stage/event/equip/Ym talk,
+  checkpoints per milestone, success at A_umikz control after departure_DEMO).
+  User run probe-Sp6btB in progress (fresh card, from title).
+- Missing profiles 319 yw1 Sue-Belle, 321/322 ko1 Joel/Zill, 333 ob1 Rose,
+  334 aj1 Sturgeon (gen_missing_actors). Disc scan (CISO/FST/RARC/Yaz0 scratch
+  tools): no .stb references; events only Get_Rupee(Ob1), AJ_SPEAK and
+  Ojhous Angry/angry (Aj1), all self-initiated. Not story blockers.
+- Telescope: CalcSubjectAngle saturates |stick|>=0.7. HALF_TILT raw 50 ->
+  CPad 0.926 -> rate 1.0. FINE_TILT raw 25 -> CPad 0.463 -> f1 0.66 ->
+  rationalBezierRatio(w=1.0) 0.175. Link walk needs more (speedF 0).
+- WSL controllers: no /dev/input until usbipd attach. 8BitDo UM2 receiver
+  2dc8:310b: if0 ff/5d/01 XInput (no xpad module), if1 kbd/mouse, if2 vendor HID.

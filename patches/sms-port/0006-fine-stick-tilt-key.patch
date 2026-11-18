@@ -1,0 +1,69 @@
+Reason: keys give full stick deflection and HALF_TILT (50 raw) still reads about 0.93 after the dead zone, so Wind Waker's telescope (saturating at 70% tilt) turns at full speed. FINE_TILT (default left Alt, SMS_FINE_TILT percent, default 25) tilts the stick only slightly while held: measured stick 0.46 and telescope turn rate 17.5% of full, making the postbox/Quill telescope step aimable from the keyboard.
+
+--- a/platform/pad/pad.cpp
++++ b/platform/pad/pad.cpp
+@@ -126,14 +126,14 @@
+ 	C_DUP, C_DDOWN, C_DLEFT, C_DRIGHT,
+ 	C_UP, C_DOWN, C_LEFT, C_RIGHT,
+ 	C_CUP, C_CDOWN, C_CLEFT, C_CRIGHT,
+-	C_HALF, C_QUIT, C_LSOFT, C_RSOFT, C_SAVESTATE, C_LOADSTATE, C_COUNT
++	C_HALF, C_FINE, C_QUIT, C_LSOFT, C_RSOFT, C_SAVESTATE, C_LOADSTATE, C_COUNT
+ };
+ const char* const kControlNames[C_COUNT] = {
+ 	"A", "B", "X", "Y", "Z", "L", "R", "START",
+ 	"DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT",
+ 	"STICK_UP", "STICK_DOWN", "STICK_LEFT", "STICK_RIGHT",
+ 	"CSTICK_UP", "CSTICK_DOWN", "CSTICK_LEFT", "CSTICK_RIGHT",
+-	"HALF_TILT", "QUIT", "L_SOFT", "R_SOFT", "SAVE_STATE", "LOAD_STATE",
++	"HALF_TILT", "FINE_TILT", "QUIT", "L_SOFT", "R_SOFT", "SAVE_STATE", "LOAD_STATE",
+ };
+ // SAVE_STATE / LOAD_STATE are the port's, not the GameCube's: a press saves a
+ // save state, or loads the newest (port_savestate.h). Their bindings are often
+@@ -145,6 +145,11 @@
+ // from SMS_SOFT_TRIGGER (percent, default 40). Unbound unless bindings.txt
+ // gives them keys or buttons.
+ int g_softTrigger = 102;
++// FINE_TILT tilts the stick only a little while held, for precise aiming with
++// keys (a telescope or bow saturates at 70% tilt, so HALF_TILT still turns
++// almost at full speed). How far, in raw stick units out of 100, from
++// SMS_FINE_TILT (percent, default 25; the dead zone ends at 15).
++int g_fineTilt = 25;
+ 
+ struct KeyName {
+ 	const char* name;
+@@ -197,6 +202,7 @@
+     "CSTICK_LEFT = J\n"
+     "CSTICK_RIGHT = L\n"
+     "HALF_TILT = LCTRL\n"
++    "FINE_TILT = LALT\n"
+     "QUIT = ESCAPE\n"
+     "SAVE_STATE = F5\n"
+     "LOAD_STATE = F6\n";
+@@ -596,6 +602,12 @@
+ 			g_softTrigger = pct * 255 / 100;
+ 			port_log("[pad] soft L/R press: %d%%\n", pct);
+ 		}
++	if (const char* e = getenv("SMS_FINE_TILT"))
++		if (*e) {
++			// above the dead zone (15), below HALF_TILT's 50
++			g_fineTilt = atoi(e) < 16 ? 16 : atoi(e) > 50 ? 50 : atoi(e);
++			port_log("[pad] fine stick tilt: %d%%\n", g_fineTilt);
++		}
+ 	if (const char* e = getenv("SMS_RUMBLE"))
+ 		if (*e && !env_on("SMS_RUMBLE")) {
+ 			g_rumbleStrength = 0;
+@@ -964,11 +976,11 @@
+ 	// Sticks are reported raw (a real stick reads about +-100 at the rim);
+ 	// the decomp's PADClamp (libs/dolphin/src/pad/Padclamp.c) then applies the dead
+ 	// zone and the octagon exactly as on hardware. Keys give full deflection
+-	// (half with HALF_TILT).
+-	int full = held(C_HALF) ? 50 : 100;
++	// (half with HALF_TILT, a little with FINE_TILT).
++	int full = held(C_FINE) ? g_fineTilt : held(C_HALF) ? 50 : 100;
+ 	int x = held(C_RIGHT) * full - held(C_LEFT) * full;
+ 	int y = held(C_UP) * full - held(C_DOWN) * full;
+-	if (x && y) {
++	if (x && y && !held(C_FINE)) {
+ 		x = x * 7 / 10;
+ 		y = y * 7 / 10;
+ 	}

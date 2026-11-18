@@ -62,7 +62,11 @@ combat/vehicle camera behavior are not fully reconstructed.
 Keyboard defaults: Enter = Start, Space = A, Shift = B, WASD = left stick
 and menu navigation, arrow keys (or IJKL) = C-stick camera, Q / E = L / R,
 V / F = X / Y, Escape = quit. Hold left Ctrl with WASD for half stick
-deflection (slower movement/aiming). The runner loads `config/pc-bindings.txt` unless
+deflection (slower walking). Hold left Alt with WASD for fine tilt
+(`SMS_FINE_TILT`, default 25%): the telescope then turns at about 17% of full
+speed, which makes precise aiming possible from the keyboard. Under WSL2,
+controllers reach the game only through `usbipd-win`; Xbox/XInput-mode
+controllers are not usable there because the WSL kernel has no `xpad` driver. The runner loads `config/pc-bindings.txt` unless
 `SMS_BINDINGS` or a local `run-pc/bindings.txt` supplies a custom layout.
 Saves made through `run-pc.sh` are kept in `run-pc/card-a` (override with
 `SMS_SAVE_DIR`). The runner writes `tww-pc.log`; `TWW_NO_GDB=1` disables gdb.
