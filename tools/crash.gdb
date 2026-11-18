@@ -11,7 +11,16 @@ python
 if gdb.selected_inferior().pid == 0:
     gdb.execute("quit")
 probe_success = gdb.convenience_variable("tww_probe_success")
-if probe_success is not None and int(probe_success):
+# A signal (crash, abort, assertion halt) after a check passed is still a
+# crash: report it instead of the earlier success.
+try:
+    # SIGTRAP (5) is the breakpoint a script uses to stop a passed check.
+    stopped_by_signal = int(gdb.parse_and_eval("$_siginfo.si_signo")) not in (0, 5)
+except gdb.error:
+    stopped_by_signal = False
+if stopped_by_signal and probe_success is not None and int(probe_success):
+    print("[probe] a check passed earlier, but the game then stopped on a signal")
+if not stopped_by_signal and probe_success is not None and int(probe_success):
     print("[probe] requested gameplay checks passed")
     gdb.execute("quit 0")
 end

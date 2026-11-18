@@ -1,0 +1,20 @@
+Reason: entering Asoko (the pirate ship interior) from the earned ship state aborted on cM3dGSph::SetC's range assertion from himo3_control. f28 is only assigned while Link holds the rope, but the hanging rope also subtracts it from its first segment: the GameCube read a leftover FP register, PC read stack garbage (NaN). Initialise it to 0 (full first segment) on PC. Reproduced with the user's checkpoint (probe-OON7Al) and fixed (probe-oxy9bx: Asoko interior, Link in control).
+
+--- a/src/d/actor/d_a_himo3.cpp
++++ b/src/d/actor/d_a_himo3.cpp
+@@ -56,7 +56,15 @@
+     cXyz spAC;
+     cXyz spA0;
+     cXyz sp94;
++#ifdef TARGET_PC
++    // Only set while Link holds the rope; the hanging rope still subtracts it
++    // from its first segment. On the GameCube that read a leftover FP register;
++    // on PC it read stack garbage (NaN) and the rope's spheres failed
++    // cM3dGSph::SetC's range assertion on entering Asoko. 0 = full segment.
++    f32 f28 = 0.0f;
++#else
+     f32 f28;
++#endif
+     f32 tmpReg;
+     f32 tmp200;
+     f32 f27;

@@ -1152,3 +1152,10 @@ Verification:
   the copy. H5tbhw (before) mean luma 157->240 per swing; 3iAs1g after stable.
 - Open: departure flicker (windowed only so far), Tetra eyes in rescue with
   0064 to confirm visually.
+
+## 0066 himo3 uninitialised f28 (Asoko entry abort)
+
+- User run 4yK0MI: after FULL ISLAND success, door to Asoko p0 -> OSPanic
+  c_m3d_g_sph.cpp:23 from himo3_control:246 (sph SetC). m02BE==0 path never sets
+  f28 but first segment uses it. PC init 0. OON7Al repro, oxy9bx fixed.
+- crash.gdb: success no longer masks a later signal ($_siginfo, SIGTRAP ok).

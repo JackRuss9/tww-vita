@@ -34,7 +34,7 @@ despedida); no impiden avanzar.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 65 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 66 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -1145,3 +1145,19 @@ Defectos observados por el usuario durante la partida:
   y reproducir. Las capturas sin ventana de la despedida no los muestran.
 - Música de fondo, fanfarria de objeto y voces de Link: pendientes, ya
   documentado.
+
+## Cierre al entrar en Asoko, interior del barco (0066)
+
+Después del hito, al cruzar la puerta del barco hacia **Asoko**, el juego se
+detuvo por una verificación interna (`c_m3d_g_sph.cpp:23`, coordenadas de una
+esfera fuera de rango). Origen: la cuerda `himo3`. Cuando cuelga sola usa un
+valor (`f28`) que solo se calcula al agarrarla; en GameCube quedaba el resto de
+un registro y en PC basura de la pila (NaN). 0066 lo inicializa a 0 en PC.
+
+- `probe-OON7Al`: reproduce el cierre restaurando el estado real del barco.
+- `probe-oxy9bx` (resultado 0): con 0066 se entra en Asoko y Link conserva el
+  control; la captura muestra el interior.
+
+El observador de la partida daba resultado 0 aunque el juego se cerró después
+del hito: `tools/crash.gdb` aceptaba el éxito anterior sin mirar la señal. Ahora
+informa del cierre (excepto la parada SIGTRAP con la que una prueba termina).
