@@ -16,8 +16,9 @@ No game data is included. You need your own disc image.
 See [PROGRESS.md](PROGRESS.md) for verified PC milestones, reproducible tests
 and known blockers (Spanish). Normal startup through the complete opening to controlling Link is verified.
 Manual play now reaches Tetra's rescue, Aryll's abduction, the beach conversation,
-and obtaining the shield. Departure remains blocked by missing Ym1/Ym2 NPC
-implementation needed by its cinematic; see PROGRESS.md for evidence and limits.
+obtaining the shield and, in an automated replay from that earned state, the
+complete pirate departure cinematic up to control on the pirate ship. The full
+island from the menu in one run is not verified yet; see PROGRESS.md.
 Full Outset story progression and uninterrupted audio are not verified yet.
 Grandma's house loading and the Hero's Clothes scene also pass isolated PC
 tests, including movement after the scene. Aryll's telescope delivery and

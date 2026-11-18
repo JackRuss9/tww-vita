@@ -8,7 +8,7 @@ La versión de PS Vita queda aplazada hasta conseguirlo en PC.
 normal hasta recuperar el control y caminar con Link, sin saltar la historia.
 Una prueba manual desde el bosque ya llega al rescate de Tetra, el secuestro
 de Abril y la conversación posterior en la playa. La conversación ya termina en la prueba automática; el
-escudo ya se ha obtenido en prueba manual; el embarque sigue pendiente; no valida todo el recorrido desde el menú.
+escudo ya se ha obtenido en prueba manual y, desde ese estado ganado, la prueba automática reproduce la despedida completa hasta controlar a Link en el barco pirata; no valida todo el recorrido desde el menú en una sola partida.
 
 ## Entorno de verificación
 
@@ -33,7 +33,7 @@ escudo ya se ha obtenido en prueba manual; el embarque sigue pendiente; no valid
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 62 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 63 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -1014,3 +1014,48 @@ TWW_DEPARTURE_CHECKPOINT="$PWD/run-pc/beach-regression/departure-earned-savedata
 También se observaron avisos UNITRANS `@PARTNER / --or` durante la prueba
 manual. Esa máscara de cámara sigue pendiente, pero no se ha demostrado como
 causa de la falta de reproducción de departure.stb. No confundir ambos problemas.
+
+## Despedida y embarque completos desde el escudo ganado (0063)
+
+**Resultado: superada la prueba automática `probe-H6LE1j` (resultado 0).**
+Desde el volcado del estado ganado en la prueba manual (escudo y acuerdo con
+Tetra), la petición nativa `sea 205 / habitación 44 / capa 10` inicia el evento
+115 `departure_DEMO`; `departure.stb` se reproduce hasta su fotograma 2460
+(fin natural, modo 2), concede la bandera 0x2401, carga **A_umikz** (punto 204)
+y, tras el evento 46 de llegada, Link queda sin evento ni demo activos durante
+60 fotogramas en la cubierta del barco pirata.
+
+Las capturas (`probe-g3qvo0`, una cada 150 fotogramas) muestran la secuencia
+real: barco, despedida de los isleños con «Good luck, Link!» (Mesa y Abe
+incluidos), diálogo con Tetra en alta mar y la cubierta con el HUD.
+
+Dos causas corregidas en 0063:
+
+1. **Mesa (Ym1) y Abe (Ym2).** `d_a_npc_ym1.cpp` estaba vacío. Se ha
+   reconstruido entero a partir del ensamblador retail GZLE01 (tipos según el
+   parámetro y las banderas, modelos de cuerpo/cabeza/hoz, parpadeo, mensajes
+   y banderas de conversación, siega de hierba, espera sentado de Abe y enlace
+   con las cinemáticas), siguiendo la familia ya descompilada de Abril (ls1).
+   Es una reconstrucción funcional, no una descompilación que coincida byte a
+   byte. Fuera de la cinemática, su comportamiento interactivo en la isla no se
+   ha probado todavía.
+2. **Valores de función compuestos de JStudio.** Con los actores presentes el
+   paquete se cargaba y fallaba (SIGSEGV en `composite_add`, `probe-z0APHy`).
+   El puntero de función se guardaba con otro orden de parámetros; en
+   PowerPC no importa, pero en x86 desordena la pila. En PC se llama ahora con
+   su firma real. La regresión de la playa (`probe-9pxld4`) sigue superada.
+
+Límites: la prueba restaura un estado ganado y solicita el destino nativo de
+Tetra; no es todavía una partida continua desde el menú hasta el barco. Pulsa
+A durante la demo para avanzar los diálogos. Sin ventana y con audio mudo.
+
+```sh
+SMS_AUDIO=0 SMS_AUDIO_OUT=null SDL_AUDIODRIVER=dummy \
+TWW_DEPARTURE_CHECKPOINT="$PWD/run-pc/beach-regression/departure-earned-savedata.bin" \
+./tools/probe-pc.sh --outset --headless --deterministic --no-captures \
+  --seconds 200 --gdb "$PWD/tools/departure_replay.gdb"
+```
+
+El modo `TWW_DEPARTURE_EXPECT_BLOCKER` de la sección anterior ya no existe: el
+bloqueo que comprobaba está resuelto. La protección de 0062 frente a paquetes
+fallidos se mantiene.

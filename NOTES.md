@@ -1090,3 +1090,28 @@ Verification:
   updated. User asks all work pushed to main. Local bundled origin preserved.
 - UNITRANS PARTNER/--or warnings recorded separately; still unsupported, not
   established as the departure package cause. No live probes/sound left.
+
+## 0063 departure plays to A_umikz: Ym1/Ym2 actors + JStudio composite ABI
+
+- d_a_npc_ym1.cpp reconstructed functionally from build/GZLE01/d_a_npc_ym1 asm
+  (0x8B4 layout kept). decideType: NPC_YM1 param0->type0 (wait_action1, needs
+  !ev0x520, sickle item res9), param1->type1 (wait_action4, needs ev0x520);
+  NPC_YM2 param0..3 -> type2..5 (ev0x520/0xE20/daynight gates). Arc "Ym",
+  body bdl 0xA, heads 0xB/0xC, Ym2 body uses bmt 0xD, btp 0xE/0xF. HIO prm
+  table per child (Ym1 idx0, Ym2 idx1 = subtype-1). setAnm_ATR clamps the
+  retail atr 13 out-of-range table read. Not matching; interactive island
+  behaviour (talk/kari/turn) not exercised yet.
+- z0APHy: with actors, package parsed then SIGSEGV composite_add (param_3
+  garbage). TFunctionValue_composite::pfn_ is typed (f64, refer*, TData*) but
+  stores CompositeFunc (vector&, TData&, f64). PPC passes f64 in f1 so order is
+  irrelevant; x86 cdecl stack is not. TARGET_PC calls via CompositeFunc.
+  FVB payloads were already native (tww_endian fvb_convert).
+- nr19xC/H6LE1j: demo frames 0..2460, mode 2 at age~5160, EventFlag 0x2401,
+  A_umikz event 46 then -1, Link (-2444,762,-529). departure_replay.gdb now
+  asserts this success; expected-blocker mode removed. g3qvo0 captures
+  confirm islanders (Mesa/Abe) wave, Tetra dialogue, ship deck with HUD.
+- 9pxld4 beach_replay still SUCCESS. Clean 63-patch reproduction matches the
+  whole local tww tree; stamp updated.
+- Still skipped on sea/44: actors 319,321,322,333,334 (creation not
+  decompiled). Next: continue on A_umikz (Niko/ship tasks); a continuous
+  menu-to-ship run is not verified.

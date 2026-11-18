@@ -1,4 +1,5 @@
-# Diagnostic departure replay; expected-blocker mode verifies failure handling, not story completion.
+# Departure replay from actual earned shield state: verifies departure.stb plays to its end,
+# grants EventFlag 0x2401 and hands control back on the pirate ship (A_umikz).
 set pagination off
 set confirm off
 set print static-members off
@@ -10,7 +11,7 @@ assert os.environ.get('TWW_DEPARTURE_CHECKPOINT'), 'Supply actual earned shield 
 keys=int(gdb.parse_and_eval("&'(anonymous namespace)::g_key'"))
 class Resume(gdb.Breakpoint):
  def __init__(self):
-  super().__init__('daPy_lk_c::execute',internal=True);self.age=0;self.last=None
+  super().__init__('daPy_lk_c::execute',internal=True);self.age=0;self.last=None;self.maxframe=0;self.ended=False;self.calm=0
  def stop(self):
   self.age+=1
   try:p=gdb.parse_and_eval('this')
@@ -23,6 +24,7 @@ class Resume(gdb.Breakpoint):
    gdb.selected_inferior().write_memory(req,struct.pack('<8shbbbb',b'sea',205,44,10,1,0))
    print('[departure] actual earned shield state restored; replay of native Tetra destination sea205/44/10')
   demo=int(p['mDemo']['mDemoType'])
+  # Advance the cinematic's dialogue with A only while a demo is running.
   gdb.selected_inferior().write_memory(keys+44,bytes([self.age>180 and demo and 70<=self.age%120<95]))
   stage=gdb.parse_and_eval('g_dComIfG_gameInfo.play.mCurStage.mName').string()
   cam=gdb.parse_and_eval('((camera_process_class*)g_dComIfG_gameInfo.play.mCameraInfo[0].mpCamera)->mCamera')
@@ -31,23 +33,28 @@ class Resume(gdb.Breakpoint):
   if staff>=0 and int(events['mStaffP']):
    ci=int(events['mStaffP'][staff]['mCurCutIdx'])
    if ci>=0:cut=events['mCutP'][ci]['mName'].string()
-  state=(stage,demo,cut,int(gdb.parse_and_eval('g_dComIfG_gameInfo.play.mEvtCtrl.mEventId')))
+  event=int(gdb.parse_and_eval('g_dComIfG_gameInfo.play.mEvtCtrl.mEventId'))
+  dm=gdb.parse_and_eval('g_dComIfG_gameInfo.play.mDemo')
+  frame=int(dm['mFrame']);mode=int(dm['mMode'])
+  if stage=='sea' and event==115:
+   self.maxframe=max(self.maxframe,frame)
+   if mode==2:self.ended=True
+  state=(stage,demo,cut,event)
   if state!=self.last:
    print('[departure] stage/demo/camera/event=%s'%(state,));self.last=state
-  if self.age>240 and self.age%30==0 and os.environ.get('TWW_DEPARTURE_EXPECT_BLOCKER')=='1':
-   for i in range(int(events['mHeaderP']['staffNum'])):
-    row=events['mStaffP'][i]
-    if row['mName'].string()!='PACKAGE' or int(row['mWipeDirection'])!=-1:continue
-    after=int(gdb.parse_and_eval('g_dComIfG_gameInfo.save.mSavedata.mEvent.mFlags[0x24]'))&1
-    assert not after,'failed departure incorrectly granted EventFlag'
-    cut=events['mCutP'][int(row['mCurCutIdx'])];flag=int(cut['mFlagIdx'])
-    flags=gdb.parse_and_eval('g_dComIfG_gameInfo.play.mEvtManager.mFlag.mFlag')
-    assert not(int(flags[flag//32])&(1<<(flag%32))),'failed package cut marked done'
-    assert state[3]==115 and demo,'departure event did not remain pending'
-    print('[departure] EXPECTED BLOCKER VERIFIED: departure starts, package pending, EventFlag unchanged; cinematic/embarkation NOT completed')
-    gdb.set_convenience_variable('tww_probe_success',1);return True
   if self.age%120==0:
-   print('[departure] age=%d pos=%s ready=%s/%s/%s'%(self.age,tuple(float(p['current']['pos'][a]) for a in ('x','y','z')),cam['m100'],cam['m101'],cam['m102']))
+   print('[departure] age=%d pos=%s package frame=%d (no message %d) mode=%d'%(self.age,tuple(float(p['current']['pos'][a]) for a in ('x','y','z')),frame,int(dm['mFrameNoMsg']),mode))
+  if stage=='A_umikz' and event==-1 and not demo and mode==0:
+   self.calm+=1
+  else:
+   self.calm=0
+  if self.calm==60:
+   flag=int(gdb.parse_and_eval('g_dComIfG_gameInfo.save.mSavedata.mEvent.mFlags[0x24]'))&1
+   assert self.ended,'departure package never reached its end'
+   assert self.maxframe>2000,'departure package stopped early at frame %d'%self.maxframe
+   assert flag,'departure EventFlag 0x2401 not granted'
+   print('[departure] DEPARTURE VERIFIED: departure.stb played to frame %d, EventFlag 0x2401 set, A_umikz reached with no event or demo for 60 frames; Link at %s'%(self.maxframe,tuple(float(p['current']['pos'][a]) for a in ('x','y','z'))))
+   gdb.set_convenience_variable('tww_probe_success',1);return True
   return False
 Resume()
 end

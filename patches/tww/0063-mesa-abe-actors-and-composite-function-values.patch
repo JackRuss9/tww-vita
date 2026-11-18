@@ -1,0 +1,2034 @@
+Reason: the pirate departure (departure.stb) binds JACT blocks for Ym1 (Mesa) and Ym2 (Abe), whose d_a_npc_ym1.cpp was undecompiled, so the package failed to parse. Functional reconstruction of the whole actor from the GZLE01 REL assembly (types, heaps, head/backbone callbacks, blink, talk/messages, Mesa's grass cutting, Abe's sit/look, demo hooks), following the Aryll (ls1) family. With the actors present, playback crashed in JStudio composite function values: pfn_ stores a (container, data, value) function behind a (value, container, data) alias, harmless on PowerPC register passing but wrong on the x86 stack; call it with its real signature on PC.
+
+--- a/include/d/actor/d_a_npc_ym1.h
++++ b/include/d/actor/d_a_npc_ym1.h
+@@ -1,147 +1,203 @@
+ #ifndef D_A_NPC_YM1_H
+ #define D_A_NPC_YM1_H
+ 
++#include "d/d_npc.h"
+ #include "f_op/f_op_actor.h"
+ #include "d/d_cc_d.h"
+ #include "m_Do/m_Do_ext.h"
++#include "m_Do/m_Do_hostIO.h"
+ #include "SSystem/SComponent/c_phase.h"
+ 
+-class daNpc_Ym1_c : public fopAc_ac_c {
++class J3DNode;
++
++class daNpc_Ym1_c : public fopNpc_npc_c {
+ public:
++    typedef BOOL (daNpc_Ym1_c::*ProcFunc)(void*);
++
+     struct anm_prm_c {
+-        
+-    };
++        /* 0x00 */ s8 bckNum;
++        /* 0x01 */ s8 btpNum;
++        /* 0x04 */ f32 morf;
++        /* 0x08 */ f32 speed;
++        /* 0x0C */ int loopMode;
++    };  // Size: 0x10
+ 
+-    void setKariFlg();
++    daNpc_Ym1_c() {}
++
++    void setKariFlg() { mKariFlg = 1; }
+     void _nodeCB_Head(J3DNode*, J3DModel*);
+     void _nodeCB_BackBone(J3DNode*, J3DModel*);
+-    void init_YM1_0();
+-    void init_YM1_1();
+-    void init_YM2_0();
+-    void init_YM2_1();
+-    void init_YM2_2();
+-    void init_YM2_3();
+-    void init_YMx_error();
+-    void createInit();
++    bool init_YM1_0();
++    bool init_YM1_1();
++    bool init_YM2_0();
++    bool init_YM2_1();
++    bool init_YM2_2();
++    bool init_YM2_3();
++    bool init_YMx_error();
++    bool createInit();
+     void play_animation();
+     void setMtx(bool);
+-    void bckResID(int);
+-    void btpResID(int);
+-    void init_texPttrnAnm(signed char, bool);
++    int bckResID(int);
++    int btpResID(int);
++    bool init_texPttrnAnm(s8, bool);
+     void play_texPttrnAnm();
+     void setAnm_anm(anm_prm_c*);
+     void setAnm_NUM(int, int);
+     void setAnm();
+     void chngAnmTag();
+     void ctrlAnmTag();
+-    void chngAnmAtr(unsigned char);
++    void chngAnmAtr(u8);
+     void ctrlAnmAtr();
+     void setAnm_ATR();
+-    void anmAtr(unsigned short);
+-    void next_msgStatus(unsigned long*);
+-    void getMsg_YM1_0();
+-    void getMsg_YM1_1();
+-    void getMsg_YM2_0();
+-    void getMsg_YM2_1();
+-    void getMsg_YM2_2();
+-    void getMsg_YM2_3();
+-    void getMsg();
++    void anmAtr(u16);
++    u16 next_msgStatus(u32*);
++    u32 getMsg_YM1_0();
++    u32 getMsg_YM1_1();
++    u32 getMsg_YM2_0();
++    u32 getMsg_YM2_1();
++    u32 getMsg_YM2_2();
++    u32 getMsg_YM2_3();
++    u32 getMsg();
+     void eventOrder();
+     void checkOrder();
+     void set_collision_sp();
+     void set_cutGrass();
+-    void chk_BlackPig();
+-    void chk_nbt_attn();
+-    void chk_talk();
+-    void chk_parts_notMov();
++    bool chk_BlackPig();
++    bool chk_nbt_attn();
++    bool chk_talk();
++    bool chk_parts_notMov();
+     void lookBack();
+-    void chkAttention();
++    bool chkAttention();
+     void setAttention(bool);
+-    void decideType(int);
++    bool decideType(int);
+     void privateCut(int);
+     void endEvent();
+-    void isEventEntry();
++    int isEventEntry();
+     void event_proc(int);
+-    void set_action(int (daNpc_Ym1_c::*)(void*), void*);
+-    void setStt(signed char);
+-    void chk_areaIN(float, cXyz);
+-    void kari_1();
+-    void wait_1();
+-    void wait_2();
+-    void talk_1();
+-    void turn_1();
+-    void NBTwai();
+-    void SITwai();
+-    void wait_action1(void*);
+-    void wait_action2(void*);
+-    void wait_action3(void*);
+-    void wait_action4(void*);
+-    void demo_action1(void*);
+-    void demo();
++    BOOL set_action(ProcFunc, void*);
++    void setStt(s8);
++    bool chk_areaIN(f32, cXyz);
++    BOOL kari_1();
++    BOOL wait_1();
++    BOOL wait_2();
++    BOOL talk_1();
++    BOOL turn_1();
++    BOOL NBTwai();
++    BOOL SITwai();
++    BOOL wait_action1(void*);
++    BOOL wait_action2(void*);
++    BOOL wait_action3(void*);
++    BOOL wait_action4(void*);
++    BOOL demo_action1(void*);
++    bool demo();
+     void shadowDraw();
+     BOOL _draw();
+     BOOL _execute();
+     BOOL _delete();
+     cPhs_State _create();
+-    void bodyCreateHeap();
+-    void headCreateHeap();
+-    void itemCreateHeap();
+-    void CreateHeap();
++    BOOL bodyCreateHeap();
++    BOOL headCreateHeap();
++    BOOL itemCreateHeap();
++    BOOL CreateHeap();
+ 
+ public:
+     /* 0x6C4 */ request_of_phase_process_class mPhs;
+-    /* 0x6CC */ s8 mHeadJointIdx;
+-    /* 0x6CD */ s8 mBboneJointIdx;
+-    /* 0x6CE */ s8 mHandLJointIndex;
+-    /* 0x6CF */ s8 mHandRJointIndex;
+-    /* 0x6D0 */ J3DModel* m6D0;
++    /* 0x6CC */ s8 m_hed_jnt_num;
++    /* 0x6CD */ s8 m_bbone_jnt_num;
++    /* 0x6CE */ s8 m_hnd_L_jnt_num;
++    /* 0x6CF */ s8 m_hnd_R_jnt_num;
++    /* 0x6D0 */ J3DModel* mpItemModel;
+     /* 0x6D4 */ char mArcName[4];
+-    /* 0x6D8 */ u8 m6D8[0x6DC - 0x6D8];
++    /* 0x6D8 */ u32 mShadowId;
+     /* 0x6DC */ J3DModel* mpHeadModel;
+     /* 0x6E0 */ mDoExt_btpAnm mBtpAnm;
+-    /* 0x6F4 */ u8 m6F4[0x704 - 0x6F4];
+-    /* 0x704 */ dCcD_Cyl mCyl;
+-    /* 0x834 */ u8 m834[0x842 - 0x834];
+-    /* 0x842 */ s16 mRotYTarget;
+-    /* 0x844 */ u8 m844[0x846 - 0x844];
+-    /* 0x846 */ csXyz m846;
+-    /* 0x84C */ u8 m84C[0x890 - 0x84C];
+-    /* 0x890 */ s16 mKariTimer;
+-    /* 0x892 */ u8 m892[0x89B - 0x892];
+-    /* 0x89B */ u8 mKariFlag;
+-    /* 0x89C */ u8 m89C;
+-    /* 0x89D */ u8 m89D;
+-    /* 0x89E */ u8 m89E;
+-    /* 0x89F */ u8 m89F[0x8A0 - 0x89F];
+-    /* 0x8A0 */ u8 m8A0;
+-    /* 0x8A1 */ u8 m8A1[0x8A4 - 0x8A1];
+-    /* 0x8A4 */ u8 m8A4;
+-    /* 0x8A5 */ u8 m8A5;
+-    /* 0x8A6 */ u8 m8A6[0x8AB - 0x8A6];
+-    /* 0x8AB */ u8 m8AB;
+-    /* 0x8AC */ u8 m8AC[0x8AD - 0x8AC];
+-    /* 0x8AD */ u8 m8AD;
+-    /* 0x8AE */ u8 m8AE[0x8AF - 0x8AE];
+-    /* 0x8AF */ u8 m8AF;
++    /* 0x6F4 */ u8 mBtpFrame;
++    /* 0x6F6 */ s16 mBlinkTimer;
++    /* 0x6F8 */ ProcFunc mCurrProc;
++    /* 0x704 */ dCcD_Cyl mKariCyl;
++    /* 0x834 */ cXyz mHomePos;
++    /* 0x840 */ csXyz mHomeAngle;
++    /* 0x846 */ csXyz mAngle;
++    /* 0x84C */ cXyz mEyePos;
++    /* 0x858 */ cXyz mPlayerEyePos;
++    /* 0x864 */ cXyz mNbtAttnPos;
++    /* 0x870 */ cXyz mHeadPos;
++    /* 0x87C */ f32 mPrevMorfFrame;
++    /* 0x880 */ s16 mPrevAngleY;
++    /* 0x882 */ s16 mPrevHeadY;
++    /* 0x884 */ s16 mPrevBackboneY;
++    /* 0x888 */ BOOL mbSetEyePos;
++    /* 0x88C */ u8 m88C[0x88E - 0x88C];
++    /* 0x88E */ s16 mTimer1;
++    /* 0x890 */ s16 mTimer2;
++    /* 0x892 */ u8 m892[0x896 - 0x892];
++    /* 0x896 */ s16 mLookTargetY;
++    /* 0x898 */ s8 mbAnmEnd;
++    /* 0x899 */ u8 m899;
++    /* 0x89A */ u8 mItemNo;
++    /* 0x89B */ u8 mKariFlg;
++    /* 0x89C */ u8 mKariFlgPrev;
++    /* 0x89D */ u8 mbResLoaded;
++    /* 0x89E */ u8 mbHide;
++    /* 0x89F */ u8 mbKeepShapeAngle;
++    /* 0x8A0 */ u8 mbNoDraw;
++    /* 0x8A1 */ u8 mbHomeSet;
++    /* 0x8A2 */ u8 mbAttention;
++    /* 0x8A3 */ u8 mbTalk;
++    /* 0x8A4 */ u8 mbLookTrn;
++    /* 0x8A5 */ u8 mbTurnHome;
++    /* 0x8A6 */ u8 mbDemo;
++    /* 0x8A7 */ s8 mActIdx;
++    /* 0x8A8 */ u8 mAnmAtr;
++    /* 0x8A9 */ u8 mMesgAnimeTag;
++    /* 0x8AA */ s8 mBtpNum;
++    /* 0x8AB */ s8 mBckNum;
++    /* 0x8AC */ s8 mOrder;
++    /* 0x8AD */ s8 mStt;
++    /* 0x8AE */ s8 mPrevStt;
++    /* 0x8AF */ s8 mLookMode;
+     /* 0x8B0 */ s8 mSubType;
+-    /* 0x8B1 */ s8 mStaff;
+-    /* 0x8B2 */ u8 m8B2[0x8B4 - 0x8B2];
+-};
+-
+-class daNpc_Ym1_childHIO_c {
+-public:
+-    daNpc_Ym1_childHIO_c();
+-
+-public:
+-    /* Place member variables here */
+-};
++    /* 0x8B1 */ s8 mType;
++    /* 0x8B2 */ s8 mActionStep;
++    /* 0x8B3 */ s8 mAtrCnt;
++};  // Size: 0x8B4
++
++class daNpc_Ym1_childHIO_c : public mDoHIO_entry_c {
++public:
++    struct hio_prm_c {
++        /* 0x00 */ s16 mMaxHeadX;
++        /* 0x02 */ s16 mMaxHeadY;
++        /* 0x04 */ s16 mMinHeadX;
++        /* 0x06 */ s16 mMinHeadY;
++        /* 0x08 */ s16 mMaxBackBoneX;
++        /* 0x0A */ s16 mMaxBackBoneY;
++        /* 0x0C */ s16 mMinBackBoneX;
++        /* 0x0E */ s16 mMinBackBoneY;
++        /* 0x10 */ s16 mMaxTurnStep;
++        /* 0x12 */ s16 mMaxHeadTurnVel;
++        /* 0x14 */ f32 mAttnOffsetY;
++        /* 0x18 */ u8 mDebug;
++        /* 0x1C */ f32 mKariAreaR;
++        /* 0x20 */ f32 mMorf;
++    };  // Size: 0x24
++
++    daNpc_Ym1_childHIO_c() {}
++    virtual ~daNpc_Ym1_childHIO_c() {}
++
++public:
++    /* 0x04 */ hio_prm_c mPrm;
++    /* 0x28 */ int mNo;
++};  // Size: 0x2C
+ 
+-class daNpc_Ym1_HIO_c {
++class daNpc_Ym1_HIO_c : public mDoHIO_entry_c {
+ public:
+     daNpc_Ym1_HIO_c();
++    virtual ~daNpc_Ym1_HIO_c() {}
+ 
+ public:
+-    /* Place member variables here */
+-};
++    /* 0x04 */ s8 m04;
++    /* 0x08 */ s32 m08;
++    /* 0x0C */ daNpc_Ym1_childHIO_c mChild[2];
++};  // Size: 0x64
+ 
+ #endif /* D_A_NPC_YM1_H */
+--- a/src/d/actor/d_a_npc_ym1.cpp
++++ b/src/d/actor/d_a_npc_ym1.cpp
+@@ -5,417 +5,1549 @@
+ 
+ #include "d/dolzel_rel.h" // IWYU pragma: keep
+ #include "d/actor/d_a_npc_ym1.h"
++#include "d/d_com_inf_game.h"
++#include "d/d_kankyo.h"
++#include "d/d_snap.h"
++#include "d/d_demo.h"
++#include "f_op/f_op_actor_mng.h"
++#include "m_Do/m_Do_mtx.h"
++#include "SSystem/SComponent/c_counter.h"
++
++// Functional reconstruction from the GZLE01 d_a_npc_ym1.rel assembly. Ym1
++// (Mesa) and Ym2 (Abe) share this actor; the pirate departure cinematic
++// needs both to exist so JStudio can bind their JACT blocks.
+ 
+-/* 000000EC-00000108       .text __ct__20daNpc_Ym1_childHIO_cFv */
+-daNpc_Ym1_childHIO_c::daNpc_Ym1_childHIO_c() {
+-    /* Nonmatching */
++static daNpc_Ym1_HIO_c l_HIO;
++
++static inline daNpc_Ym1_childHIO_c::hio_prm_c& prm(s8 sub) {
++    return l_HIO.mChild[sub - 1].mPrm;
+ }
+ 
+ /* 00000150-0000020C       .text __ct__15daNpc_Ym1_HIO_cFv */
+ daNpc_Ym1_HIO_c::daNpc_Ym1_HIO_c() {
+-    /* Nonmatching */
++    static daNpc_Ym1_childHIO_c::hio_prm_c a_prm_tbl[2] = {
++        {
++            /* mMaxHeadX       */ 0x2000,
++            /* mMaxHeadY       */ 0x1F40,
++            /* mMinHeadX       */ -0x2000,
++            /* mMinHeadY       */ -0x1F40,
++            /* mMaxBackBoneX   */ 0x0000,
++            /* mMaxBackBoneY   */ 0x1C70,
++            /* mMinBackBoneX   */ 0x0000,
++            /* mMinBackBoneY   */ -0x1C70,
++            /* mMaxTurnStep    */ 0x0640,
++            /* mMaxHeadTurnVel */ 0x04B0,
++            /* mAttnOffsetY    */ 190.0f,
++            /* mDebug          */ 0,
++            /* mKariAreaR      */ 400.0f,
++            /* mMorf           */ 14.0f,
++        },
++        {
++            /* mMaxHeadX       */ 0x2000,
++            /* mMaxHeadY       */ 0x1F40,
++            /* mMinHeadX       */ -0x2000,
++            /* mMinHeadY       */ -0x1F40,
++            /* mMaxBackBoneX   */ 0x0000,
++            /* mMaxBackBoneY   */ 0x1B58,
++            /* mMinBackBoneX   */ 0x0000,
++            /* mMinBackBoneY   */ -0x1B58,
++            /* mMaxTurnStep    */ 0x0640,
++            /* mMaxHeadTurnVel */ 0x04B0,
++            /* mAttnOffsetY    */ 190.0f,
++            /* mDebug          */ 0,
++            /* mKariAreaR      */ 0.0f,
++            /* mMorf           */ 0.0f,
++        },
++    };
++
++    for (int i = 0; i < 2; i++) {
++        mChild[i].mNo = i;
++        memcpy(&mChild[i].mPrm, &a_prm_tbl[i], sizeof(daNpc_Ym1_childHIO_c::hio_prm_c));
++    }
++    m04 = -1;
++    m08 = -1;
+ }
+ 
+ /* 00000268-00000290       .text area_check__FP10fopAc_ac_cP4cXyzUl */
+-void area_check(fopAc_ac_c*, cXyz*, unsigned long) {
+-    /* Nonmatching */
+-}
+-
+-/* 00000290-0000029C       .text setKariFlg__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::setKariFlg() {
+-    /* Nonmatching */
++static void area_check(fopAc_ac_c* i_this, cXyz*, u32 i_flag) {
++    if (i_flag == 0) {
++        ((daNpc_Ym1_c*)i_this)->setKariFlg();
++    }
+ }
+ 
+ /* 0000029C-000002E8       .text nodeCB_Head__FP7J3DNodei */
+-static BOOL nodeCB_Head(J3DNode*, int) {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++static BOOL nodeCB_Head(J3DNode* i_node, int i_calcTiming) {
++    if (i_calcTiming == J3DNodeCBCalcTiming_In && j3dSys.getModel()->getUserArea() != 0) {
++        daNpc_Ym1_c* actor_p = (daNpc_Ym1_c*)j3dSys.getModel()->getUserArea();
++        actor_p->_nodeCB_Head(i_node, j3dSys.getModel());
++    }
++    return TRUE;
+ }
+ 
+ /* 000002E8-00000400       .text _nodeCB_Head__11daNpc_Ym1_cFP7J3DNodeP8J3DModel */
+-void daNpc_Ym1_c::_nodeCB_Head(J3DNode*, J3DModel*) {
+-    /* Nonmatching */
++void daNpc_Ym1_c::_nodeCB_Head(J3DNode* i_node, J3DModel* i_model) {
++    static cXyz a_eye_pos_off(26.0f, -25.0f, 0.0f);
++
++    J3DJoint* jnt_p = (J3DJoint*)i_node;
++    s32 jnt_no = jnt_p->getJntNo();
++
++    mDoMtx_stack_c::copy(i_model->getAnmMtx(jnt_no));
++    mHeadPos.x = mDoMtx_stack_c::get()[0][3];
++    mHeadPos.y = mDoMtx_stack_c::get()[1][3];
++    mHeadPos.z = mDoMtx_stack_c::get()[2][3];
++
++    mDoMtx_stack_c::XrotM(m_jnt.getHead_y());
++    mDoMtx_stack_c::ZrotM(m_jnt.getHead_x());
++    mDoMtx_stack_c::multVec(&a_eye_pos_off, &mEyePos);
++
++    mDoMtx_copy(mDoMtx_stack_c::get(), J3DSys::mCurrentMtx);
++    i_model->setAnmMtx(jnt_no, mDoMtx_stack_c::get());
+ }
+ 
+ /* 0000043C-00000488       .text nodeCB_BackBone__FP7J3DNodei */
+-static BOOL nodeCB_BackBone(J3DNode*, int) {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++static BOOL nodeCB_BackBone(J3DNode* i_node, int i_calcTiming) {
++    if (i_calcTiming == J3DNodeCBCalcTiming_In && j3dSys.getModel()->getUserArea() != 0) {
++        daNpc_Ym1_c* actor_p = (daNpc_Ym1_c*)j3dSys.getModel()->getUserArea();
++        actor_p->_nodeCB_BackBone(i_node, j3dSys.getModel());
++    }
++    return TRUE;
+ }
+ 
+ /* 00000488-00000520       .text _nodeCB_BackBone__11daNpc_Ym1_cFP7J3DNodeP8J3DModel */
+-void daNpc_Ym1_c::_nodeCB_BackBone(J3DNode*, J3DModel*) {
+-    /* Nonmatching */
++void daNpc_Ym1_c::_nodeCB_BackBone(J3DNode* i_node, J3DModel* i_model) {
++    J3DJoint* jnt_p = (J3DJoint*)i_node;
++    s32 jnt_no = jnt_p->getJntNo();
++
++    mDoMtx_stack_c::copy(i_model->getAnmMtx(jnt_no));
++    mDoMtx_stack_c::XrotM(m_jnt.getBackbone_y());
++    mDoMtx_stack_c::ZrotM(m_jnt.getBackbone_x());
++
++    mDoMtx_copy(mDoMtx_stack_c::get(), J3DSys::mCurrentMtx);
++    i_model->setAnmMtx(jnt_no, mDoMtx_stack_c::get());
+ }
+ 
+ /* 00000520-00000540       .text CheckCreateHeap__FP10fopAc_ac_c */
+-static BOOL CheckCreateHeap(fopAc_ac_c*) {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++static BOOL CheckCreateHeap(fopAc_ac_c* i_this) {
++    return ((daNpc_Ym1_c*)i_this)->CreateHeap();
+ }
+ 
+ /* 00000540-000005C0       .text init_YM1_0__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::init_YM1_0() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::init_YM1_0() {
++    if (dComIfGs_isEventBit(0x0520)) {
++        return false;
++    }
++    set_action(&daNpc_Ym1_c::wait_action1, NULL);
++    return true;
+ }
+ 
+ /* 000005C0-00000640       .text init_YM1_1__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::init_YM1_1() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::init_YM1_1() {
++    if (!dComIfGs_isEventBit(0x0520)) {
++        return false;
++    }
++    set_action(&daNpc_Ym1_c::wait_action4, NULL);
++    return true;
+ }
+ 
+ /* 00000640-000006E0       .text init_YM2_0__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::init_YM2_0() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::init_YM2_0() {
++    if (dComIfGs_isEventBit(0x0520) || dComIfGs_isEventBit(0x0E20)) {
++        return false;
++    }
++    set_action(&daNpc_Ym1_c::wait_action3, NULL);
++    return true;
+ }
+ 
+ /* 000006E0-00000780       .text init_YM2_1__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::init_YM2_1() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::init_YM2_1() {
++    if (dComIfGs_isEventBit(0x0520) || !dComIfGs_isEventBit(0x0E20)) {
++        return false;
++    }
++    set_action(&daNpc_Ym1_c::wait_action2, NULL);
++    return true;
+ }
+ 
+ /* 00000780-0000080C       .text init_YM2_2__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::init_YM2_2() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::init_YM2_2() {
++    if (!dComIfGs_isEventBit(0x0520) || dKy_daynight_check() != 0) {
++        return false;
++    }
++    set_action(&daNpc_Ym1_c::wait_action2, NULL);
++    return true;
+ }
+ 
+ /* 0000080C-00000898       .text init_YM2_3__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::init_YM2_3() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::init_YM2_3() {
++    if (!dComIfGs_isEventBit(0x0520) || dKy_daynight_check() != 1) {
++        return false;
++    }
++    set_action(&daNpc_Ym1_c::wait_action2, NULL);
++    return true;
+ }
+ 
+ /* 00000898-000008E4       .text init_YMx_error__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::init_YMx_error() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::init_YMx_error() {
++    set_action(&daNpc_Ym1_c::demo_action1, NULL);
++    return true;
+ }
+ 
+ /* 000008E4-00000B98       .text createInit__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::createInit() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::createInit() {
++    static const u8 a_att_dis_TBL[3][2] = {
++        {0x00, 0x00},
++        {0xAA, 0xAA},
++        {0xAA, 0xAA},
++    };
++    static char* a_staff_tbl[8] = {
++        "Ym1", "Ym1", "Ym2", "Ym2", "Ym2", "Ym2", "Ym1", "Ym2",
++    };
++
++    mEventCut.setActorInfo2(a_staff_tbl[mType], this);
++    attention_info.flags = fopAc_Attn_LOCKON_TALK_e | fopAc_Attn_ACTION_SPEAK_e;
++    attention_info.distances[fopAc_Attn_TYPE_TALK_e] = a_att_dis_TBL[mSubType][0];
++    attention_info.distances[fopAc_Attn_TYPE_SPEAK_e] = a_att_dis_TBL[mSubType][1];
++    mBckNum = 13;
++
++    bool init_result;
++    switch (mType) {
++    case 0:
++        init_result = init_YM1_0();
++        break;
++    case 1:
++        init_result = init_YM1_1();
++        break;
++    case 2:
++        init_result = init_YM2_0();
++        break;
++    case 3:
++        init_result = init_YM2_1();
++        break;
++    case 4:
++        init_result = init_YM2_2();
++        break;
++    case 5:
++        init_result = init_YM2_3();
++        break;
++    case 6:
++    case 7:
++        init_result = init_YMx_error();
++        break;
++    default:
++        init_result = false;
++        break;
++    }
++
++    if (!init_result) {
++        return false;
++    }
++
++    mAngle = current.angle;
++    shape_angle = mAngle;
++    gravity = -4.5f;
++
++    mStts.Init(0xFF, 0xFF, this);
++    mCyl.SetStts(&mStts);
++    mCyl.Set(dNpc_cyl_src);
++
++    if (mType == 0) {
++        cXyz offset(0.0f, 0.0f, 80.0f);
++        cXyz center;
++        mKariCyl.SetStts(&mStts);
++        mKariCyl.Set(dNpc_cyl_src);
++        mDoMtx_stack_c::transS(current.pos);
++        mDoMtx_stack_c::YrotM(current.angle.y);
++        mDoMtx_stack_c::multVec(&offset, &center);
++        mKariCyl.SetC(center);
++        mKariCyl.SetR(50.0f);
++        mKariCyl.SetH(30.0f);
++        dComIfG_Ccsp()->SetMass(&mKariCyl, 3);
++    }
++
++    play_animation();
++
++    if (mType != 1) {
++        mObjAcch.CrrPos(*dComIfG_Bgsp());
++    }
++
++    tevStr.mRoomNo = dComIfG_Bgsp()->GetRoomId(mObjAcch.m_gnd);
++    tevStr.mEnvrIdxOverride = dComIfG_Bgsp()->GetPolyColor(mObjAcch.m_gnd);
++    mpMorf->setMorf(0.0f);
++    setMtx(true);
++    return true;
+ }
+ 
+ /* 00000B98-00000C04       .text play_animation__11daNpc_Ym1_cFv */
+ void daNpc_Ym1_c::play_animation() {
+-    /* Nonmatching */
++    play_texPttrnAnm();
++    mbAnmEnd = mpMorf->play(&eyePos, 0, 0);
++    if (mpMorf->getFrame() < mPrevMorfFrame) {
++        mbAnmEnd = true;
++    }
++    mPrevMorfFrame = mpMorf->getFrame();
+ }
+ 
+ /* 00000C04-00000D34       .text setMtx__11daNpc_Ym1_cFb */
+-void daNpc_Ym1_c::setMtx(bool) {
+-    /* Nonmatching */
++void daNpc_Ym1_c::setMtx(bool i_setEyePos) {
++    J3DModel* model = mpMorf->getModel();
++    model->setBaseScale(scale);
++    mDoMtx_stack_c::transS(current.pos);
++    mDoMtx_stack_c::ZXYrotM(mAngle);
++    model->setBaseTRMtx(mDoMtx_stack_c::get());
++    mpMorf->calc();
++
++    mpHeadModel->setBaseTRMtx(mpMorf->getModel()->getAnmMtx(m_hed_jnt_num));
++    mpHeadModel->calc();
++
++    if (mpItemModel) {
++        mpItemModel->setBaseTRMtx(mpMorf->getModel()->getAnmMtx(m_hnd_R_jnt_num));
++        mpItemModel->calc();
++    }
++
++    setAttention(i_setEyePos);
+ }
+ 
+ /* 00000D34-00000D48       .text bckResID__11daNpc_Ym1_cFi */
+-void daNpc_Ym1_c::bckResID(int) {
+-    /* Nonmatching */
++int daNpc_Ym1_c::bckResID(int i_bckNum) {
++    static const int a_res_id_tbl[] = {
++        0x00, 0x01, 0x02, 0x05, 0x03, 0x08, 0x06, 0x07, 0x04, 0x13, 0x10, 0x11, 0x12,
++    };
++    return a_res_id_tbl[i_bckNum];
+ }
+ 
+ /* 00000D48-00000D98       .text btpResID__11daNpc_Ym1_cFi */
+-void daNpc_Ym1_c::btpResID(int) {
+-    /* Nonmatching */
++int daNpc_Ym1_c::btpResID(int i_btpNum) {
++    static const int a_res_id_tbl[] = {
++        0x0E,
++    };
++    int res_id = a_res_id_tbl[i_btpNum];
++    if (res_id == 0x0E) {
++        switch (mSubType) {
++        case 1:
++            return 0x0E;
++        case 2:
++            return 0x0F;
++        }
++    }
++    return res_id;
+ }
+ 
+ /* 00000D98-00000E98       .text init_texPttrnAnm__11daNpc_Ym1_cFScb */
+-void daNpc_Ym1_c::init_texPttrnAnm(signed char, bool) {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::init_texPttrnAnm(s8 i_btpNum, bool i_bModify) {
++    J3DModel* model = mpHeadModel;
++    if (i_btpNum < 0) {
++        return false;
++    }
++
++    J3DAnmTexPattern* a_btp = (J3DAnmTexPattern*)dComIfG_getObjectIDRes(mArcName, btpResID(i_btpNum));
++    JUT_ASSERT(0x270, a_btp != NULL);
++
++    mBtpNum = i_btpNum;
++    mBtpFrame = 0;
++    mBlinkTimer = 0;
++    return mBtpAnm.init(model->getModelData(), a_btp, TRUE, J3DFrameCtrl::EMode_NONE, 1.0f, 0, -1, i_bModify, 0) != 0;
+ }
+ 
+ /* 00000E98-00000F28       .text play_texPttrnAnm__11daNpc_Ym1_cFv */
+ void daNpc_Ym1_c::play_texPttrnAnm() {
+-    /* Nonmatching */
++    if (mBtpNum != 0 || cLib_calcTimer(&mBlinkTimer) == 0) {
++        mBtpFrame++;
++        s16 frame_max = mBtpAnm.getBtpAnm()->getFrameMax();
++        if (mBtpFrame >= frame_max) {
++            if (mBtpNum != 0) {
++                mBtpFrame = frame_max;
++            } else {
++                mBlinkTimer = cLib_getRndValue(60, 90);
++                mBtpFrame = 0;
++            }
++        }
++    }
+ }
+ 
+ /* 00000F28-00000FF4       .text setAnm_anm__11daNpc_Ym1_cFPQ211daNpc_Ym1_c9anm_prm_c */
+-void daNpc_Ym1_c::setAnm_anm(daNpc_Ym1_c::anm_prm_c*) {
+-    /* Nonmatching */
+-}
++void daNpc_Ym1_c::setAnm_anm(anm_prm_c* i_prm) {
++    if (i_prm->bckNum < 0 || mBckNum == i_prm->bckNum) {
++        return;
++    }
++
++    dNpc_setAnmIDRes(mpMorf, i_prm->loopMode, i_prm->morf, i_prm->speed, bckResID(i_prm->bckNum), -1, mArcName);
++    mBckNum = i_prm->bckNum;
++    mbAnmEnd = 0;
++    m899 = 0;
++    mPrevMorfFrame = 0.0f;
++    if (mBckNum == 8) {
++        mpMorf->setMorf(prm(mSubType).mMorf);
++    }
++}
++
++static daNpc_Ym1_c::anm_prm_c l_anm_num_prm_tbl[13] = {
++    {0x00, 0x00, 8.0f, 1.0f, 2},
++    {0x01, 0x00, 8.0f, 1.0f, 2},
++    {0x02, 0x00, 8.0f, 1.0f, 0},
++    {0x03, 0x00, 8.0f, 1.0f, 2},
++    {0x04, 0x00, 8.0f, 1.0f, 2},
++    {0x05, 0x00, 8.0f, 1.0f, 2},
++    {0x06, 0x00, 8.0f, 1.0f, 0},
++    {0x07, 0x00, 8.0f, 1.0f, 2},
++    {0x08, 0x00, 8.0f, 1.0f, 2},
++    {0x09, 0x00, 8.0f, 1.0f, 2},
++    {0x0A, 0x00, 8.0f, 1.0f, 2},
++    {0x0B, 0x00, 8.0f, 1.0f, 2},
++    {0x0C, 0x00, 8.0f, 1.0f, 2},
++};
+ 
+ /* 00000FF4-00001064       .text setAnm_NUM__11daNpc_Ym1_cFii */
+-void daNpc_Ym1_c::setAnm_NUM(int, int) {
+-    /* Nonmatching */
++void daNpc_Ym1_c::setAnm_NUM(int i_anmNum, int i_setBtp) {
++    if (i_setBtp) {
++        init_texPttrnAnm(l_anm_num_prm_tbl[i_anmNum].btpNum, true);
++    }
++    setAnm_anm(&l_anm_num_prm_tbl[i_anmNum]);
+ }
+ 
+ /* 00001064-000010D0       .text setAnm__11daNpc_Ym1_cFv */
+ void daNpc_Ym1_c::setAnm() {
+-    /* Nonmatching */
++    static anm_prm_c a_anm_prm_tbl[12] = {
++        {-1, -1, 0.0f, 0.0f, -1},
++        {0x01, 0x00, 8.0f, 1.0f, 2},
++        {0x03, 0x00, 8.0f, 1.0f, 2},
++        {0x03, 0x00, 8.0f, 1.0f, 2},
++        {0x03, 0x00, 8.0f, 1.0f, 2},
++        {-1, -1, 0.0f, 0.0f, -1},
++        {0x05, 0x00, 8.0f, 1.0f, 2},
++        {-1, -1, 0.0f, 0.0f, -1},
++        {0x00, 0x00, 8.0f, 1.0f, 2},
++        {-1, -1, 0.0f, 0.0f, -1},
++        {0x09, 0x00, 8.0f, 1.0f, 2},
++        {0x0A, 0x00, 8.0f, 1.0f, 2},
++    };
++    init_texPttrnAnm(a_anm_prm_tbl[mStt].btpNum, true);
++    setAnm_anm(&a_anm_prm_tbl[mStt]);
+ }
+ 
+ /* 000010D0-000010D4       .text chngAnmTag__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::chngAnmTag() {
+-    /* Nonmatching */
+-}
++void daNpc_Ym1_c::chngAnmTag() {}
+ 
+ /* 000010D4-000010D8       .text ctrlAnmTag__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::ctrlAnmTag() {
+-    /* Nonmatching */
+-}
++void daNpc_Ym1_c::ctrlAnmTag() {}
+ 
+ /* 000010D8-00001118       .text chngAnmAtr__11daNpc_Ym1_cFUc */
+-void daNpc_Ym1_c::chngAnmAtr(unsigned char) {
+-    /* Nonmatching */
++void daNpc_Ym1_c::chngAnmAtr(u8 i_atr) {
++    if (i_atr != mAnmAtr && i_atr <= 13) {
++        mAnmAtr = i_atr;
++        setAnm_ATR();
++    }
+ }
+ 
+ /* 00001118-0000111C       .text ctrlAnmAtr__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::ctrlAnmAtr() {
+-    /* Nonmatching */
+-}
++void daNpc_Ym1_c::ctrlAnmAtr() {}
+ 
+ /* 0000111C-00001180       .text setAnm_ATR__11daNpc_Ym1_cFv */
+ void daNpc_Ym1_c::setAnm_ATR() {
+-    /* Nonmatching */
++    // The retail atr table has 13 entries but accepts attribute 13; keep the
++    // read inside the table instead of reproducing that out-of-range access.
++    int idx = mAnmAtr < ARRAY_SIZE(l_anm_num_prm_tbl) ? mAnmAtr : ARRAY_SIZE(l_anm_num_prm_tbl) - 1;
++    init_texPttrnAnm(l_anm_num_prm_tbl[idx].btpNum, true);
++    setAnm_anm(&l_anm_num_prm_tbl[idx]);
+ }
+ 
+ /* 00001180-0000123C       .text anmAtr__11daNpc_Ym1_cFUs */
+-void daNpc_Ym1_c::anmAtr(unsigned short) {
+-    /* Nonmatching */
++void daNpc_Ym1_c::anmAtr(u16 i_msgStatus) {
++    switch (i_msgStatus) {
++    case fopMsgStts_MSG_TYPING_e:
++        if (mAtrCnt == 0) {
++            chngAnmAtr(dComIfGp_getMesgAnimeAttrInfo());
++            mAtrCnt++;
++        }
++        {
++            u8 tag = dComIfGp_getMesgAnimeTagInfo();
++            if (tag != 0xFF && tag != mMesgAnimeTag) {
++                dComIfGp_clearMesgAnimeTagInfo();
++                mMesgAnimeTag = tag;
++                chngAnmTag();
++            }
++        }
++        break;
++    case 14:
++        mAtrCnt = 0;
++        break;
++    }
++    ctrlAnmAtr();
++    ctrlAnmTag();
+ }
+ 
+ /* 0000123C-000014F0       .text next_msgStatus__11daNpc_Ym1_cFPUl */
+-void daNpc_Ym1_c::next_msgStatus(unsigned long*) {
+-    /* Nonmatching */
++u16 daNpc_Ym1_c::next_msgStatus(u32* o_msgNoP) {
++    u16 status = fopMsgStts_MSG_CONTINUES_e;
++    switch (*o_msgNoP) {
++    case 0x8FD:
++        *o_msgNoP = 0x8FE;
++        break;
++    case 0x8FF:
++        *o_msgNoP = 0x900;
++        break;
++    case 0x901:
++        *o_msgNoP = 0x902;
++        break;
++    case 0x90A:
++        *o_msgNoP = 0x90B;
++        break;
++    case 0x904:
++        *o_msgNoP = 0x905;
++        break;
++    case 0x905:
++        *o_msgNoP = 0x906;
++        break;
++    case 0x907:
++        *o_msgNoP = 0x908;
++        break;
++    case 0x908:
++        if (dComIfGs_isEventBit(0x3004)) {
++            status = fopMsgStts_MSG_ENDS_e;
++        } else {
++            *o_msgNoP = 0x909;
++        }
++        break;
++    case 0xA2F:
++        if (dKy_daynight_check() == 1) {
++            *o_msgNoP = 0xA30;
++        } else if (dComIfGs_getEventReg(0xBFFF)) {
++            *o_msgNoP = dComIfGs_isEventBit(0x3402) ? 0xA31 : 0xA33;
++        } else {
++            *o_msgNoP = dComIfGs_isEventBit(0x3402) ? 0xA37 : 0xA35;
++        }
++        break;
++    case 0xA31:
++        *o_msgNoP = 0xA32;
++        break;
++    case 0xA33:
++        *o_msgNoP = 0xA34;
++        break;
++    case 0xA35:
++        *o_msgNoP = 0xA36;
++        break;
++    case 0xA37:
++        *o_msgNoP = 0xA38;
++        break;
++    case 0xA3B:
++        *o_msgNoP = dComIfGs_isEventBit(0x3402) ? 0xA3C : 0xA3D;
++        break;
++    case 0xA3E:
++        *o_msgNoP = dComIfGs_isEventBit(0x3402) ? 0xA40 : 0xA3F;
++        break;
++    case 0xA41:
++        *o_msgNoP = 0xA42;
++        break;
++    default:
++        status = fopMsgStts_MSG_ENDS_e;
++        break;
++    }
++    return status;
+ }
+ 
+ /* 000014F0-00001584       .text getMsg_YM1_0__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::getMsg_YM1_0() {
+-    /* Nonmatching */
++u32 daNpc_Ym1_c::getMsg_YM1_0() {
++    if (dComIfGs_getClearCount()) {
++        return dComIfGs_isEventBit(0x0010) ? 0x903 : 0x901;
++    }
++    if (dComIfGs_isEventBit(0x0020)) {
++        return 0x8FF;
++    }
++    return dComIfGs_isEventBit(0x2A80) ? 0x8FD : 0x90A;
+ }
+ 
+ /* 00001584-000015C4       .text getMsg_YM1_1__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::getMsg_YM1_1() {
+-    /* Nonmatching */
++u32 daNpc_Ym1_c::getMsg_YM1_1() {
++    return dComIfGs_isEventBit(0x2904) ? 0x907 : 0x904;
+ }
+ 
+ /* 000015C4-00001630       .text getMsg_YM2_0__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::getMsg_YM2_0() {
+-    /* Nonmatching */
++u32 daNpc_Ym1_c::getMsg_YM2_0() {
++    if (chk_BlackPig()) {
++        return 0xA2B + (dComIfGs_isEventBit(0x0008) ? 1 : 0);
++    }
++    return 0xA29 + (dComIfGs_isEventBit(0x0080) ? 1 : 0);
+ }
+ 
+ /* 00001630-0000166C       .text getMsg_YM2_1__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::getMsg_YM2_1() {
+-    /* Nonmatching */
++u32 daNpc_Ym1_c::getMsg_YM2_1() {
++    return 0xA2D + (dComIfGs_isEventBit(0x0B01) ? 1 : 0);
+ }
+ 
+ /* 0000166C-00001718       .text getMsg_YM2_2__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::getMsg_YM2_2() {
+-    /* Nonmatching */
++u32 daNpc_Ym1_c::getMsg_YM2_2() {
++    if (!dComIfGs_isEventBit(0x3140)) {
++        return 0xA2F;
++    }
++    if (dKy_daynight_check() == 1) {
++        return 0xA39 + (dComIfGs_isEventBit(0x3402) ? 1 : 0);
++    }
++    if (!dComIfGs_isEventBit(0x3580)) {
++        return 0xA3B;
++    }
++    return dComIfGs_isEventBit(0x3540) ? 0xA41 : 0xA3E;
+ }
+ 
+ /* 00001718-00001738       .text getMsg_YM2_3__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::getMsg_YM2_3() {
+-    /* Nonmatching */
++u32 daNpc_Ym1_c::getMsg_YM2_3() {
++    return getMsg_YM2_2();
+ }
+ 
+ /* 00001738-000017DC       .text getMsg__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::getMsg() {
+-    /* Nonmatching */
++u32 daNpc_Ym1_c::getMsg() {
++    u32 msg = 0;
++    switch (mType) {
++    case 0:
++        msg = getMsg_YM1_0();
++        break;
++    case 1:
++        msg = getMsg_YM1_1();
++        break;
++    case 2:
++        msg = getMsg_YM2_0();
++        break;
++    case 3:
++        msg = getMsg_YM2_1();
++        break;
++    case 4:
++        msg = getMsg_YM2_2();
++        break;
++    case 5:
++        msg = getMsg_YM2_3();
++        break;
++    }
++    return msg;
+ }
+ 
+ /* 000017DC-0000182C       .text eventOrder__11daNpc_Ym1_cFv */
+ void daNpc_Ym1_c::eventOrder() {
+-    /* Nonmatching */
++    if (mOrder == 1 || mOrder == 2) {
++        eventInfo.onCondition(dEvtCnd_CANTALK_e);
++        if (mOrder == 1) {
++            fopAcM_orderSpeakEvent(this);
++        }
++    }
+ }
+ 
+ /* 0000182C-0000186C       .text checkOrder__11daNpc_Ym1_cFv */
+ void daNpc_Ym1_c::checkOrder() {
+-    /* Nonmatching */
++    if (eventInfo.checkCommandDemoAccrpt()) {
++        return;
++    }
++    if (eventInfo.checkCommandTalk() && (mOrder == 1 || mOrder == 2)) {
++        mOrder = 0;
++        mbTalk = 1;
++    }
+ }
+ 
+ /* 0000186C-00001A08       .text set_collision_sp__11daNpc_Ym1_cFv */
+ void daNpc_Ym1_c::set_collision_sp() {
+-    /* Nonmatching */
++    if (mbTalk) {
++        return;
++    }
++
++    cXyz center;
++    f32 radius;
++    f32 height;
++    switch (mBckNum) {
++    case 1: {
++        mDoMtx_stack_c::transS(current.pos);
++        mDoMtx_stack_c::YrotM(current.angle.y);
++        cXyz offset(0.0f, 0.0f, 20.0f);
++        radius = 60.0f;
++        height = 140.0f;
++        mDoMtx_stack_c::multVec(&offset, &center);
++        break;
++    }
++    case 5:
++    case 6:
++    case 7: {
++        mDoMtx_stack_c::transS(current.pos);
++        mDoMtx_stack_c::YrotM(current.angle.y);
++        cXyz offset(0.0f, 0.0f, 60.0f);
++        radius = 80.0f;
++        height = 150.0f;
++        mDoMtx_stack_c::multVec(&offset, &center);
++        break;
++    }
++    default:
++        center = current.pos;
++        radius = 60.0f;
++        height = 180.0f;
++        break;
++    }
++
++    mCyl.SetC(center);
++    mCyl.SetR(radius);
++    mCyl.SetH(height);
++    dComIfG_Ccsp()->Set(&mCyl);
+ }
+ 
+ /* 00001A08-00001B24       .text set_cutGrass__11daNpc_Ym1_cFv */
+ void daNpc_Ym1_c::set_cutGrass() {
+-    /* Nonmatching */
++    if (mbDemo || mBckNum != 1 || !mpMorf->checkFrame(34.0f)) {
++        return;
++    }
++
++    mDoMtx_stack_c::copy(mpMorf->getModel()->getAnmMtx(m_hnd_L_jnt_num));
++    cXyz pos;
++    pos.x = mDoMtx_stack_c::get()[0][3];
++    pos.y = mDoMtx_stack_c::get()[1][3];
++    pos.z = mDoMtx_stack_c::get()[2][3];
++    dComIfGp_particle_setSimple(0x3DA, &pos);
++    mDoAud_seStart(0x5812, &current.pos, 0, dComIfGp_getReverb(fopAcM_GetRoomNo(this)));
+ }
+ 
+ /* 00001B24-00001B5C       .text chk_BlackPig__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::chk_BlackPig() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::chk_BlackPig() {
++    return (dComIfGs_getEventReg(0xBFFF) >> 2) & 1;
+ }
+ 
+ /* 00001B5C-00001B8C       .text chk_nbt_attn__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::chk_nbt_attn() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::chk_nbt_attn() {
++    return mBckNum == 5 || mBckNum == 6 || mBckNum == 7;
+ }
+ 
+ /* 00001B8C-00001C24       .text chk_talk__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::chk_talk() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::chk_talk() {
++    if (dComIfGp_event_chkTalkXY()) {
++        if (dComIfGp_evmng_ChkPresentEnd()) {
++            mItemNo = dComIfGp_event_getPreItemNo();
++            return true;
++        }
++        return false;
++    }
++    mItemNo = 0xFF;
++    return true;
+ }
+ 
+ /* 00001C24-00001C64       .text chk_parts_notMov__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::chk_parts_notMov() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::chk_parts_notMov() {
++    return mPrevHeadY == m_jnt.getHead_y() && mPrevBackboneY == m_jnt.getBackbone_y() &&
++           mPrevAngleY == current.angle.y;
+ }
+ 
+ /* 00001C64-00001DD0       .text lookBack__11daNpc_Ym1_cFv */
+ void daNpc_Ym1_c::lookBack() {
+-    /* Nonmatching */
++    mPrevHeadY = m_jnt.getHead_y();
++    mPrevBackboneY = m_jnt.getBackbone_y();
++    mPrevAngleY = current.angle.y;
++
++    cXyz pos = current.pos;
++    pos.y = eyePos.y;
++    cXyz target(0.0f, 0.0f, 0.0f);
++    cXyz* target_p = NULL;
++    s16 target_y = current.angle.y;
++    bool trn = mbLookTrn;
++
++    switch (mLookMode) {
++    case 1:
++        mPlayerEyePos = dNpc_playerEyePos(-20.0f);
++        target = mPlayerEyePos;
++        target_p = &target;
++        break;
++    case 2:
++        target = mPlayerEyePos;
++        target_p = &target;
++        break;
++    case 3:
++        target_y = mLookTargetY;
++        break;
++    }
++
++    m_jnt.lookAtTarget_2(&current.angle.y, target_p, pos, target_y, prm(mSubType).mMaxHeadTurnVel, trn);
+ }
+ 
+ /* 00001DD0-00001E50       .text chkAttention__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::chkAttention() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::chkAttention() {
++    dAttention_c& attention = dComIfGp_getAttention();
++    if (attention.LockonTruth()) {
++        return this == attention.LockonTarget(0);
++    }
++    return this == attention.ActionTarget(0);
+ }
+ 
+ /* 00001E50-00001F5C       .text setAttention__11daNpc_Ym1_cFb */
+-void daNpc_Ym1_c::setAttention(bool) {
+-    /* Nonmatching */
++void daNpc_Ym1_c::setAttention(bool i_setEyePos) {
++    f32 offset_y = prm(mSubType).mAttnOffsetY;
++    cXyz pos = current.pos;
++    if (chk_nbt_attn()) {
++        if (mBckNum == 6) {
++            offset_y = mHeadPos.y - 210.0f;
++        } else {
++            offset_y = 116.0f;
++        }
++        pos = mNbtAttnPos;
++    }
++    attention_info.position.set(pos.x, pos.y + offset_y, pos.z);
++
++    if (mbSetEyePos || i_setEyePos) {
++        eyePos.set(mEyePos.x, mEyePos.y, mEyePos.z);
++    }
+ }
+ 
+ /* 00001F5C-00002088       .text decideType__11daNpc_Ym1_cFi */
+-void daNpc_Ym1_c::decideType(int) {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::decideType(int i_type) {
++    if (mSubType > 0) {
++        return true;
++    }
++
++    mSubType = -1;
++    mType = -1;
++    switch (fopAcM_GetName(this)) {
++    case fpcNm_NPC_YM1_e:
++        mSubType = 1;
++        switch (i_type) {
++        case 0:
++            mType = 0;
++            break;
++        case 1:
++            mType = 1;
++            break;
++        }
++        break;
++    case fpcNm_NPC_YM2_e:
++        mSubType = 2;
++        switch (i_type) {
++        case 0:
++            mType = 2;
++            break;
++        case 1:
++            mType = 3;
++            break;
++        case 2:
++            mType = 4;
++            break;
++        case 3:
++            mType = 5;
++            break;
++        }
++        break;
++    }
++
++    strcpy(mArcName, "Ym");
++    return mSubType != -1 && mType != -1;
+ }
+ 
+ /* 00002088-00002128       .text privateCut__11daNpc_Ym1_cFi */
+-void daNpc_Ym1_c::privateCut(int) {
+-    /* Nonmatching */
++void daNpc_Ym1_c::privateCut(int i_staffIdx) {
++    static char* a_cut_tbl[] = {
++        "DUMMY",
++    };
++
++    if (i_staffIdx == -1) {
++        return;
++    }
++
++    mActIdx = dComIfGp_evmng_getMyActIdx(i_staffIdx, a_cut_tbl, ARRAY_SSIZE(a_cut_tbl), TRUE, 0);
++    if (mActIdx == -1) {
++        dComIfGp_evmng_cutEnd(i_staffIdx);
++        return;
++    }
++
++    dComIfGp_evmng_getIsAddvance(i_staffIdx);
++    dComIfGp_evmng_cutEnd(i_staffIdx);
+ }
+ 
+ /* 00002128-0000214C       .text endEvent__11daNpc_Ym1_cFv */
+ void daNpc_Ym1_c::endEvent() {
+-    /* Nonmatching */
++    dComIfGp_event_reset();
++    mAnmAtr = 0xFF;
++    mMesgAnimeTag = 0xFF;
+ }
+ 
+ /* 0000214C-00002184       .text isEventEntry__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::isEventEntry() {
+-    /* Nonmatching */
++int daNpc_Ym1_c::isEventEntry() {
++    return dComIfGp_evmng_getMyStaffId(mEventCut.getActorName());
+ }
+ 
+ /* 00002184-000021D4       .text event_proc__11daNpc_Ym1_cFi */
+-void daNpc_Ym1_c::event_proc(int) {
+-    /* Nonmatching */
++void daNpc_Ym1_c::event_proc(int i_staffIdx) {
++    if (!mEventCut.cutProc()) {
++        privateCut(i_staffIdx);
++    }
+ }
+ 
+ /* 000021D4-00002280       .text set_action__11daNpc_Ym1_cFM11daNpc_Ym1_cFPCvPvPv_iPv */
+-void daNpc_Ym1_c::set_action(int (daNpc_Ym1_c::*)(void*), void*) {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::set_action(ProcFunc i_proc, void* i_arg) {
++    if (mCurrProc != i_proc) {
++        if (mCurrProc) {
++            mActionStep = 9;
++            (this->*mCurrProc)(i_arg);
++        }
++        mCurrProc = i_proc;
++        mActionStep = 0;
++        (this->*mCurrProc)(i_arg);
++    }
++    return TRUE;
+ }
+ 
+ /* 00002280-00002324       .text setStt__11daNpc_Ym1_cFSc */
+-void daNpc_Ym1_c::setStt(signed char) {
+-    /* Nonmatching */
++void daNpc_Ym1_c::setStt(s8 i_stt) {
++    s8 prev_stt = mStt;
++    mStt = i_stt;
++    switch (mStt) {
++    case 1:
++    case 2:
++    case 3:
++    case 4:
++    case 8:
++    case 10:
++    case 11:
++        mOrder = 0;
++        break;
++    case 5:
++    case 7:
++    case 9:
++        mOrder = 0;
++        mAnmAtr = 0xFF;
++        mMesgAnimeTag = 0xFF;
++        mAtrCnt = 0;
++        mPrevStt = prev_stt;
++        break;
++    case 6:
++        mOrder = 0;
++        mTimer2 = cLib_getRndValue(90, 180);
++        break;
++    }
++    setAnm();
+ }
+ 
+ /* 00002324-00002448       .text chk_areaIN__11daNpc_Ym1_cFf4cXyz */
+-void daNpc_Ym1_c::chk_areaIN(float, cXyz) {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::chk_areaIN(f32 i_radius, cXyz i_center) {
++    fopAc_ac_c* player = dComIfGp_getPlayer(0);
++    f32 dist_xz = (player->current.pos - i_center).absXZ();
++    f32 dist_y = player->current.pos.y - i_center.y;
++    return dist_xz < i_radius && std::fabsf(dist_y) < 300.0f;
+ }
+ 
+ /* 00002448-000025B8       .text kari_1__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::kari_1() {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::kari_1() {
++    if (cLib_calcTimer(&mTimer2) != 0) {
++        return TRUE;
++    }
++
++    if (chk_areaIN(prm(mSubType).mKariAreaR, current.pos) || !mKariFlgPrev) {
++        setStt(2);
++        mLookMode = 0;
++        mbLookTrn = 1;
++        setAnm_NUM(2, 1);
++    }
++    return TRUE;
+ }
+ 
+ /* 000025B8-00002770       .text wait_1__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::wait_1() {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::wait_1() {
++    if (mBckNum == 2) {
++        if (mbAnmEnd) {
++            setAnm_NUM(3, 1);
++            mLookMode = 0;
++            mbLookTrn = 1;
++            mTimer1 = cLib_getRndValue(15, 30);
++        }
++        return TRUE;
++    }
++
++    if (mbTurnHome) {
++        cLib_addCalcAngleS(&current.angle.y, mHomeAngle.y, 4, prm(mSubType).mMaxHeadTurnVel, 0x80);
++    }
++
++    if (mbTalk) {
++        if (chk_talk()) {
++            setStt(5);
++            mLookMode = 1;
++            mbLookTrn = 0;
++            mbTurnHome = 0;
++            m_jnt.setTrn();
++        }
++        return TRUE;
++    }
++
++    mOrder = 2;
++    mLookMode = 1;
++    mbLookTrn = 1;
++    if (mbAttention) {
++        mTimer1 = cLib_getRndValue(15, 30);
++    }
++
++    if (!chk_areaIN(50.0f + prm(mSubType).mKariAreaR, current.pos)) {
++        if (cLib_calcTimer(&mTimer1) == 0) {
++            setStt(3);
++            mLookMode = 0;
++            mbLookTrn = 1;
++        }
++    }
++    return TRUE;
+ }
+ 
+ /* 00002770-00002958       .text wait_2__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::wait_2() {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::wait_2() {
++    s16 diff = 0;
++    if (mbTurnHome) {
++        cLib_addCalcAngleS(&current.angle.y, mHomeAngle.y, 4, prm(mSubType).mMaxHeadTurnVel, 0x80);
++        diff = mHomeAngle.y - current.angle.y;
++    }
++
++    if (mbTalk) {
++        if (chk_talk()) {
++            setStt(5);
++            mLookMode = 1;
++            mbLookTrn = 0;
++            mbTurnHome = 0;
++            m_jnt.setTrn();
++        }
++        return TRUE;
++    }
++
++    mOrder = 2;
++    mLookMode = 0;
++    mbLookTrn = 1;
++    if (diff != 0) {
++        return TRUE;
++    }
++
++    f32 attn_y = mSubType == 1 ? 120.0f : 92.0f;
++    f32 attn_r = mSubType == 1 ? 250.0f : 200.0f;
++    if (mbAttention) {
++        mTimer1 = cLib_getRndValue(15, 30);
++    }
++    if (cLib_calcTimer(&mTimer1)) {
++        mLookMode = 1;
++    }
++
++    if (!dNpc_chkAttn(this, dComIfGp_getPlayer(0)->current.pos, attn_r, 50.0f, attn_y, mLookMode == 1)) {
++        mLookMode = 0;
++        mbTurnHome = 1;
++    }
++    return TRUE;
+ }
+ 
+ /* 00002958-00002BA0       .text talk_1__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::talk_1() {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::talk_1() {
++    BOOL res = chk_parts_notMov();
++    fopNpc_npc_c::talk(1);
++    if (mpCurrMsg == NULL) {
++        return res;
++    }
++
++    if (mpCurrMsg->mStatus == fopMsgStts_MSG_DESTROYED_e) {
++        switch (mCurrMsgNo) {
++        case 0x902:
++            dComIfGs_onEventBit(0x0010);
++            break;
++        case 0x906:
++            dComIfGs_onEventBit(0x2904);
++            break;
++        case 0xA29:
++            dComIfGs_onEventBit(0x0080);
++            break;
++        case 0xA2B:
++            dComIfGs_onEventBit(0x0008);
++            break;
++        case 0xA2D:
++            dComIfGs_onEventBit(0x0B01);
++            break;
++        case 0xA40:
++            dComIfGs_onEventBit(0x3540);
++            break;
++        case 0x8FE:
++        case 0x90B:
++            dComIfGs_onEventBit(0x0020);
++            break;
++        case 0xA30:
++        case 0xA32:
++        case 0xA34:
++        case 0xA36:
++        case 0xA38:
++            dComIfGs_onEventBit(0x3140);
++            break;
++        case 0xA3C:
++        case 0xA3D:
++            dComIfGs_onEventBit(0x3580);
++            break;
++        }
++        mItemNo = 0xFF;
++        mbTalk = 0;
++        setStt(mPrevStt);
++        mTimer1 = cLib_getRndValue(15, 30);
++        endEvent();
++    }
++    return res;
+ }
+ 
+ /* 00002BA0-00002C78       .text turn_1__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::turn_1() {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::turn_1() {
++    cLib_addCalcAngleS(&current.angle.y, mHomeAngle.y, 4, prm(mSubType).mMaxHeadTurnVel, 0x80);
++    if ((s16)(mHomeAngle.y - current.angle.y) == 0) {
++        if (mKariFlgPrev) {
++            setStt(1);
++            mpMorf->setMorf(10.0f);
++            mLookMode = 0;
++            mbLookTrn = 1;
++            mTimer2 = cLib_getRndValue(30, 60);
++        } else {
++            setStt(4);
++            mLookMode = 0;
++            mbLookTrn = 1;
++        }
++    }
++    return TRUE;
+ }
+ 
+ /* 00002C78-00002DD4       .text NBTwai__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::NBTwai() {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::NBTwai() {
++    if (mbTalk) {
++        if (chk_talk()) {
++            setStt(7);
++            mLookMode = 0;
++            mbLookTrn = 1;
++        }
++        return TRUE;
++    }
++
++    mOrder = 2;
++    mLookMode = 0;
++    mbLookTrn = 1;
++    if (chk_BlackPig()) {
++        setStt(8);
++        mLookMode = 0;
++        mbLookTrn = 1;
++        mbTurnHome = 1;
++        return TRUE;
++    }
++
++    if (mBckNum == 6) {
++        if (mbAnmEnd || mbAttention) {
++            setAnm_NUM(5, 1);
++            mTimer2 = cLib_getRndValue(90, 180);
++        }
++        return TRUE;
++    }
++
++    if (mbAttention) {
++        mTimer1 = cLib_getRndValue(15, 30);
++    }
++    if (cLib_calcTimer(&mTimer1)) {
++        mLookMode = 1;
++        return TRUE;
++    }
++    if (cLib_calcTimer(&mTimer2) == 0) {
++        setAnm_NUM(6, 1);
++    }
++    return TRUE;
+ }
+ 
+ /* 00002DD4-00002EFC       .text SITwai__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::SITwai() {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::SITwai() {
++    if (mbTalk) {
++        if (chk_talk()) {
++            setStt(5);
++            mLookMode = 1;
++            mbLookTrn = 1;
++        }
++        return TRUE;
++    }
++
++    mOrder = 2;
++    mLookMode = 0;
++    mbLookTrn = 1;
++    if (mbAttention) {
++        mTimer1 = cLib_getRndValue(15, 30);
++    }
++    if (cLib_calcTimer(&mTimer1)) {
++        mLookMode = 1;
++    }
++    if (!dNpc_chkAttn(this, dComIfGp_getPlayer(0)->current.pos, 250.0f, 50.0f, 120.0f, mLookMode == 1)) {
++        mLookMode = 0;
++    }
++    return TRUE;
+ }
+ 
+ /* 00002EFC-00002FFC       .text wait_action1__11daNpc_Ym1_cFPv */
+-void daNpc_Ym1_c::wait_action1(void*) {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::wait_action1(void*) {
++    if (mActionStep == 0) {
++        setStt(1);
++        mbTurnHome = 1;
++        mActionStep++;
++    } else if (mActionStep > 0 && mActionStep < 4) {
++        mbAttention = chkAttention();
++        switch (mStt) {
++        case 1:
++            mbSetEyePos = kari_1();
++            break;
++        case 2:
++            mbSetEyePos = wait_1();
++            break;
++        case 3:
++            mbSetEyePos = turn_1();
++            break;
++        case 4:
++            mbSetEyePos = wait_2();
++            break;
++        case 5:
++            mbSetEyePos = talk_1();
++            break;
++        }
++    }
++    return TRUE;
+ }
+ 
+ /* 00002FFC-00003100       .text wait_action2__11daNpc_Ym1_cFPv */
+-void daNpc_Ym1_c::wait_action2(void*) {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::wait_action2(void*) {
++    if (mActionStep == 0) {
++        setStt(mType == 5 ? 10 : 8);
++        mbTurnHome = 1;
++        mActionStep++;
++    } else if (mActionStep > 0 && mActionStep < 4) {
++        mbAttention = chkAttention();
++        switch (mStt) {
++        case 8:
++        case 10:
++            mbSetEyePos = wait_2();
++            break;
++        case 5:
++            mbSetEyePos = talk_1();
++            break;
++        }
++    }
++    return TRUE;
+ }
+ 
+ /* 00003100-00003270       .text wait_action3__11daNpc_Ym1_cFPv */
+-void daNpc_Ym1_c::wait_action3(void*) {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::wait_action3(void*) {
++    cXyz offset(0.0f, 0.0f, 110.0f);
++    if (mActionStep == 0) {
++        if (chk_BlackPig()) {
++            setStt(8);
++            mbTurnHome = 1;
++        } else {
++            setStt(6);
++            mDoMtx_stack_c::transS(current.pos);
++            mDoMtx_stack_c::YrotM(mAngle.y);
++            mDoMtx_stack_c::multVec(&offset, &mNbtAttnPos);
++        }
++        mActionStep++;
++    } else if (mActionStep > 0 && mActionStep < 4) {
++        mbAttention = chkAttention();
++        switch (mStt) {
++        case 5:
++        case 7:
++            mbSetEyePos = talk_1();
++            break;
++        case 6:
++            mbSetEyePos = NBTwai();
++            break;
++        case 8:
++            mbSetEyePos = wait_2();
++            break;
++        }
++    }
++    return TRUE;
+ }
+ 
+ /* 00003270-00003324       .text wait_action4__11daNpc_Ym1_cFPv */
+-void daNpc_Ym1_c::wait_action4(void*) {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::wait_action4(void*) {
++    if (mActionStep == 0) {
++        setStt(11);
++        mActionStep++;
++    } else if (mActionStep > 0 && mActionStep < 4) {
++        mbAttention = chkAttention();
++        switch (mStt) {
++        case 11:
++            mbSetEyePos = SITwai();
++            break;
++        case 5:
++            mbSetEyePos = talk_1();
++            break;
++        }
++    }
++    return TRUE;
+ }
+ 
+ /* 00003324-00003390       .text demo_action1__11daNpc_Ym1_cFPv */
+-void daNpc_Ym1_c::demo_action1(void*) {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::demo_action1(void*) {
++    if (mActionStep == 0) {
++        mActionStep++;
++    } else if (mActionStep > 0 && mActionStep < 4) {
++        mbAttention = chkAttention();
++    }
++    return TRUE;
+ }
+ 
+ /* 00003390-000034CC       .text demo__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::demo() {
+-    /* Nonmatching */
++bool daNpc_Ym1_c::demo() {
++    if (demoActorID == 0) {
++        if (mbDemo) {
++            mbDemo = 0;
++        }
++    } else {
++        if (!mbDemo) {
++            mbDemo = 1;
++            mbKeepShapeAngle = 0;
++            m_jnt.setHead_y(0);
++            m_jnt.setHead_x(0);
++            m_jnt.setBackBone_y(0);
++            m_jnt.setBackBone_x(0);
++        }
++
++        dDemo_actor_c* demo_actor_p = dComIfGp_demo_getActor(demoActorID);
++        J3DAnmTexPattern* btp_p = mBtpAnm.getBtpAnm();
++        if (btp_p) {
++            mBtpFrame++;
++            if (mBtpFrame >= btp_p->getFrameMax()) {
++                mBtpFrame = btp_p->getFrameMax();
++            }
++        }
++
++        J3DAnmTexPattern* demo_btp_p = demo_actor_p->getP_BtpData(mArcName);
++        if (demo_btp_p) {
++            mBtpAnm.init(mpHeadModel->getModelData(), demo_btp_p, TRUE, J3DFrameCtrl::EMode_NONE, 1.0f, 0, -1, true, 0);
++            mBtpNum = 1;
++            mBtpFrame = 0;
++        }
++
++        dDemo_setDemoData(this, 0x6A, mpMorf, mArcName, 0, NULL, 0, 0);
++    }
++    return mbDemo;
+ }
+ 
+ /* 000034CC-0000359C       .text shadowDraw__11daNpc_Ym1_cFv */
+ void daNpc_Ym1_c::shadowDraw() {
+-    /* Nonmatching */
++    cXyz pos(current.pos.x, current.pos.y + 150.0f, current.pos.z);
++    mShadowId = dComIfGd_setShadow(mShadowId, 1, mpMorf->getModel(), &pos, 800.0f, 40.0f,
++                                   current.pos.y, mObjAcch.GetGroundH(), mObjAcch.m_gnd, &tevStr);
++    if (mShadowId != 0) {
++        if (mpItemModel) {
++            dComIfGd_addRealShadow(mShadowId, mpItemModel);
++        }
++        dComIfGd_addRealShadow(mShadowId, mpHeadModel);
++    }
+ }
+ 
+ /* 0000359C-000037A0       .text _draw__11daNpc_Ym1_cFv */
+ BOOL daNpc_Ym1_c::_draw() {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++    J3DModel* head_model = mpHeadModel;
++    J3DModelData* head_data = head_model->getModelData();
++    J3DModel* body_model = mpMorf->getModel();
++
++    if (mbHide || mbNoDraw) {
++        return TRUE;
++    }
++
++    g_env_light.settingTevStruct(TEV_TYPE_ACTOR, &current.pos, &tevStr);
++    g_env_light.setLightTevColorType(body_model, &tevStr);
++    g_env_light.setLightTevColorType(head_model, &tevStr);
++
++    switch (mSubType) {
++    case 1:
++        mpMorf->entryDL();
++        break;
++    case 2:
++        mpMorf->entryDL((J3DMaterialTable*)dComIfG_getObjectIDRes(mArcName, 0x0D));
++        break;
++    }
++
++    mBtpAnm.entry(head_data, mBtpFrame);
++    mDoExt_modelEntryDL(head_model);
++    mBtpAnm.remove(head_data);
++
++    if (mpItemModel) {
++        g_env_light.setLightTevColorType(mpItemModel, &tevStr);
++        mDoExt_modelEntryDL(mpItemModel);
++    }
++
++    shadowDraw();
++
++    switch (mSubType) {
++    case 1:
++        dSnap_RegistFig(DSNAP_TYPE_UNK50, this, 1.0f, 1.0f, 1.0f);
++        break;
++    case 2:
++        dSnap_RegistFig(DSNAP_TYPE_UNK4E, this, eyePos, shape_angle.y, 1.0f, 1.0f, 1.0f);
++        break;
++    }
++
++    mKariFlgPrev = mKariFlg;
++    mKariFlg = 0;
++    return TRUE;
+ }
+ 
+ /* 000037A0-00003A5C       .text _execute__11daNpc_Ym1_cFv */
+ BOOL daNpc_Ym1_c::_execute() {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++    if (!mbHomeSet) {
++        mHomePos = current.pos;
++        mHomeAngle = current.angle;
++        mbHomeSet = 1;
++    }
++
++    daNpc_Ym1_childHIO_c::hio_prm_c& p = prm(mSubType);
++    if (chk_nbt_attn()) {
++        m_jnt.setParam(0, 0, 0, 0, 0x2000, 0x38E0, -0x2000, -0x38E0, p.mMaxTurnStep);
++    } else {
++        m_jnt.setParam(p.mMaxBackBoneX, p.mMaxBackBoneY, p.mMinBackBoneX, p.mMinBackBoneY,
++                       p.mMaxHeadX, p.mMaxHeadY, p.mMinHeadX, p.mMinHeadY, p.mMaxTurnStep);
++    }
++
++    if (mbHide && demoActorID == 0) {
++        return TRUE;
++    }
++
++    checkOrder();
++    if (!demo()) {
++        int staff_id = -1;
++        if (dComIfGp_event_runCheck() && !eventInfo.checkCommandTalk()) {
++            staff_id = isEventEntry();
++        }
++
++        if (staff_id >= 0) {
++            event_proc(staff_id);
++        } else {
++            (this->*mCurrProc)(NULL);
++        }
++
++        lookBack();
++        if (mType != 1) {
++            fopAcM_posMoveF(this, mStts.GetCCMoveP());
++            mObjAcch.CrrPos(*dComIfG_Bgsp());
++        }
++        play_animation();
++    } else {
++        mbHide = 0;
++    }
++
++    eventOrder();
++    mAngle = current.angle;
++    if (!mbKeepShapeAngle) {
++        shape_angle = current.angle;
++    }
++
++    tevStr.mRoomNo = dComIfG_Bgsp()->GetRoomId(mObjAcch.m_gnd);
++    tevStr.mEnvrIdxOverride = dComIfG_Bgsp()->GetPolyColor(mObjAcch.m_gnd);
++    setMtx(false);
++    set_cutGrass();
++
++    if (mType == 0) {
++        dComIfG_Ccsp()->mMass_Mng.SetAreaChk(&mKariCyl, 3, area_check);
++    }
++    if (!mbDemo) {
++        set_collision_sp();
++    }
++    return TRUE;
+ }
+ 
+ /* 00003A5C-00003AB0       .text _delete__11daNpc_Ym1_cFv */
+ BOOL daNpc_Ym1_c::_delete() {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++    dComIfG_resDelete(&mPhs, mArcName);
++    if (heap && mpMorf) {
++        mpMorf->stopZelAnime();
++    }
++    return TRUE;
+ }
+ 
+ /* 00003AB0-00003BDC       .text _create__11daNpc_Ym1_cFv */
+ cPhs_State daNpc_Ym1_c::_create() {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++    static int a_siz_tbl[] = {0, 0, 0};
++
++    fopAcM_ct_Retail(this, daNpc_Ym1_c);
++
++    if (!decideType(fopAcM_GetParam(this) & 0xFF)) {
++        return cPhs_ERROR_e;
++    }
++
++    cPhs_State state = dComIfG_resLoad(&mPhs, mArcName);
++    mbResLoaded = state == cPhs_COMPLEATE_e;
++    if (!mbResLoaded) {
++        return state;
++    }
++
++    if (!fopAcM_entrySolidHeap(this, CheckCreateHeap, a_siz_tbl[mSubType])) {
++        return cPhs_ERROR_e;
++    }
++
++    fopAcM_SetMtx(this, mpMorf->getModel()->getBaseTRMtx());
++    fopAcM_setCullSizeBox(this, -80.0f, -20.0f, -40.0f, 80.0f, 180.0f, 130.0f);
++
++    if (!createInit()) {
++        return cPhs_ERROR_e;
++    }
++    return state;
+ }
+ 
+ /* 0000405C-00004360       .text bodyCreateHeap__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::bodyCreateHeap() {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::bodyCreateHeap() {
++    J3DModelData* a_mdl_dat = (J3DModelData*)dComIfG_getObjectIDRes(mArcName, 0x0A);
++    JUT_ASSERT(0x971, a_mdl_dat != NULL);
++
++    mpMorf = new mDoExt_McaMorf(a_mdl_dat, NULL, NULL, NULL, J3DFrameCtrl::EMode_NULL, 1.0f, 0, -1, 1,
++                                NULL, 0x80000, 0x15021222);
++    if (!mpMorf) {
++        return FALSE;
++    }
++    if (!mpMorf->getModel()) {
++        mpMorf = NULL;
++        return FALSE;
++    }
++
++    m_hed_jnt_num = a_mdl_dat->getJointName()->getIndex("head");
++    JUT_ASSERT(0x97F, m_hed_jnt_num >= 0);
++    m_bbone_jnt_num = a_mdl_dat->getJointName()->getIndex("backbone");
++    JUT_ASSERT(0x981, m_bbone_jnt_num >= 0);
++    m_hnd_L_jnt_num = a_mdl_dat->getJointName()->getIndex("handL");
++    JUT_ASSERT(0x983, m_hnd_L_jnt_num >= 0);
++    m_hnd_R_jnt_num = a_mdl_dat->getJointName()->getIndex("handR");
++    JUT_ASSERT(0x985, m_hnd_R_jnt_num >= 0);
++
++    mpMorf->getModel()->getModelData()->getJointNodePointer(m_hed_jnt_num)->setCallBack(nodeCB_Head);
++    mpMorf->getModel()->getModelData()->getJointNodePointer(m_bbone_jnt_num)->setCallBack(nodeCB_BackBone);
++    mpMorf->getModel()->setUserArea((uintptr_t)this);
++    return TRUE;
+ }
+ 
+ /* 00004360-00004460       .text headCreateHeap__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::headCreateHeap() {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::headCreateHeap() {
++    static const int a_hed_bdl_resID_tbl[] = {0x00, 0x0B, 0x0C};
++    static const s8 a_tex_pttrn_num_tbl[] = {0, 0, 0};
++
++    J3DModelData* a_mdl_dat = (J3DModelData*)dComIfG_getObjectIDRes(mArcName, a_hed_bdl_resID_tbl[mSubType]);
++    JUT_ASSERT(0x9A4, a_mdl_dat != NULL);
++
++    mpHeadModel = mDoExt_J3DModel__create(a_mdl_dat, 0x80000, 0x15020022);
++    if (!mpHeadModel) {
++        return FALSE;
++    }
++    return init_texPttrnAnm(a_tex_pttrn_num_tbl[mSubType], false) ? TRUE : FALSE;
+ }
+ 
+ /* 00004460-00004534       .text itemCreateHeap__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::itemCreateHeap() {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::itemCreateHeap() {
++    if (mType == 0) {
++        J3DModelData* a_mdl_dat = (J3DModelData*)dComIfG_getObjectIDRes(mArcName, 0x09);
++        JUT_ASSERT(0x9C6, a_mdl_dat != NULL);
++        mpItemModel = mDoExt_J3DModel__create(a_mdl_dat, 0x80000, 0x11000022);
++        if (!mpItemModel) {
++            return FALSE;
++        }
++    } else {
++        mpItemModel = NULL;
++    }
++    return TRUE;
+ }
+ 
+ /* 00004534-000045F8       .text CreateHeap__11daNpc_Ym1_cFv */
+-void daNpc_Ym1_c::CreateHeap() {
+-    /* Nonmatching */
++BOOL daNpc_Ym1_c::CreateHeap() {
++    if (!bodyCreateHeap()) {
++        return FALSE;
++    }
++    if (!headCreateHeap()) {
++        mpMorf = NULL;
++        return FALSE;
++    }
++    if (!itemCreateHeap()) {
++        mpMorf = NULL;
++        return FALSE;
++    }
++
++    mAcchCir.SetWall(30.0f, 60.0f);
++    mObjAcch.Set(&current.pos, &old.pos, this, 1, &mAcchCir, &speed, NULL, NULL);
++    return TRUE;
+ }
+ 
+ /* 000045F8-00004618       .text daNpc_Ym1_Create__FP10fopAc_ac_c */
+--- a/src/JSystem/JStudio/JStudio/functionvalue.cpp
++++ b/src/JSystem/JStudio/JStudio/functionvalue.cpp
+@@ -263,7 +263,14 @@
+     ASSERT(!refer_isReferring(this));
+     ASSERT(pfn_ != NULL);
+ 
++#ifdef TARGET_PC
++    // pfn_ holds a CompositeFunc (container, data, value). Calling it through
++    // the (value, container, data) alias works on PowerPC, where the double
++    // travels in f1 regardless of position, but scrambles the x86 stack.
++    return ((CompositeFunc)pfn_)(*container, *data_getData(), arg1);
++#else
+     return pfn_(arg1, container, data_getData());
++#endif
+ }
+ 
+ /* 80271834-802718A0       .text composite_raw__Q27JStudio24TFunctionValue_compositeFRCQ27JGadget44TVector_pointer<PQ27JStudio14TFunctionValue>RCQ37JStudio24TFunctionValue_composite5TDatad */
