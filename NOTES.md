@@ -1130,3 +1130,15 @@ Verification:
   rationalBezierRatio(w=1.0) 0.175. Link walk needs more (speedF 0).
 - WSL controllers: no /dev/input until usbipd attach. 8BitDo UM2 receiver
   2dc8:310b: if0 ff/5d/01 XInput (no xpad module), if1 kbd/mouse, if2 vendor HID.
+
+## 0064 demo face animations
+
+- getP_BtpData/BtkData/BrkData were stubs: no cinematic btp/btk/brk for any
+  actor. Retail: btp id = mTexAnimation if ENABLE_TEX_ANM else prm id
+  1:s16@1 2:s16@2 4:u32@1 5/6:u32@2; btk 2:s16@4 5/6:u32@6; brk 6:u32@0xA;
+  cache per kind (mBtpId/mBtkId/mBrkId), id&0x10000 -> demo arc name, btp sets
+  mTexAnimationFrameMax. Payload BE on PC -> beLoad.
+- Cs1DK4 (counting FinishBreakpoints, slow, stopped at limit): Zl2 btp+btk
+  returned in departure. p1pOFi departure VERIFIED; frame 2400 Tetra winks
+  (g3qvo0 had neutral open eyes). 1GhtmF telescope story SUCCESS incl.
+  zelda_fly; falling Tetra too small in captures to confirm eyes.

@@ -33,7 +33,7 @@ escudo ya se ha obtenido en prueba manual y, desde ese estado ganado, la prueba 
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 63 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 64 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -1099,3 +1099,20 @@ receptor 8BitDo (`2dc8:310b`) en modo XInput expone el mando en una interfaz de
 clase propietaria que necesita `xpad`, ausente en el kernel de WSL. Solo se
 reconocen su teclado y ratón auxiliares, así que no es utilizable. No se ha
 probado un mando en modo DirectInput o Switch.
+
+## Expresiones faciales en las cinemáticas (0064)
+
+El usuario observa que Tetra cae del cielo con los ojos abiertos. La causa era
+general: `dDemo_actor_c::getP_BtpData`, `getP_BtkData` y `getP_BrkData`
+estaban vacías, así que ninguna cinemática podía cambiar los ojos o la boca
+(btp), el desplazamiento de textura de la cara (btk) ni los colores animados
+(brk) de un personaje. 0064 las reconstruye a partir del original
+(80069434..8006969C) y lee sus identificadores, que siguen en big-endian en PC.
+
+- Despedida (`probe-p1pOFi`, resultado 0): Tetra recibe su btp y su btk del
+  paquete. En el mismo fotograma, ahora guiña un ojo con gesto burlón donde
+  antes tenía los ojos abiertos sin expresión. La prueba de la despedida sigue
+  superada.
+- Catalejo y `zelda_fly` (`probe-1GhtmF`, resultado 0): la secuencia completa
+  sigue superada. En las capturas Tetra se ve demasiado pequeña para confirmar
+  visualmente sus ojos durante la caída.

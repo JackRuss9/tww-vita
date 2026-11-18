@@ -1,0 +1,111 @@
+Reason: dDemo_actor_c::getP_BtpData/getP_BtkData/getP_BrkData were empty, so no cinematic could change an actor's eye/mouth patterns (btp) or face texture scroll (btk): Tetra falls in zelda_fly with open eyes and keeps a neutral face in departure. Reconstructed from 80069434..8006969C: texture-animation ID or data prm ID 1/2/4/5/6 forms, per-kind caching, 0x10000 selecting the stage demo archive and btp frame max. The STB payload stays big-endian on PC, so the odd-offset IDs are read with beLoad.
+
+--- a/src/d/d_demo.cpp
++++ b/src/d/d_demo.cpp
+@@ -51,24 +51,97 @@
+     mBrkId = -1;
+ }
+ 
++// The STB data payload (JSGSetData) stays big-endian on PC, and the retail
++// code reads its IDs at odd offsets: read them through beLoad, which is an
++// unaligned big-endian load on PC and a plain load on the GameCube.
++#include "JSystem/JGadget/binary.h"
++template <typename T>
++static inline T dDemo_prm_load(const dDemo_prm_data* data, int offset) {
++    return JGadget::binary::beLoad<T>((const u8*)data + offset);
++}
++
+ /* 80069434-80069550       .text getP_BtpData__13dDemo_actor_cFPCc */
+ J3DAnmTexPattern* dDemo_actor_c::getP_BtpData(const char* name) {
+-    /* Nonmatching */
+-    if (!checkEnable(ENABLE_UNK_e))
++    u32 id;
++    if (checkEnable(ENABLE_TEX_ANM)) {
++        id = mTexAnimation;
++    } else {
++        if (!checkEnable(ENABLE_UNK_e))
++            return NULL;
++        switch (mPrm.mId) {
++        case 1:
++            id = dDemo_prm_load<s16>(mPrm.mData, 1);
++            break;
++        case 2:
++            id = dDemo_prm_load<s16>(mPrm.mData, 2);
++            break;
++        case 4:
++            id = dDemo_prm_load<u32>(mPrm.mData, 1);
++            break;
++        case 5:
++        case 6:
++            id = dDemo_prm_load<u32>(mPrm.mData, 2);
++            break;
++        default:
++            return NULL;
++        }
++    }
++
++    if (id == (u32)mBtpId)
+         return NULL;
+-    return {}; // tww-vita: not decompiled yet
++    mBtpId = id;
++    if (id & 0x10000)
++        name = dStage_roomControl_c::getDemoArcName();
++    J3DAnmTexPattern* btp = (J3DAnmTexPattern*)dComIfG_getObjectIDRes(name, (u16)id);
++    if (btp != NULL)
++        mTexAnimationFrameMax = btp->getFrameMax();
++    return btp;
+ }
+ 
+ /* 80069550-800695E8       .text getP_BrkData__13dDemo_actor_cFPCc */
+-void* dDemo_actor_c::getP_BrkData(const char*) {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++void* dDemo_actor_c::getP_BrkData(const char* name) {
++    if (!checkEnable(ENABLE_UNK_e))
++        return NULL;
++    u32 id;
++    switch (mPrm.mId) {
++    case 6:
++        id = dDemo_prm_load<u32>(mPrm.mData, 0xA);
++        break;
++    default:
++        return NULL;
++    }
++
++    if (id == (u32)mBrkId)
++        return NULL;
++    mBrkId = id;
++    if (id & 0x10000)
++        name = dStage_roomControl_c::getDemoArcName();
++    return dComIfG_getObjectIDRes(name, (u16)id);
+ }
+ 
+ /* 800695E8-8006969C       .text getP_BtkData__13dDemo_actor_cFPCc */
+-J3DAnmTextureSRTKey* dDemo_actor_c::getP_BtkData(const char*) {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++J3DAnmTextureSRTKey* dDemo_actor_c::getP_BtkData(const char* name) {
++    if (!checkEnable(ENABLE_UNK_e))
++        return NULL;
++    u32 id;
++    switch (mPrm.mId) {
++    case 2:
++        id = dDemo_prm_load<s16>(mPrm.mData, 4);
++        break;
++    case 5:
++    case 6:
++        id = dDemo_prm_load<u32>(mPrm.mData, 6);
++        break;
++    default:
++        return NULL;
++    }
++
++    if (id == (u32)mBtkId)
++        return NULL;
++    mBtkId = id;
++    if (id & 0x10000)
++        name = dStage_roomControl_c::getDemoArcName();
++    return (J3DAnmTextureSRTKey*)dComIfG_getObjectIDRes(name, (u16)id);
+ }
+ 
+ /* 8006969C-80069838       .text getPrm_Morf__13dDemo_actor_cFv */
