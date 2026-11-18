@@ -7,8 +7,8 @@ La versión de PS Vita queda aplazada hasta conseguirlo en PC.
 **La isla completa todavía no está validada.** Ya se ha comprobado el arranque
 normal hasta recuperar el control y caminar con Link, sin saltar la historia.
 Una prueba manual desde el bosque ya llega al rescate de Tetra, el secuestro
-de Abril y la conversación posterior en la playa. Esa conversación y el
-embarque siguen pendientes; no valida todo el recorrido desde el menú.
+de Abril y la conversación posterior en la playa. La conversación ya termina en la prueba automática; el
+escudo y el embarque siguen pendientes; no valida todo el recorrido desde el menú.
 
 ## Entorno de verificación
 
@@ -33,7 +33,7 @@ embarque siguen pendientes; no valida todo el recorrido desde el menú.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 60 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 61 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -895,3 +895,58 @@ archivos del juego. No queda la ventana ni su sonido activos.
 Siguiente: recuperar la interpolación relativa de UNITRANS usada en yuukaigo,
 comprobar la conversación y continuar hacia el escudo y el embarque. No se
 ha demostrado aún la salida de la isla ni un recorrido completo desde el menú.
+
+## Conversación de la playa superada en prueba automática (0061)
+
+**`probe-l0u3Tn`: resultado 0.** Desde el estado realmente ganado al rescatar
+a Tetra y llegar a la playa, el evento `yuukaigo` termina de forma natural,
+Link recupera el control y recorre **73,709 unidades** con entrada de teclado.
+No se fuerzan finales de cortes, banderas de misión ni inventario. El ensayo
+recarga sea desde el punto de diagnóstico: no repite menú, bosque ni secuestro.
+Falta la confirmación visual y sonora de este tramo por el usuario.
+
+0061 recupera dos variantes compartidas:
+
+- UNITRANS cartesiana o esférica con extremos relativos a los participantes
+  @PLAYER, @STARTER, @PARTNER y @TARGET. La máscara de cuatro caracteres
+  distingue coordenadas del mundo (-) y del actor (o); los extremos relativos
+  se resuelven en cada fotograma. Se conserva la temporización B-spline/lineal,
+  Cushion y la interpolación angular corta del código original.
+- FIXEDFRM @TARGET enfoca al participante mPtItem, necesario cuando el cartero
+  interviene en la conversación. Otros actores por nombre, máscaras especiales
+  y TransType 2 siguen pendientes de implementar.
+
+`tools/beach_camera.py` comprueba por fotograma la geometría con un cálculo
+independiente: rotación y punto de atención de Tetra, centros, órbita esférica,
+FOV, disponibilidad y finalización. Superadas las transiciones de **10 y 20
+fotogramas**. La tolerancia de posición contempla la cuantización de ángulos
+del juego y las coordenadas grandes del mundo, no valida toda la imagen.
+
+Regresión `probe-vjMaJQ`: resultado 0; las transiciones lineales de 60/30
+fotogramas de Orca y el comienzo del entrenamiento siguen funcionando. Ese
+modo no repite las seis lecciones de espada. Compilación PC y reproducción
+limpia de **61 parches tww** superadas, con fuentes de cámara y Link idénticas.
+
+Fallos y límites de los ensayos:
+
+- `probe-diwziW`: parada de diagnóstico intencionada antes de ejecutar la
+  transición; confirma que el volcado ganado permite reproducir yuukaigo.
+- `probe-FmfLGo`: límite de tiempo 124; supera UNITRANS, pero descubre el
+  siguiente FIXEDFRM @TARGET sin soporte en el corte 3369. Ambos se corrigen
+  en 0061. No fue un cierre espontáneo del juego.
+- `probe-0Rjcol`: verifica las dos transiciones numéricamente, pero termina
+  interrumpida durante el cierre de GDB; no se cuenta como prueba completa.
+- `probe-l0u3Tn`: repetición cerrada que demuestra evento terminado y movimiento.
+
+Repetir el ensayo requiere el volcado local ganado (no incluido en GitHub):
+
+```sh
+SMS_AUDIO=0 SMS_AUDIO_OUT=null SDL_AUDIODRIVER=dummy \
+TWW_BEACH_CHECKPOINT="$PWD/run-pc/forest-manual/beach-earned-savedata.bin" \
+./tools/probe-pc.sh --outset --headless --deterministic --no-captures \
+  --seconds 180 --gdb "$PWD/tools/beach_replay.gdb"
+```
+
+`TWW_BEACH_SAVE_CHECKPOINT` permite exportar el estado después de la prueba.
+Siguiente hito: comprobar visualmente la playa, obtener el escudo y continuar
+hacia la despedida y el embarque. La isla completa aún no está validada.

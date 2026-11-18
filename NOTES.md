@@ -1039,3 +1039,26 @@ Verification:
 - Window/sound closed; native source unchanged after 0060 build and clean60
   reproduction. Next implement this spherical relative transition from retail,
   verify event/control and proceed toward shield/boat. No island-complete claim.
+
+## 0061 beach conversation and control pass
+
+- diwziW diagnostic replay proves actual earned beach savedata reloading sea
+  auto-orders yuukaigo. No need to replay forest or grant quest bits/items.
+- UNITRANS retail800B3410..3880 resolves four endpoints every frame; mask--oo
+  leaves initial world endpoints and rotates/translates final offsets around
+  starter attention. TransType1 interpolates center, radius and short pitch/yaw
+  then cushions the eye (800B388C..3A18); preserves existing timing/bank/FOV.
+- Added FIXEDFRM @TARGET = item partner; FmfLGo timeout124 diagnosed cut3369
+  blocked there after both UNITRANS cuts3366/3368. No native crash.
+- 0Rjcol per-frame numerical checks pass10/20 but GDB interrupted on shutdown;
+  not a complete proof. Closed l0u3Tn exits0: actual yuukaigo ends, demo clears,
+  and Link walks73.709 units by ordinary keyboard input. No forced cut/flags.
+- Independent beach_camera geometry uses actor attention/yaw and Python double
+  trig; eye tolerance1 unit for native angle lookup/short quantization, center
+  .1 unit, FOV.002. Tests every frame/readiness/return, not visual fidelity.
+- vjMaJQ exits0: Orca linear60/30 and initial training still pass. Not six lessons.
+- Native build and clean61-patch source match pass; stamp updated. Partial
+  relative masks/actors remain explicit, TransType2 not implemented.
+- tools/beach_replay.gdb requires explicit TWW_BEACH_CHECKPOINT and optional
+  TWW_BEACH_SAVE_CHECKPOINT after natural completion. Next visible verification,
+  grandma shield, departure. No island-complete or full-menu-run claim.

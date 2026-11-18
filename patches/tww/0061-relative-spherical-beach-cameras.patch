@@ -1,0 +1,109 @@
+Reason: support Cartesian/spherical UNITRANS with actor-relative endpoints using the four-character world/actor mask, preserving retail B-spline timing and Cushion. Also resolve FIXEDFRM @TARGET via the event item partner. These variants are used by the post-rescue yuukaigo beach conversation. Other masks, named actors and TransType 2 remain explicit unsupported cases.
+
+--- a/src/d/d_ev_camera.cpp
++++ b/src/d/d_ev_camera.cpp
+@@ -155,6 +155,9 @@
+             relativeActor = dComIfGp_event_getPt1();
+         } else if (strcmp(relativeName, "@PARTNER") == 0) {
+             relativeActor = dComIfGp_event_getPt2();
++        } else if (strcmp(relativeName, "@TARGET") == 0) {
++            // Retail getEvActor: event target is the item-partner slot.
++            relativeActor = dComIfGp_event_getItemPartner();
+         } else {
+             if (m11C == 0) OSReport("[tww] unsupported FIXEDFRM relative actor: %s\n", relativeName);
+             return false;
+@@ -274,7 +277,7 @@
+ /* 800B2B60-800B3CC8       .text uniformTransEvCamera__9dCamera_cFv */
+ bool dCamera_c::uniformTransEvCamera() {
+ #ifdef TARGET_PC
+-    // Absolute Cartesian UNITRANS, with retail linear/B-spline timing.
++    // Cartesian and spherical UNITRANS, with retail linear/B-spline timing.
+     // BGCheck remains the responsibility of the shared event camera path.
+     // Retail 800B3334 sets readiness on entry; 800B3390..800B3410 uses
+     // (frame + 1) / Timer and completes at frame >= Timer.
+@@ -282,6 +285,9 @@
+         cXyz startEye, startCenter, eye, center;
+         float startFovy, fovy, startBank, bank, cushion;
+         int timer;
++        int type;
++        fopAc_ac_c* relative;
++        char mask[5];
+         bool hasBank, curve;
+     } state = {};
+     static_assert(sizeof(State) <= sizeof(mWork), "UNITRANS scratch state");
+@@ -292,11 +298,26 @@
+         getEvIntData(&curve, "BSpCurve", 1);
+         getEvIntData(&type, "TransType", 0);
+         getEvFloatData(&state.cushion, "Cushion", 1.0f);
+-        if (type || pcCameraArgument(this, "RelActor", 4)) {
+-            OSReport("[camera] unsupported UNITRANS type=%d relative=%d\n",
+-                     type, pcCameraArgument(this, "RelActor", 4) != NULL);
++        state.type = type;
++        const char* relative = (const char*)pcCameraArgument(this, "RelActor", 4);
++        const char* mask = (const char*)pcCameraArgument(this, "RelUseMask", 4);
++        if (relative) {
++            if (!strcmp(relative, "@PLAYER")) state.relative = mpPlayerActor;
++            else if (!strcmp(relative, "@STARTER")) state.relative = dComIfGp_event_getPt1();
++            else if (!strcmp(relative, "@PARTNER")) state.relative = dComIfGp_event_getPt2();
++            else if (!strcmp(relative, "@TARGET")) state.relative = dComIfGp_event_getItemPartner();
++        }
++        bool supportedMask = !mask || strlen(mask) == 4;
++        if (mask && supportedMask) {
++            for (int i = 0; i < 4; i++)
++                if (mask[i] != '-' && mask[i] != 'o') supportedMask = false;
++        }
++        if (type < 0 || type > 1 || (relative && (!state.relative || !supportedMask))) {
++            OSReport("[camera] unsupported UNITRANS type=%d relative=%s mask=%s\n",
++                     type, relative ? relative : "none", mask ? mask : "oooo");
+             return false;
+         }
++        memcpy(state.mask, mask && supportedMask ? mask : "oooo", 4);
+         state.timer = *timer;
+         state.curve = curve != 0;
+         if (state.curve && state.timer > 1)
+@@ -312,7 +333,8 @@
+         getEvFloatData(&state.bank, "Bank", mBank.Degree());
+         m100 = m101 = m102 = 1;
+         memcpy(&mWork, &state, sizeof(state));
+-        OSReport("[camera] UNITRANS absolute curve=%d timer=%d\n", state.curve, state.timer);
++        OSReport("[camera] UNITRANS type=%d relative=%s mask=%.4s curve=%d timer=%d\n",
++                 type, relative ? relative : "none", state.mask, state.curve, state.timer);
+     } else {
+         // Unsupported cuts retain false readiness; never consume old scratch.
+         if (!m100 || !m101 || !m102) return false;
+@@ -326,10 +348,32 @@
+         ratio = mEventData.mSpline2DPath.Calc(keys);
+     }
+     if (ratio > 1.0f) ratio = 1.0f;
+-    cXyz eye = state.startEye + (state.eye - state.startEye) * ratio;
+-    cXyz center = state.startCenter + (state.center - state.startCenter) * ratio;
++    // Retail resolves each endpoint every frame. '-' keeps world coordinates;
++    // 'o' rotates/translates the offset about the selected actor's attention.
++    cXyz startCenter = state.startCenter, startEye = state.startEye;
++    cXyz endCenter = state.center, endEye = state.eye;
++    if (state.relative) {
++        if (state.mask[0] != '-') startCenter = relationalPos(state.relative, &state.startCenter);
++        if (state.mask[1] != '-') startEye = relationalPos(state.relative, &state.startEye);
++        if (state.mask[2] != '-') endCenter = relationalPos(state.relative, &state.center);
++        if (state.mask[3] != '-') endEye = relationalPos(state.relative, &state.eye);
++    }
++    cXyz center = startCenter + (endCenter - startCenter) * ratio;
++    mViewCache.mCenter += (center - mViewCache.mCenter) * state.cushion;
++    cXyz eye;
++    if (state.type == 1) {
++        // 800B388C..800B3A18: interpolate the two eye-to-center globes
++        // using short angle differences, then apply Cushion to the eye.
++        cSGlobe first(startEye - startCenter), last(endEye - endCenter);
++        cSAngle pitch = first.V() + (last.V() - first.V()) * ratio;
++        cSAngle yaw = first.U() + (last.U() - first.U()) * ratio;
++        cSGlobe offset;
++        offset.Val(first.R() + (last.R() - first.R()) * ratio, pitch, yaw);
++        eye = mViewCache.mCenter + offset.Xyz();
++    } else {
++        eye = startEye + (endEye - startEye) * ratio;
++    }
+     mViewCache.mEye += (eye - mViewCache.mEye) * state.cushion;
+-    mViewCache.mCenter += (center - mViewCache.mCenter) * state.cushion;
+     mViewCache.mFovy += (state.startFovy + (state.fovy - state.startFovy) * ratio - mViewCache.mFovy) * state.cushion;
+     if (state.hasBank) {
+         cSAngle target(state.startBank + (state.bank - state.startBank) * ratio);
