@@ -208,8 +208,7 @@ class ForestStory(gdb.Breakpoint):
             else:
                 navigating=True
                 break
-        if navigating:
-            if self.after_route_loaded:self.key(44,self.age%90<5)
+        if navigating:pass
         elif targets:
             _,distance,point=min(targets)
         elif self.tetra:
@@ -230,14 +229,22 @@ class ForestStory(gdb.Breakpoint):
             fz=float(look['mCenter']['z'])-float(look['mEye']['z'])
             dx,dz=point[0]-xyz[0],point[2]-xyz[2]
             forward,right=dx*fx+dz*fz,-dx*fz+dz*fx
-            self.key((26 if forward>0 else 22) if abs(forward)>abs(right) else (7 if right>0 else 4),True)
+            if self.after_route_loaded:
+                length=math.hypot(forward,right)
+                if length>0:
+                    axes=(round(32767*right/length),round(-32767*forward/length))
+                    gdb.selected_inferior().write_memory(self.axes,struct.pack('<hh',*axes))
+            else:
+                self.key((26 if forward>0 else 22) if abs(forward)>abs(right) else (7 if right>0 else 4),True)
         return False
 
 
 def describe():
     owners=[bp for bp in gdb.breakpoints() if type(bp).__name__=='ForestStory']
     for owner in owners:
-        print('[forest-diagnostic] age=%s defeated=%s'%(owner.age,owner.defeated))
+        print('[forest-diagnostic] age=%s defeated=%s route=%d/%d'%(owner.age,owner.defeated,owner.route_index,len(owner.route)))
+        player=gdb.parse_and_eval('(daPy_lk_c*)g_dComIfG_gameInfo.play.mPlayerInfo[0].mpPlayer')
+        print('[forest-diagnostic] wall-type=%s wall-counter=%s stick=%s wall-catch-height=%s'%(player['mFrontWallType'],player['m3544'],player['mStickDistance'],player['m_HIO']['mWallCatch']['m']['field_0x18']))
         for pid,address in owner.enemies.items():
             actor=gdb.parse_and_eval('((bk_class*)0x%x)'%address)
             xyz=tuple(float(actor['current']['pos'][v]) for v in ('x','y','z'))

@@ -993,3 +993,18 @@ Verification:
   while open; do not edit active .gdb scripts again. Logs before timeout valid.
 - Birds remain gated by unk_2F2 (room switch), not yet running carry/path logic.
   FnFrxq tries a postfight input route to TagEv activation zone; no forced switch.
+
+- FnFrxq timeout124 confirms no native crash; path tried a352-unit climb and
+  stayed below the ledge. KdgVt8 tests an alternate <=245-unit portal route.
+  Link inputs only; no camera/position/switch/health writes. Warnings for raw
+  cut*_pos resources need future fidelity investigation despite first kill.
+
+- KdgVt8 intentionally SIGINT/255 after stalling at route6/28. l0vHkS repeats
+  with continuous analog steering and no periodic A/roll while navigating:
+  faster real movement, same unreachable step. Intentionally SIGINT/255,
+  diagnostic succeeds: wall-type2, counter2, full stick1, wall catch height170;
+  target ledge245 exceeds reach. Do not modify Link HIO to pass the test.
+- Next: find authentic route via smaller steps/jumps (static room geometry
+  alone omits dynamic obstacle collisions), activate TagEv, then prove both
+  carried Bokoblins, Tetra rescue and return. No new native blocker demonstrated
+  beyond the fixed RESTOREPOS. No active probes left after these stops.

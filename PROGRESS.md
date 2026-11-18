@@ -817,3 +817,26 @@ no deben perseguirse mientras esperan. La siguiente prueba, `probe-FnFrxq`,
 intenta llegar a esa zona con una ruta adicional de entradas reales, sin
 activar el interruptor artificialmente. La navegación y el rescate permanecen
 pendientes hasta conocer el resultado.
+
+**Continuación `probe-FnFrxq`: límite de tiempo (124), sin cierre espontáneo.**
+Repite el primer combate, pero el retorno propuesto intenta subir una pared de
+unas 352 unidades y no lo consigue. Los pájaros siguen esperando la activación
+del escenario; no se ha demostrado un fallo de su IA. `probe-KdgVt8` repite con
+una ruta alternativa de escalones de hasta unas 245 unidades, todavía experimental.
+También aparecen avisos de recursos `cut*_pos` sin conversión identificada;
+no impiden la primera derrota, pero su fidelidad queda pendiente de revisar.
+
+**Resultado de las rutas posteriores:** `probe-KdgVt8` y `probe-l0vHkS`
+se detuvieron deliberadamente con SIGINT (resultado 255); no son fallos
+espontáneos del juego. Ambos repiten la primera derrota, pero no alcanzan el
+interruptor de los pájaros. La segunda prueba sustituye la alternancia de
+teclas por dirección analógica continua: mejora el recorrido, pero tampoco
+supera el borde. Diagnóstico: pared tipo 2, stick 1, alcance de agarre 170;
+la ruta proponía una subida de unas 245 unidades. No se debe aumentar ese
+alcance para dar la prueba por superada. Falta encontrar el recorrido normal
+por escalones y saltos, incluyendo obstáculos que no recoge la malla estática.
+
+**Estado al guardar:** ningún rescate ni embarque demostrado; ninguna prueba
+queda ejecutándose. El primer combate tiene una regresión cerrada con resultado
+0 (`probe-orpEW2`). La navegación posterior es experimental y conserva todos
+sus fallos registrados. No se ha comprobado visualmente este tramo.
