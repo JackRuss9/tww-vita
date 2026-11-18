@@ -1183,3 +1183,13 @@ Verification:
   0x15021222). createInit read (Niko in Asoko: ev 0x808/0x720 pos from HIO+0x34,
   ev 0xf02/0x1a04 pos HIO+0x40; action tables at @2100+0x304..0x348).
   Compact asm helper: strip prologues from build/GZLE01/d_a_npc_p2/asm.
+
+## 0067 Niko (d_a_npc_p2) reconstructed
+
+- Full functional reconstruction (HIO 3 children, heaps, node CB j4 head/j2
+  backbone, setAnm tables, talk/next_msgStatus, intro/wait actions, 15 cuts incl.
+  rope pendulum). PC: searchNearLift/Rope record first candidate (retail NULL).
+- QWsZpe manual: modes 3->4 (P2B_INTRO, ride switch, Hlift_up) ->6 (TO_GOAL:
+  jump lift, lift->rope, rope talk anm 11/12 swing, rope->lift, jump to goal)
+  ->9/10/11/7 goal walk/talk ->0xC P2B_GOAL. No signal/assert.
+- Automated navigation from Asoko entrance stuck at z=319.8 (hole edge).

@@ -34,7 +34,7 @@ despedida); no impiden avanzar.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 66 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 67 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -1161,3 +1161,20 @@ un registro y en PC basura de la pila (NaN). 0066 lo inicializa a 0 en PC.
 El observador de la partida daba resultado 0 aunque el juego se cerró después
 del hito: `tools/crash.gdb` aceptaba el éxito anterior sin mirar la señal. Ahora
 informa del cierre (excepto la parada SIGTRAP con la que una prueba termina).
+
+## Niko y la prueba de las cuerdas en Asoko (0067)
+
+Al entrar en Asoko (bodega del barco pirata) no ocurría nada: el actor de
+Zuko, Niko y Mako (`d_a_npc_p2`) no estaba descompilado, ni siquiera en la
+versión oficial más reciente, y los nueve eventos de la prueba dependen de Niko.
+0067 lo reconstruye entero a partir del original: parámetros, modelos, cabeza
+y torso, parpadeo, mensajes, fases de la prueba y sus 15 acciones de
+cinemática (interruptor, saltos a plataformas, péndulo en la cuerda, meta).
+
+**Prueba manual del usuario (`probe-QWsZpe`), sin cierres:** desde el estado
+real del barco, `P2B_INTRO` (Niko pisa el interruptor y se mueve la plataforma),
+`P2B_TO_GOAL` (salta a la plataforma, se balancea en la cuerda hablando, vuelve
+y salta a la meta), conversación de espera en la meta y `P2B_GOAL` al llegar.
+
+Un controlador automático no consiguió bajar al piso inferior (se atasca en el
+borde de la abertura central); el usuario hizo ese tramo y la prueba.
