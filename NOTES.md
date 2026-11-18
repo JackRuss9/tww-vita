@@ -1159,3 +1159,27 @@ Verification:
   c_m3d_g_sph.cpp:23 from himo3_control:246 (sph SetC). m02BE==0 path never sets
   f28 but first segment uses it. PC init 0. OON7Al repro, oxy9bx fixed.
 - crash.gdb: success no longer masks a later signal ($_siginfo, SIGTRAP ok).
+
+## Next blocker: Niko (d_a_npc_p2) undecompiled — Asoko rope trial
+
+- From the ship checkpoint (run-pc/probe-4yK0MI/checkpoints/19-ship-control.bin)
+  Asoko loads after 0066, but nothing happens: actor 325 NPC_P2 (Zuko/Niko/Mako)
+  "creation not decompiled". All 9 Asoko events (P2B_INTRO, P2B_TEST_SWITCH,
+  P2B_TO_GOAL, P2B_GOAL*, P2B_BOMB_GET, P2B_ARRIVE_MAJYU, P2B_INTRO_2) star P2b.
+  Upstream zeldaret main (checked 2026-11-18) still has it undecompiled.
+- Template: Tingle d_a_npc_tc.cpp + tc_cut.inc (same style: initTexPatternAnm,
+  setTexAnm, smoke_set, wait_action, cutProc/cutXStart/cutXProc).
+- Layout so far (size 0x80C, base fopAc_ac_c): 0x290 type (param&3, 3->0;
+  0=P2a Zuko, 1=P2b Niko, 2=P2c Mako), 0x291 (param>>2&0xff, 0xff->0),
+  0x292 (param>>10&0xff), 0x294 phase, 0x29C body McaMorf, 0x2A0 book McaMorf
+  (Mako), 0x2A4 btpAnm, 0x2B8 head, 0x2BC dagger(res 0x2a), 0x2C0 res 0x27
+  model, 0x2C4 telescope (Zuko, res 0x28), 0x2CC dNpc_JntCtrl, 0x300
+  dNpc_EventCut, 0x37C ObjAcch, 0x540 AcchCir, 0x580 Stts, 0x5BC Cyl,
+  0x6EC home angle, 0x6F8/0x704 home pos, 0x748 s16, 0x74C timer, 0x754
+  dPa_smokeEcallBack, 0x7C4 action ptmf, 0x7D0 btp no, 0x7D1/0x7D3/0x7D4,
+  0x7DC.. f32 x3, 0x808 action step. Heap sizes 0x3EE0/0x37E0/0x4280.
+- Resources (index, not ID) in "P2": body 0x26, heads 0x2d/0x2e/0x2f, book
+  bck 0x23. nodeCallBack on joints 2 and 4. Body McaMorf (loop -1, 0x80000,
+  0x15021222). createInit read (Niko in Asoko: ev 0x808/0x720 pos from HIO+0x34,
+  ev 0xf02/0x1a04 pos HIO+0x40; action tables at @2100+0x304..0x348).
+  Compact asm helper: strip prologues from build/GZLE01/d_a_npc_p2/asm.
