@@ -1,0 +1,85 @@
+Reason: restore the saved event camera using retail distance, visibility and obstruction selection. Support default/player targets and saved views 0, 1 and the pushPos cache; explicitly reject global Dest 9 and other target actors. Preserve the retail FarTimer interpolation and readiness.
+
+--- a/src/d/d_ev_camera.cpp
++++ b/src/d/d_ev_camera.cpp
+@@ -360,8 +360,78 @@
+ 
+ /* 800B76C8-800B7E00       .text restorePosEvCamera__9dCamera_cFv */
+ bool dCamera_c::restorePosEvCamera() {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++#ifdef TARGET_PC
++    // Retail 800B76C8..800B7E00: choose the saved view, then retain,
++    // interpolate or snap according to distance and visibility.
++    struct State {
++        cXyz center, eye, target;
++        float fovy;
++        int mode, timer;
++        cSGlobe direction;
++    } state = {};
++    static_assert(sizeof(State) <= sizeof(mWork), "RESTOREPOS scratch state");
++    if (m11C == 0) {
++        int dest, targetType;
++        getEvIntData(&dest, "Dest", 2);
++        getEvIntData(&targetType, "TargetType", 0);
++        const char* target = (const char*)pcCameraArgument(this, "Target", 4);
++        if (dest == 9 || (target && strcmp(target, "@PLAYER"))) {
++            OSReport("[camera] unsupported RESTOREPOS dest=%d target=%s\n", dest, target ? target : "@PLAYER");
++            return false;
++        }
++        if (!mpPlayerActor) return true;
++        if (dest == 0 || dest == 1) {
++            state.center = m0A4[dest].m00.mCenter;
++            state.eye = m0A4[dest].m00.mEye;
++            state.fovy = m0A4[dest].m00.mFovY;
++        } else {
++            state.center = m084;
++            state.eye = m090;
++            state.fovy = m09C;
++        }
++        cXyz gap;
++        getEvXyzData(&gap, "CtrGap", cXyz::Zero);
++        state.target = relationalPos(mpPlayerActor, &gap);
++        float nearDist, farDist;
++        getEvFloatData(&nearDist, "NearDist", 750.0f);
++        getEvFloatData(&farDist, "FarDist", 1500.0f);
++        getEvIntData(&state.timer, "FarTimer", 30);
++        float distance = (state.eye - mViewCache.mCenter).abs();
++        state.mode = distance < nearDist ? (pointInSight(&state.target) ? 0 : 1)
++            : distance < farDist ? (lineBGCheck(&mEye, &state.target, 0x8f) ? 3 : 2) : 3;
++        state.direction.Val(state.eye - state.center);
++        if (targetType == 1) state.target = state.center;
++        memcpy(&mWork, &state, sizeof(state));
++        m100 = m101 = m102 = 1;
++        OSReport("[camera] RESTOREPOS dest=%d mode=%d timer=%d\n", dest, state.mode, state.timer);
++    } else {
++        if (!m100 || !m101 || !m102) return false;
++        memcpy(&state, &mWork, sizeof(state));
++    }
++    if (state.mode == 0) return true;
++    if (state.mode == 3) {
++        if (m11C == 0) {
++            mViewCache.mCenter = state.target;
++            mViewCache.mDirection = state.direction;
++            mViewCache.mEye = state.target + state.direction.Xyz();
++            mViewCache.mFovy = state.fovy;
++        }
++        return true;
++    }
++    if (state.timer <= 0 || m11C >= (u32)state.timer) return true;
++    float ratio = (float)m11C / state.timer;
++    mViewCache.mCenter += (state.target - mViewCache.mCenter) * ratio;
++    cSGlobe& current = mViewCache.mDirection;
++    float radius = current.R() + (state.direction.R() - current.R()) * ratio;
++    cSAngle pitch = current.V() + (state.direction.V() - current.V()) * ratio;
++    cSAngle yaw = current.U() + (state.direction.U() - current.U()) * ratio;
++    current.Val(radius, pitch, yaw);
++    mViewCache.mEye = mViewCache.mCenter + current.Xyz();
++    mViewCache.mFovy += (state.fovy - mViewCache.mFovy) * ratio;
++    return false;
++#else
++    return false;
++#endif
+ }
+ 
+ /* 800B7E00-800B7EBC       .text talktoEvCamera__9dCamera_cFv */

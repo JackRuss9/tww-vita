@@ -31,7 +31,7 @@ Las tareas posteriores de la isla y el embarque siguen pendientes.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 57 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 59 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -754,3 +754,66 @@ la salida del bosque ni el embarque. La primera ejecución encadenada es
 No hay todavía una estimación fiable de sesiones: faltan partes del código
 original, además de errores de adaptación a PC. La estimación se revisará
 cuando se complete el primer recorrido real y se identifiquen sus bloqueos.
+
+## 18 de noviembre: entrada y cámaras del bosque (0058 / 0059)
+
+El estado guardado local de diagnóstico procede de la espada ganada en las
+seis lecciones de Orca. `tools/forest_replay.gdb` exige indicar explícitamente
+`TWW_FOREST_CHECKPOINT`; restaura ese estado y solicita `A_mori`. No prueba el
+recorrido desde el menú ni la puerta del bosque. Las pruebas se ejecutan sin
+ventana, capturas ni salida de audio, conservando la tarjeta del usuario.
+
+- `probe-DOJypj`: repite la espada y conserva el punto ganado; la presentación
+  del bosque queda detenida en UNITRANS, cuya curva predeterminada faltaba.
+- 0058 recupera la curva B-spline del original con claves 0,0,1,1 y Cushion.
+  Las transiciones de 70 y 20 fotogramas del bosque superan comprobaciones
+  independientes de posición, FOV, disponibilidad y finalización por fotograma.
+  `probe-t43LWK` termina con resultado 0 y conserva también las transiciones
+  lineales de 60 y 30 fotogramas de Orca; este modo no repite las seis lecciones.
+- `probe-jnxL8V`: termina la presentación, pero el controlador persigue enemigos
+  aún suspendidos en el aire. No se demuestra un fallo del enemigo.
+- `probe-0QSOGQ`: priorizar al enemigo del suelo evita lo anterior, pero la ruta
+  directa choca con un desnivel. Es un fallo de navegación de la prueba.
+- `probe-ow9Aej`: una ruta local de 17 puntos, recorrida con entradas de mando,
+  alcanza la zona del primer enemigo sin trasladar artificialmente a Link.
+  Se bloquea en AMORI_DEMO_2, corte 34 RESTOREPOS, sin argumentos. Los otros
+  participantes han terminado; la función de cámara todavía estaba vacía.
+  Finaliza por el límite de tiempo; no es un cierre espontáneo del juego.
+- 0059 implementa la restauración de vistas guardadas, selección según distancia,
+  visibilidad y obstáculos, y transición FarTimer del original. Dest 9 y objetivos
+  distintos de @PLAYER siguen explícitamente pendientes. Compilación PC superada;
+  `probe-DJRkq4` supera la restauración (modo 2, 30 fotogramas), devuelve el
+  control y derrota al primer Bokoblin con ataques normales: vida 0 y eliminación
+  posterior del actor. No hay combate ni rescate completo: el controlador se
+  atasca contra el desnivel al perseguir los dos enemigos transportados.
+
+Reproducción desde fuentes limpias: **59 parches tww** aplicados y coincidencia
+exacta de los dos archivos de cámara y del archivo principal de Link. El combate,
+rescate de Tetra, regreso, escudo y embarque siguen sin estar validados.
+Las rutas y partidas locales contienen datos propios del juego y no se publican.
+
+**Regresión cerrada `probe-orpEW2`: resultado 0.** Con
+`TWW_FOREST_FIRST_FIGHT=1` verifica las curvas de la introducción, la ruta,
+RESTOREPOS con vista finita y disponibilidad, control recuperado y primer
+Bokoblin derrotado mediante ataques. No equivale al rescate de Tetra.
+La prueba anterior DJRkq4 termina por límite de tiempo (124); su diagnóstico
+final de GDB falló porque se editó el archivo de órdenes mientras estaba
+abierto. Los resultados previos de juego quedan en el registro; la repetición
+cerrada evita depender de ese diagnóstico.
+
+Repetición del hito (requiere los puntos locales ganados y la ruta local):
+
+```sh
+SMS_AUDIO=0 SMS_AUDIO_OUT=null SDL_AUDIODRIVER=dummy \
+TWW_FOREST_FIRST_FIGHT=1 \
+TWW_FOREST_CHECKPOINT="$PWD/run-pc/orca-regression/earned-sword-savedata.bin" \
+TWW_FOREST_ROUTE="$PWD/run-pc/orca-regression/forest-path.json" \
+./tools/probe-pc.sh --outset --headless --deterministic --no-captures \
+  --seconds 240 --gdb "$PWD/tools/forest_replay.gdb"
+```
+
+Los pájaros tienen una condición de activación por interruptor de escenario;
+no deben perseguirse mientras esperan. La siguiente prueba, `probe-FnFrxq`,
+intenta llegar a esa zona con una ruta adicional de entradas reales, sin
+activar el interruptor artificialmente. La navegación y el rescate permanecen
+pendientes hasta conocer el resultado.

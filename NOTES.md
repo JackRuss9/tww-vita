@@ -962,3 +962,34 @@ Verification:
   prior debug output '=type2443' was an observer overread, not proven corruption.
 - Clean57-patch reproduction matches both camera files and Link; local stamp
   updated. sms-port remains5 unchanged. Native build succeeds.
+
+## 2026-11-18 forest intro and first fight (0058 / 0059)
+
+- Earned sword checkpoint comes from DOJypj's real six lessons; replay requests
+  A_mori explicitly and is not a full menu/door run. No item/kill/event grants.
+- 0058 implements default quadratic UNITRANS B-spline keys 0,0,1,1 and Cushion.
+  Independent per-frame oracle passes forest 70/20-frame curves. Linear Orca
+  60/30 regression t43LWK exits 0 (camera-only mode, not all lessons again).
+- jnxL8V chased carried airborne enemies; 0QSOGQ hit terrain on a direct path.
+  ow9Aej follows 17 local waypoints using actual movement, reaches first fight
+  but AMORI_DEMO_2 cut34 RESTOREPOS was empty; bounded timeout, not native crash.
+- 0059 follows retail 800B76C8..7E00 distance/visibility/lineBGCheck selection,
+  saved views 0/1/pushPos, player target, FarTimer interpolation. Dest9 and
+  nonplayer targets remain explicitly unsupported. NearTimer and Cushion are
+  read by retail but not used in its actual restoration branches.
+- DJRkq4: restore mode2/timer30 returns control; ordinary attacks deplete ground
+  Bokoblin502 health to0 and delete it. Afterwards controller sticks at terrain
+  near (4097,3365,-1241) chasing carried enemies. Rescue remains unverified.
+- Added optional TWW_FOREST_FIRST_FIGHT to finish a bounded first-fight regression,
+  finite-view/readiness observer for RESTOREPOS and bird-path diagnostics for
+  subsequent runs. Native build succeeds; clean59-patch application exactly
+  matches camera and Link source files. Local stamp updated after comparison.
+- All tests muted/headless; no visual quality or sound fidelity claim. Local
+  earned saves, extracted assets and route coordinates are not published.
+
+- Closed regression orpEW2 exits0: curved intro, actual navigation, RESTOREPOS
+  finite view/readiness completion at30 (also called at31), first actual kill.
+- DJRkq4 timeout124 final GDB commands failed because replay.gdb was edited
+  while open; do not edit active .gdb scripts again. Logs before timeout valid.
+- Birds remain gated by unk_2F2 (room switch), not yet running carry/path logic.
+  FnFrxq tries a postfight input route to TagEv activation zone; no forced switch.

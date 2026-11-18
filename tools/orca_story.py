@@ -96,6 +96,7 @@ class PartnerFrame(gdb.Breakpoint):
         return False
 
 class UniformDone(gdb.FinishBreakpoint):
+    completed_timers=set()
     def __init__(self,camera,frame,values):
         super().__init__(gdb.newest_frame(),internal=True)
         self.camera,self.frame,self.values=camera,frame,values
@@ -111,6 +112,7 @@ class UniformDone(gdb.FinishBreakpoint):
         assert abs(float(camera['mViewCache']['mFovy'])-fovy)<.001
         assert all(int(camera[f]) for f in ('m100','m101','m102'))
         assert bool(self.return_value)==(self.frame>=timer),(self.frame,self.return_value)
+        if bool(self.return_value):UniformDone.completed_timers.add(timer)
         if self.frame in (0,timer//2-1,timer-1,timer):
             print('[orca-camera] UNITRANS frame=%d/%d ratio=%.6f Eye/Center/FOV/ready/end verified'%(self.frame,timer,ratio))
         return False
@@ -198,6 +200,7 @@ class OrcaStory(gdb.Breakpoint):
         self.prep_age=0
         self.phases=set()
         self.present=False
+        UniformDone.completed_timers.clear()
         self.free_age=0
         OrcaActor(self)
         DoorActor(self)
@@ -245,6 +248,10 @@ class OrcaStory(gdb.Breakpoint):
             self.last_cut=cut_state
             print('[orca-input] phase=%d proc/cut=%s distance=%.1f'%(phase,cut_state,distance))
         if self.age%120==0:print('[orca] distance=%.1f proc=%s cut=%s'%(distance,player['mCurProc'],player['mCutType']))
+        if os.environ.get('TWW_TEST_ORCA_CAMERAS')=='1' and phase==0 and 'teachAction' in action and {30,60}.issubset(UniformDone.completed_timers):
+            print('[orca-camera] SUCCESS: both linear transitions and initial training control; sword training not tested in this mode')
+            gdb.set_convenience_variable('tww_probe_success',1)
+            return True
         if self.present and equip==0x38 and 'teachAction' not in action:
             self.free_age+=1
             if self.free_age==30:self.origin=xyz
