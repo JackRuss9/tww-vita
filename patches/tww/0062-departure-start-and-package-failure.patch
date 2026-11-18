@@ -1,0 +1,52 @@
+Reason: restrict TWW_START_OUTSET start-demo bypass to diagnostic points 204/0 so the authored pirate departure at point205/layer10 can start. Report missing required cinematic actors and retain failed PACKAGE cuts without granting their EventFlag or silently completing the scene. The actual departure still requires the undecompiled Ym1/Ym2 actors; this patch does not bypass or complete it.
+
+--- a/src/d/d_event_manager.cpp
++++ b/src/d/d_event_manager.cpp
+@@ -26,10 +26,11 @@
+     const char* outset = getenv("TWW_START_OUTSET");
+     if (outset && strcmp(outset, "1") == 0 &&
+         strcmp(dComIfGp_getStartStageName(), "sea") == 0 &&
+-        dComIfGp_getStartStageRoomNo() == 44) {
+-        // Even event 0xFF normally schedules DEFAULT_START, whose event
+-        // camera is undecompiled. The movement-test route starts under
+-        // the regular player camera instead of waiting for that cutscene.
++        dComIfGp_getStartStageRoomNo() == 44 &&
++        (dComIfGp_getStartStagePoint() == 204 || dComIfGp_getStartStagePoint() == 0)) {
++        // Only the diagnostic entry (204) and explicit point-0 replays
++        // bypass their starting demo. Keep authored later arrivals intact:
++        // Tetra uses point 205/layer 10 to begin the pirate-ship departure.
+         init();
+         return 0xFF;
+     }
+--- a/src/d/d_event_data.cpp
++++ b/src/d/d_event_data.cpp
+@@ -793,7 +793,17 @@
+                 if (demo_data == NULL)
+                     demo_data = dComIfG_getStageRes("Stage", filename);
+                 JUT_ASSERT(0x42e, demo_data);
++#ifdef TARGET_PC
++                // A failed package has not played: retain its pending cut and
++                // do not grant its EventFlag or silently finish at demo mode 0.
++                if (!demo_data || !g_dComIfG_gameInfo.play.getDemo()->create((const u8*)demo_data, pOffsetPos, offsetAngY)) {
++                    OSReport("[demo] PACKAGE failed to load %s; cut remains pending, EventFlag unchanged\n", filename);
++                    mWipeDirection = -1;
++                    return;
++                }
++#else
+                 dComIfGp_demo_create((const u8*)demo_data, pOffsetPos, offsetAngY);
++#endif
+                 dComIfGp_event_setCullRate(10.0f);
+                 int* eventFlag = dComIfGp_evmng_getMyIntegerP(staffIdx, "EventFlag");
+                 if (eventFlag != NULL)
+--- a/src/d/d_demo.cpp
++++ b/src/d/d_demo.cpp
+@@ -592,6 +592,9 @@
+                     return NULL;
+                 fopAcM_setStageLayer(ac);
+             } else {
++#ifdef TARGET_PC
++                OSReport("[demo] required cinematic actor is unavailable: %s\n", name);
++#endif
+                 return NULL;
+             }
+         }

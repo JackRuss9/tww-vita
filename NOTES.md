@@ -1062,3 +1062,31 @@ Verification:
 - tools/beach_replay.gdb requires explicit TWW_BEACH_CHECKPOINT and optional
   TWW_BEACH_SAVE_CHECKPOINT after natural completion. Next visible verification,
   grandma shield, departure. No island-complete or full-menu-run claim.
+
+## 0062 shield earned; departure start repaired, Ym2 blocks package
+
+- User earns/equips shield and agrees with Tetra. Native next-stage request is
+  sea205/44/layer10. Actual capture confirms shield/dock arrangement. Exported
+  earned savedata to beach-regression/departure-earned-savedata.bin locally.
+  Closed visible game/GDB1596 intentionally; no spontaneous crash.
+- TWW_START_OUTSET incorrectly skipped all sea44 start demos, including205.
+  Restrict bypass to diagnostic204 and explicit replay0, preserving authored
+  later entries. PLYR205 params09ff002c select EVNT9 departure_DEMO (event115).
+- P6C2Oq timeout124: native package starts then parse fails; previous code would
+  grant EventFlag9217/0x2401 and silently close package despite load failure.
+- d9CnzW intentional diagnostic255: JStudio parser accepts blocks until JACT
+  Ym2 then returnsfalse. Demo05 departure.stb has24 blocks/19552 bytes; package
+  next destination A_umikz204/room0/layer-1. Not reached. Ym1/Ym2 profiles share
+  d_a_npc_ym1.cpp, with _create/_execute/_draw/heap creation still undecompiled.
+  Do not bypass the actors or claim cinematic complete. Next recover real NPC
+  lifecycle/model/demo support; further blockers may remain.
+- 0062 logs missing cinematic actor and failed PACKAGE. PC failed create keeps
+  mWipeDirection=-1, retains cut, and never grants EventFlag. Success path intact.
+- AlkjpH timeout124: guard works but FinishBreakpoint did not close observer.
+  Replaced it with read-only pending-staff polling. hDQPUl exits0 explicitly
+  EXPECTED BLOCKER VERIFIED: authored event starts, cut completion unset,
+  persistent0x2401 unset. This is failure-handling proof, NOT departure success.
+- Build and clean62-patch match pass for event/demo/camera/Link sources; stamp
+  updated. User asks all work pushed to main. Local bundled origin preserved.
+- UNITRANS PARTNER/--or warnings recorded separately; still unsupported, not
+  established as the departure package cause. No live probes/sound left.

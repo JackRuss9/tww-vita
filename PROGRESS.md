@@ -8,7 +8,7 @@ La versión de PS Vita queda aplazada hasta conseguirlo en PC.
 normal hasta recuperar el control y caminar con Link, sin saltar la historia.
 Una prueba manual desde el bosque ya llega al rescate de Tetra, el secuestro
 de Abril y la conversación posterior en la playa. La conversación ya termina en la prueba automática; el
-escudo y el embarque siguen pendientes; no valida todo el recorrido desde el menú.
+escudo ya se ha obtenido en prueba manual; el embarque sigue pendiente; no valida todo el recorrido desde el menú.
 
 ## Entorno de verificación
 
@@ -33,7 +33,7 @@ escudo y el embarque siguen pendientes; no valida todo el recorrido desde el men
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 61 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 62 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -950,3 +950,67 @@ TWW_BEACH_CHECKPOINT="$PWD/run-pc/forest-manual/beach-earned-savedata.bin" \
 `TWW_BEACH_SAVE_CHECKPOINT` permite exportar el estado después de la prueba.
 Siguiente hito: comprobar visualmente la playa, obtener el escudo y continuar
 hacia la despedida y el embarque. La isla completa aún no está validada.
+
+## Escudo obtenido; despedida bloqueada por actores sin implementar (0062)
+
+**Prueba manual del usuario:** obtiene y equipa el escudo, vuelve a Tetra y
+acepta subir al barco. La captura confirma el escudo y la colocación de Link,
+piratas y abuela para la despedida. El registro confirma la petición nativa
+`sea point 205 room 44 layer 10`. Se preservó el estado ganado en un volcado
+local; no se incluyen partidas ni capturas del juego en el repositorio.
+
+Se localizaron dos problemas sucesivos:
+
+1. El atajo de diagnóstico `TWW_START_OUTSET` omitía cualquier demo inicial de
+   sea/44, incluida la despedida. 0062 lo limita a los puntos de diagnóstico
+   204 y 0. Las llegadas posteriores, como 205/capa 10, siguen el flujo original.
+2. Al permitir ese arranque, el evento 115 `departure_DEMO` intenta reproducir
+   `departure.stb` desde Demo05. El análisis del paquete acepta sus primeros
+   objetos, pero rechaza el actor **Ym2**. `Ym1` y `Ym2` comparten
+   `d_a_npc_ym1.cpp`, cuya creación, ejecución, dibujo y otras funciones están
+   vacías en la decompilación actual. Esta cinemática necesita esos personajes;
+   no se ha omitido su participación ni se ha saltado al siguiente escenario.
+
+El paquete original solicita como siguiente destino **A_umikz, punto 204,
+habitación 0**, pero no se ha alcanzado. Recuperar el código de estos NPC es
+el siguiente trabajo concreto; podrían aparecer otros requisitos después.
+El hito verificado llega ahora al escudo y a aceptar la salida, no a embarcar.
+
+0062 también registra el nombre del actor de cinemática ausente y mantiene
+pendiente un paquete que no carga. Evita conceder su EventFlag o dar la escena
+por terminada cuando el reproductor devuelve un fallo. No corrige todavía la
+creación de Ym1/Ym2.
+
+Pruebas conservadas localmente:
+
+- `probe-P6C2Oq`: límite de tiempo 124. Demuestra que el evento comienza tras
+  restringir el atajo, pero el paquete falla y el código anterior lo termina
+  sin reproducir la despedida.
+- `probe-d9CnzW`: parada de diagnóstico intencionada (255). El reproductor
+  acepta control, cámara, Link, barco, Tetra, abuela, piratas y otros objetos;
+  falla exactamente al resolver el bloque JACT de Ym2.
+- `probe-AlkjpH`: límite de tiempo 124. El mensaje de fallo y la escena pendiente
+  aparecen con la protección; su primer observador de retorno no cerró la prueba.
+- **`probe-hDQPUl`: resultado 0 del ensayo de fallo esperado.** Comprueba que
+  la despedida arranca, el paquete fallido conserva su corte pendiente y la
+  bandera de finalización 0x2401 sigue sin concederse. Este resultado prueba
+  la protección, **no una despedida ni un embarque satisfactorios**.
+
+Compilación PC y reproducción limpia de **62 parches tww** superadas; los
+archivos de eventos, demo, cámara y Link coinciden con el árbol local. Todas
+las pruebas automáticas son sin ventana ni sonido. La ventana manual atascada
+se cerró expresamente con SIGINT; el juego no se cerró por un fallo espontáneo.
+
+Para repetir la comprobación del bloqueo (necesita el volcado local ganado):
+
+```sh
+SMS_AUDIO=0 SMS_AUDIO_OUT=null SDL_AUDIODRIVER=dummy \
+TWW_DEPARTURE_EXPECT_BLOCKER=1 \
+TWW_DEPARTURE_CHECKPOINT="$PWD/run-pc/beach-regression/departure-earned-savedata.bin" \
+./tools/probe-pc.sh --outset --headless --deterministic --no-captures \
+  --seconds 90 --gdb "$PWD/tools/departure_replay.gdb"
+```
+
+También se observaron avisos UNITRANS `@PARTNER / --or` durante la prueba
+manual. Esa máscara de cámara sigue pendiente, pero no se ha demostrado como
+causa de la falta de reproducción de departure.stb. No confundir ambos problemas.
