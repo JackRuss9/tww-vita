@@ -919,3 +919,46 @@ Verification:
 - Local research retained: orca-regression/initial.gdb, replay.gdb,
   unitrans-retail.txt; shared disassembler user-camera-regression/disasm-retail.py.
   No extracted assets, saves or recordings are added to Git.
+
+## 2026-11-18 resumed: Orca sword training passes (0056 / 0057)
+
+- User resumed and requested maximum story progress, recording errors.
+- 0056 absolute Cartesian linear UNITRANS: retail 800B3334 readiness on entry;
+  800B3390..3410 ratio (frame+1)/Timer, return true at frame>=Timer. Actual
+  60/30 frame trajectories verified every update by native FinishBreakpoint,
+  including Eye/Center/FOV/readiness/return. Other variants remain explicit
+  unsupported: spline, relative actors, BG correction, non-unit Cushion.
+- New blocker: Ji1_BadSpeak CAMERA cut43 FIXEDPOS, @PLAYER/n, CtrCus0.2,
+  Eye(0,-50,-400), BGCheck2. Message0x96f stayed at status1 because camera stub
+  never became ready. 0057 follows retail 800B2680..2B60: eye resolved once,
+  attention target followed with CtrGap/CtrCus, radius/timer/optional bank.
+  Only player target/relative eye implemented; actual correction shots verified
+  numerically including center smoothing, eye position and ready/completion.
+- Controller corrections: no attack while walking in for first two lessons;
+  counterattack prompt is mDoStatus (dActStts_PARRY), NOT mAStatus. No native
+  gameplay patch/quest flags/counter edits to make attacks accepted.
+- sOYoKv: UNITRANS passes, exposes FIXEDPOS; server restart interrupted driver,
+  no final status artifact. bwWCN6 advances through spin but old controller
+  waits on wrong prompt; external timeout then 10s kill gives137. A private
+  experimental GDB continuation updated controller after SIGINT and got one
+  genuine parry before kill; not a pass. Removed auto-continue from replay;
+  current checked-in replay honors stop/timeout normally.
+- IKgLHt exits0: phases0..5 accepted, real sword presentation creation,
+  saved selected sword0x38, final dialogue, control and236.439 walking. Both
+  camera numerical observers pass, including real rejected-hit dialogues.
+  This is a muted headless diagnostic using native savedata earned in cvG47g,
+  requesting Ojhous; not menu/door traversal or visual/audio validation.
+- Added tools/orca_replay.gdb requiring explicit TWW_ORCA_CHECKPOINT; no save
+  bundled. TWW_SWORD_SAVE_CHECKPOINT optionally retains genuinely earned state
+  after success. TWW_TEST_FOREST=1 chains experimental ForestStory, stage A_mori
+  point0 room0 layer-auto, keeping sword/flags; no combat counters modified.
+- DOJypj is currently repeating training to retain earned-sword-savedata.bin
+  and enter forest. Forest code unvalidated; no Tetra rescue/departure claim.
+- Local FST/room inspection confirms A_mori ACT0 contains Zl1 and3 Bk actors;
+  Omori is the Deku tree area, not Outset forest. Only local disc data parsed,
+  no assets uploaded. list-forest.cpp initially missed -I sms-port/src for
+  port_host.h; fixed helper include path, not a game-build regression.
+- Diagnostic data loops now reject unsigned0xffffffff/out-of-table indices;
+  prior debug output '=type2443' was an observer overread, not proven corruption.
+- Clean57-patch reproduction matches both camera files and Link; local stamp
+  updated. sms-port remains5 unchanged. Native build succeeds.

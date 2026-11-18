@@ -1,0 +1,77 @@
+Reason: implement FIXEDPOS with a fixed eye and player attention tracking, matching the default @PLAYER Target and RelActor used by Ji1_BadSpeak. Resolve eye once, apply CtrCus each update, bound Radius, and retain retail Timer/readiness semantics. Other actor targets remain unsupported.
+
+--- a/src/d/d_ev_camera.cpp
++++ b/src/d/d_ev_camera.cpp
+@@ -201,8 +201,70 @@
+ 
+ /* 800B2680-800B2B60       .text fixedPositionEvCamera__9dCamera_cFv */
+ bool dCamera_c::fixedPositionEvCamera() {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++#ifdef TARGET_PC
++    // Retail FIXEDPOS: resolve Eye once, then ease Center toward Target's
++    // attention point plus CtrGap. Timer is optional; readiness is immediate.
++    struct State {
++        cXyz eye, gap;
++        fopAc_ac_c* target;
++        float fovy, cushion, radius, startRadius, bank;
++        int timer;
++        bool hasTimer, hasBank;
++    } state = {};
++    static_assert(sizeof(State) <= sizeof(mWork), "FIXEDPOS scratch state");
++    if (m11C == 0) {
++        const char* target = (const char*)pcCameraArgument(this, "Target", 4);
++        const char* relative = (const char*)pcCameraArgument(this, "RelActor", 4);
++        const char* mask = (const char*)pcCameraArgument(this, "RelUseMask", 4);
++        if ((target && strcmp(target, "@PLAYER")) ||
++            (relative && strcmp(relative, "@PLAYER")) ||
++            (mask && strcmp(mask, "n") && strcmp(mask, "o") && strcmp(mask, "-"))) {
++            OSReport("[camera] unsupported FIXEDPOS target=%s relative=%s mask=%s\n",
++                     target ? target : "@PLAYER", relative ? relative : "none", mask ? mask : "o");
++            return false;
++        }
++        state.target = mpPlayerActor;
++        if (!state.target) return false;
++        getEvXyzData(&state.eye, "Eye", mEye);
++        if (relative && (!mask || strcmp(mask, "-")))
++            state.eye = relationalPos(mpPlayerActor, &state.eye);
++        getEvXyzData(&state.gap, "CtrGap", cXyz::Zero);
++        getEvFloatData(&state.fovy, "Fovy", mFovy);
++        getEvFloatData(&state.cushion, "CtrCus", 1.0f);
++        getEvFloatData(&state.radius, "Radius", 100000.0f);
++        getEvFloatData(&state.startRadius, "StartRadius", state.radius);
++        state.hasBank = pcCameraArgument(this, "Bank", 0) != NULL;
++        getEvFloatData(&state.bank, "Bank", 0.0f);
++        int* timer = (int*)pcCameraArgument(this, "Timer", 3);
++        state.hasTimer = timer != NULL;
++        state.timer = timer ? *timer : 0;
++        memcpy(&mWork, &state, sizeof(state));
++        m100 = m101 = m102 = 1;
++        OSReport("[camera] FIXEDPOS target=PLAYER cushion=%.3f\n", state.cushion);
++    } else {
++        if (!m100 || !m101 || !m102) return false;
++        memcpy(&state, &mWork, sizeof(state));
++    }
++    cXyz center = relationalPos(state.target, &state.gap);
++    mViewCache.mCenter += (center - mViewCache.mCenter) * state.cushion;
++    mViewCache.mEye = state.eye;
++    mViewCache.mDirection.Val(mViewCache.mEye - mViewCache.mCenter);
++    float radius = state.radius;
++    bool complete = !state.hasTimer || state.timer <= 0 || m11C >= (u32)state.timer;
++    if (!complete) radius = state.startRadius + (state.radius - state.startRadius) * ((float)m11C / state.timer);
++    if (mViewCache.mDirection.R() > radius) {
++        mViewCache.mDirection.R(radius);
++        mViewCache.mEye = mViewCache.mCenter + mViewCache.mDirection.Xyz();
++    }
++    mViewCache.mFovy = state.fovy;
++    if (state.hasBank) {
++        mViewCache.mBank = cSAngle(state.bank);
++        setFlag(0x400);
++    }
++    return complete;
++#else
++    return {}; // tww-vita: not decompiled yet
++#endif
+ }
+ 
+ /* 800B2B60-800B3CC8       .text uniformTransEvCamera__9dCamera_cFv */

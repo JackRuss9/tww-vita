@@ -1,0 +1,70 @@
+Reason: implement the absolute Cartesian UNITRANS branch used by Orca Ji1_linkmove, with explicit linear timing, real view interpolation and retail readiness/completion. B-spline, relative, collision and non-unit cushion variants remain unsupported.
+
+--- a/src/d/d_ev_camera.cpp
++++ b/src/d/d_ev_camera.cpp
+@@ -207,8 +207,63 @@
+ 
+ /* 800B2B60-800B3CC8       .text uniformTransEvCamera__9dCamera_cFv */
+ bool dCamera_c::uniformTransEvCamera() {
+-    /* Nonmatching */
+-    return {}; // tww-vita: not decompiled yet
++#ifdef TARGET_PC
++    // Absolute Cartesian UNITRANS, without a B-spline or BG correction.
++    // Retail 800B3334 sets readiness on entry; 800B3390..800B3410 uses
++    // (frame + 1) / Timer and completes at frame >= Timer.
++    struct State {
++        cXyz startEye, startCenter, eye, center;
++        float startFovy, fovy, startBank, bank;
++        int timer;
++        bool hasBank;
++    } state = {};
++    static_assert(sizeof(State) <= sizeof(mWork), "UNITRANS scratch state");
++    if (m11C == 0) {
++        int* timer = (int*)pcCameraArgument(this, "Timer", 3);
++        if (!timer) return true;
++        int curve = 1, type = 0, bgCheck = 1;
++        float cushion = 1.0f;
++        getEvIntData(&curve, "BSpCurve", 1);
++        getEvIntData(&type, "TransType", 0);
++        getEvIntData(&bgCheck, "BGCheck", 1);
++        getEvFloatData(&cushion, "Cushion", 1.0f);
++        if (curve || type || bgCheck || cushion != 1.0f || pcCameraArgument(this, "RelActor", 4)) {
++            OSReport("[camera] unsupported UNITRANS curve=%d type=%d BG=%d relative=%d\n",
++                     curve, type, bgCheck, pcCameraArgument(this, "RelActor", 4) != NULL);
++            return false;
++        }
++        state.timer = *timer;
++        getEvXyzData(&state.startEye, "StartEye", mEye);
++        getEvXyzData(&state.startCenter, "StartCenter", mCenter);
++        getEvXyzData(&state.eye, "Eye", mEye);
++        getEvXyzData(&state.center, "Center", mCenter);
++        getEvFloatData(&state.startFovy, "StartFovy", mFovy);
++        getEvFloatData(&state.fovy, "Fovy", mFovy);
++        state.hasBank = pcCameraArgument(this, "StartBank", 0) || pcCameraArgument(this, "Bank", 0);
++        getEvFloatData(&state.startBank, "StartBank", mBank.Degree());
++        getEvFloatData(&state.bank, "Bank", mBank.Degree());
++        m100 = m101 = m102 = 1;
++        memcpy(&mWork, &state, sizeof(state));
++        OSReport("[camera] UNITRANS absolute linear timer=%d\n", state.timer);
++    } else {
++        // Unsupported cuts retain false readiness; never consume old scratch.
++        if (!m100 || !m101 || !m102) return false;
++        memcpy(&state, &mWork, sizeof(state));
++    }
++    float ratio = state.timer > 0 ? (float)(m11C + 1) / state.timer : 1.0f;
++    if (ratio > 1.0f) ratio = 1.0f;
++    mViewCache.mEye = state.startEye + (state.eye - state.startEye) * ratio;
++    mViewCache.mCenter = state.startCenter + (state.center - state.startCenter) * ratio;
++    mViewCache.mFovy = state.startFovy + (state.fovy - state.startFovy) * ratio;
++    if (state.hasBank) {
++        mViewCache.mBank = cSAngle(state.startBank + (state.bank - state.startBank) * ratio);
++        setFlag(0x400);
++    }
++    mViewCache.mDirection.Val(mViewCache.mEye - mViewCache.mCenter);
++    return state.timer <= 0 || m11C >= (u32)state.timer;
++#else
++    return {}; // tww-vita: not decompiled yet
++#endif
+ }
+ 
+ /* 800B3E18-800B5110       .text uniformBrakeEvCamera__9dCamera_cFv */
