@@ -1,0 +1,45 @@
+Reason: the place-name banner shown on arriving somewhere new ("Forsaken Fortress", ...) loads /res/placename/pn_XX.bti straight from the disc with mDoDvdThd_toMainRam_c. That path passed an empty name to the endian layer, which identifies magic-less .bti files only by name, so the ResTIMG header stayed big-endian ('resource format not converted', 14432 bytes) and the banner drew as a blank white sign. Keep the disc path on PC and pass it when it ends in .bti; other direct loads (.bin tables, particles, menus) keep the previous magic-only behaviour.
+
+--- a/include/m_Do/m_Do_dvd_thread.h
++++ b/include/m_Do/m_Do_dvd_thread.h
+@@ -103,6 +103,11 @@
+     /* 0x1C */ void* mData;
+     /* 0x20 */ s32 mDataSize;
+     /* 0x24 */ JKRHeap* mHeap;
++#ifdef TARGET_PC
++    // The disc path, so the endian layer can recognise formats by name
++    // (standalone .bti files have no magic).
++    char mPath[64];
++#endif
+ };  // Size = 0x28
+ 
+ struct mDoDvdThdStack {
+--- a/src/m_Do/m_Do_dvd_thread.cpp
++++ b/src/m_Do/m_Do_dvd_thread.cpp
+@@ -285,6 +285,10 @@
+     if (cmd != NULL) {
+         s32 entryNumber = my_DVDConvertPathToEntrynum(path);
+         cmd->mEntryNum = entryNumber;
++#ifdef TARGET_PC
++        strncpy(cmd->mPath, path, sizeof(cmd->mPath) - 1);
++        cmd->mPath[sizeof(cmd->mPath) - 1] = '\0';
++#endif
+         if (cmd->mEntryNum == -1) {
+             cmd->mIsDone = true;
+             delete cmd;
+@@ -318,9 +322,13 @@
+         mDataSize = heap->getSize(mData);
+ #ifdef TARGET_PC
+         // Whole files read straight from the disc (the common particle
+-        // archive, ...): converted by their magic. (The AAF, known by its
++        // archive, place-name .bti, ...): converted by magic or name. (The AAF, known by its
+         // name only, is converted in mDoAud_Create.)
+-        port_res_to_native_named(mData, mDataSize, "");
++        // Only .bti (no magic) is identified by name here: other files keep the
++        // magic-only behaviour (the game's .bin tables are not Sunshine's).
++        size_t len = strlen(mPath);
++        bool bti = len > 4 && strcmp(mPath + len - 4, ".bti") == 0;
++        port_res_to_native_named(mData, mDataSize, bti ? mPath : "");
+ #endif
+     }
+ 

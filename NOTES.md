@@ -1193,3 +1193,10 @@ Verification:
   jump lift, lift->rope, rope talk anm 11/12 swing, rope->lift, jump to goal)
   ->9/10/11/7 goal walk/talk ->0xC P2B_GOAL. No signal/assert.
 - Automated navigation from Asoko entrance stuck at z=319.8 (hole edge).
+
+## 0068 place-name bti via mDoDvdThd_toMainRam
+
+- QWsZpe: Asoko treasure -> MajyuE, majyuu_shinnyuu, Link inside FF. PName.arc
+  then "[endian] not converted '...h.(..' 14432 B" = pn_XX.bti raw from DVD
+  (toMainRam passed name ""). PC now stores path, passes it only for .bti.
+  Not yet seen on screen (running build predates it).

@@ -34,7 +34,7 @@ despedida); no impiden avanzar.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 67 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 68 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -1178,3 +1178,20 @@ y salta a la meta), conversación de espera en la meta y `P2B_GOAL` al llegar.
 
 Un controlador automático no consiguió bajar al piso inferior (se atasca en el
 borde de la abertura central); el usuario hizo ese tramo y la prueba.
+
+## Tras Asoko: llegada a la Fortaleza Maldita y cartel en blanco (0068)
+
+Con 0067 el usuario sigue jugando en la misma partida: abre el cofre de la
+meta, el barco llega a la Fortaleza Maldita (`MajyuE`), habla con los piratas,
+se reproduce el lanzamiento (`majyuu_shinnyuu`) y Link aparece dentro de la
+fortaleza sin espada, como en el original. Sin cierres.
+
+**Cartel con el nombre del lugar en blanco (0068).** La imagen del cartel
+(`/res/placename/pn_XX.bti`) se lee directamente del disco. Esa ruta pasaba un
+nombre vacío a la conversión de formato, que reconoce los `.bti` (sin firma)
+solo por la extensión. La cabecera quedaba en big-endian (`resource format not
+converted`, 14.432 bytes) y el cartel salía como un rectángulo blanco. Ahora se
+pasa la ruta real cuando termina en `.bti`; las demás lecturas directas no
+cambian. Compilación y reproducción limpia superadas. **Falta confirmarlo en
+pantalla** con el siguiente cartel: la partida en curso usa el ejecutable
+anterior.
