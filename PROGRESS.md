@@ -1088,8 +1088,11 @@ máxima con el 70 % de inclinación del stick. Ctrl (media inclinación) deja el
 valor en 0,93 y no reduce el giro. La nueva tecla Alt izquierdo
 (`FINE_TILT`, ajustable con `SMS_FINE_TILT`) deja el stick en 0,46 y el giro
 del catalejo en el 17,5 % del máximo, medido en el juego. Con ella Link no
-llega a andar; es solo para apuntar. Todavía falta que el usuario lo confirme
-en el paso del buzón.
+llega a andar; es solo para apuntar. **El usuario supera con teclado el paso
+del buzón** en la partida continua: Alt + WASD hasta centrar la cabeza del
+cartero (no el buzón: Abril comprueba el punto de atención del cartero),
+↑/`I` para el zoom y A para que Abril pase al siguiente mensaje; sin pulsar A,
+la pregunta del buzón se queda en pantalla aunque el encuadre sea correcto.
 
 **Mando bajo WSL2.** Linux solo recibe mandos mediante `usbipd-win`. El
 receptor 8BitDo (`2dc8:310b`) en modo XInput expone el mando en una interfaz de
