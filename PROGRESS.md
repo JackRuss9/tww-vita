@@ -6,7 +6,9 @@ La versión de PS Vita queda aplazada hasta conseguirlo en PC.
 
 **La isla completa todavía no está validada.** Ya se ha comprobado el arranque
 normal hasta recuperar el control y caminar con Link, sin saltar la historia.
-Las tareas posteriores de la isla y el embarque siguen pendientes.
+Una prueba manual desde el bosque ya llega al rescate de Tetra, el secuestro
+de Abril y la conversación posterior en la playa. Esa conversación y el
+embarque siguen pendientes; no valida todo el recorrido desde el menú.
 
 ## Entorno de verificación
 
@@ -31,7 +33,7 @@ Las tareas posteriores de la isla y el embarque siguen pendientes.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 59 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 60 de tww y 5 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -840,3 +842,56 @@ por escalones y saltos, incluyendo obstáculos que no recoge la malla estática.
 queda ejecutándose. El primer combate tiene una regresión cerrada con resultado
 0 (`probe-orpEW2`). La navegación posterior es experimental y conserva todos
 sus fallos registrados. No se ha comprobado visualmente este tramo.
+
+## Prueba manual: llegada al segundo encuentro del bosque (0060)
+
+El usuario recorre el bosque, derrota al primer enemigo y alcanza los dos
+siguientes. Esto demuestra que el atasco en los bordes era del controlador de
+pruebas. Se reproduce un fallo real: Link invisible y sin control mientras los
+enemigos atacan. El registro `forest-manual/before-target-fix.log` muestra
+`unsupported FIXEDPOS target=@TARGET` y Link permanece en demo 2.
+
+0060 añade la resolución de @TARGET al participante mPtItem del evento,
+según getEvActor original 800B09B8..09DC. TagEv selecciona allí al Bokoblin
+transportado al iniciar la escena. Compilación y reproducción limpia de los
+60 parches superadas. **Validación del encuentro todavía pendiente.**
+
+Los ensayos aislados LlsNRk, DeaUGt y elli8d no validan la escena: el primero
+falla al leer `this` en una función optimizada (corregido con el argumento de
+su envoltorio); los siguientes colocan a Link en un punto cuyo obstáculo lo
+expulsa fuera del disparador. Son fallos del ensayo. Se retoma la prueba
+manual con 0060 aplicada; el usuario conserva el control y su tarjeta habitual
+sigue separada. La prueba manual anterior salió normalmente al cerrar la ventana.
+
+## Prueba manual superada: Tetra rescatada y llegada a la playa (0060)
+
+**0060 validada en juego por el usuario.** Desde el punto de diagnóstico del
+bosque con la espada ganada, completa el primer combate, llega al encuentro
+siguiente, derrota a ambos Bokoblins y rescata a Tetra. El usuario confirma
+que después el pájaro secuestra a Abril y se llega a la conversación con Tetra
+en la playa, delante del barco. El registro confirma vida 0 en los enemigos
+508 y 509, salida de A_mori y entrada en sea. La corrección FIXEDPOS @TARGET
+permite superar el bloqueo anterior sin saltar el evento ni modificar vidas.
+
+No se observó toda la partida en vídeo continuo; el recorrido y las escenas
+se apoyan en la confirmación del usuario y en el registro. Se capturó el nuevo
+bloqueo en la playa: primer plano de Tetra, sin diálogo activo y Link en demo 2.
+La tarjeta habitual del usuario sigue separada de esta prueba.
+
+**Nuevo bloqueo confirmado:** evento `yuukaigo` (250), cámara corte 3366,
+UNITRANS con Timer 10, TransType 1, RelActor @STARTER y RelUseMask --oo;
+Center (55,-46,90), Eye (-137,30,228), Fovy 60, BGCheck 3. Esta variante
+es relativa y no cartesiana, y el código actual la rechaza explícitamente.
+Su flag de comienzo sí está activa; la cámara no termina y los participantes
+esperan. No es todavía un fallo demostrado del diálogo de Tetra.
+
+La ventana atascada se detuvo deliberadamente (SIGINT, salida 255) después
+de capturar la imagen. Se conservan el registro, los datos del evento y un
+volcado nativo del estado ganado en `run-pc/forest-manual/`. El volcado no
+es un guardado completo de la escena: aún falta validar que permita repetir
+el evento de la playa sin recorrer de nuevo el bosque. No se publican esos
+archivos del juego. No queda la ventana ni su sonido activos.
+
+Siguiente: recuperar la interpolación relativa de UNITRANS usada en yuukaigo,
+comprobar la conversación y continuar hacia el escudo y el embarque. No se
+ha demostrado aún la salida de la isla ni un recorrido completo desde el menú.

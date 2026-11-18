@@ -1008,3 +1008,34 @@ Verification:
   alone omits dynamic obstacle collisions), activate TagEv, then prove both
   carried Bokoblins, Tetra rescue and return. No new native blocker demonstrated
   beyond the fixed RESTOREPOS. No active probes left after these stops.
+
+- Manual forest run resolves route uncertainty: user reaches two-enemy ambush.
+  Native failure is FIXEDPOS @TARGET unsupported; player demo2 remains while
+  Bokoblins land (action31) and attack (action4/5). User closes window normally.
+- 0060 maps @TARGET to event mPtItem/item partner per retail800B09B8..09DC,
+  selected by TagEv demoInitProc(type1). Build and clean60-patch match pass.
+  Encounter not yet validated. Isolated tests failed for driver reasons:
+  LlsNRk inline wrapper lacked this; DeaUGt/elli8d positioning hits obstacle,
+  so no encounter completion proof. Switched to user-controlled visible replay.
+- Current manual log forest-manual/run.log; previous evidence preserved as
+  before-target-fix.log. Audio enabled only for user's visible play window.
+
+## Manual 0060 success: Tetra rescue, Aryll abduction, beach yuukaigo blocked
+
+- User confirms both later Bokoblins defeated, Tetra rescued, bird abducts Aryll,
+  then stuck talking to Tetra at beach by pirate ship. Live capture confirms
+  close-up Tetra at beach; no full continuous visual observation was made.
+- Native log confirms enemy508/509 health0 and transition A_mori -> sea;
+  0060 FIXEDPOS @TARGET validated by this manual continuation.
+- Stopped GDB50486 intentionally with SIGINT; appended-only diagnostic commands
+  preserved source-file offsets and successfully exported actual earned native
+  savedata (1912 bytes) to forest-manual/beach-earned-savedata.bin. It is NOT a
+  full scene snapshot; replay of beach event from it still unvalidated.
+- Active event250 yuukaigo; camera staff988 cut3366 UNITRANS, start8912 true,
+  done false. Arguments BGCheck3 Center(55,-46,90) Eye(-137,30,228) Fovy60,
+  RelActor @STARTER, RelUseMask --oo, TransType1, Timer10. Current implementation
+  explicitly rejects relative/non-Cartesian UNITRANS, leaving Link demo2/proc4.
+  Zl1 WAIT complete, other staff wait; do not attribute to dialogue code yet.
+- Window/sound closed; native source unchanged after 0060 build and clean60
+  reproduction. Next implement this spherical relative transition from retail,
+  verify event/control and proceed toward shield/boat. No island-complete claim.

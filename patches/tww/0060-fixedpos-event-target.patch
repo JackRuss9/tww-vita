@@ -1,0 +1,34 @@
+Reason: FIXEDPOS @TARGET must resolve the event item partner (mPtItem), following retail getEvActor 800B09B8..09DC. The Outset two-Bokoblin encounter selects this enemy via TagEv demoInitProc; rejecting it leaves Link in demo mode while enemies attack.
+
+--- a/src/d/d_ev_camera.cpp
++++ b/src/d/d_ev_camera.cpp
+@@ -216,14 +216,17 @@
+         const char* target = (const char*)pcCameraArgument(this, "Target", 4);
+         const char* relative = (const char*)pcCameraArgument(this, "RelActor", 4);
+         const char* mask = (const char*)pcCameraArgument(this, "RelUseMask", 4);
+-        if ((target && strcmp(target, "@PLAYER")) ||
++        if ((target && strcmp(target, "@PLAYER") && strcmp(target, "@TARGET")) ||
+             (relative && strcmp(relative, "@PLAYER")) ||
+             (mask && strcmp(mask, "n") && strcmp(mask, "o") && strcmp(mask, "-"))) {
+             OSReport("[camera] unsupported FIXEDPOS target=%s relative=%s mask=%s\n",
+                      target ? target : "@PLAYER", relative ? relative : "none", mask ? mask : "o");
+             return false;
+         }
+-        state.target = mpPlayerActor;
++        // Retail getEvActor 800B09B8..09DC: @TARGET resolves mPtItem,
++        // the event's selected target (distinct from its starter/partner).
++        state.target = target && strcmp(target, "@TARGET") == 0
++            ? dComIfGp_event_getItemPartner() : mpPlayerActor;
+         if (!state.target) return false;
+         getEvXyzData(&state.eye, "Eye", mEye);
+         if (relative && (!mask || strcmp(mask, "-")))
+@@ -240,7 +243,8 @@
+         state.timer = timer ? *timer : 0;
+         memcpy(&mWork, &state, sizeof(state));
+         m100 = m101 = m102 = 1;
+-        OSReport("[camera] FIXEDPOS target=PLAYER cushion=%.3f\n", state.cushion);
++        OSReport("[camera] FIXEDPOS target=%s actor=%p cushion=%.3f\n",
++                 target ? target : "@PLAYER", state.target, state.cushion);
+     } else {
+         if (!m100 || !m101 || !m102) return false;
+         memcpy(&state, &mWork, sizeof(state));
