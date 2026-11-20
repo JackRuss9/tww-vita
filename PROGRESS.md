@@ -34,7 +34,7 @@ despedida); no impiden avanzar.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 69 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 70 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -1216,3 +1216,20 @@ guardado en la fortaleza (`run-pc/card-fortress`).
 jugada y, si un evento sigue activo 20 segundos, vuelca qué participante no
 termina. El usuario notó la partida muy lenta con él en la fortaleza; la causa
 probable es el punto de parada por fotograma, pendiente de aligerar.
+
+## Escena del talismán superada; revisión pendiente de su cámara (0070)
+
+Con 0069 la escena avanzaba, pero al coger el talismán la pantalla quedaba en
+negro: el plano siguiente es `FIXEDPOS` con `RelUseMask` `oo`, y la versión de
+PC solo aceptaba máscaras de una letra. El original solo mira la primera
+letra. **Con 0070 el usuario supera la escena** (`probe-jl1KpI`).
+
+**Pendiente de revisar (indicación del usuario):** durante la conversación,
+la cámara de `ROLLING` daba vueltas completas en vertical y llegaba a mostrar a
+Link desde abajo, cosa que el original no hace. Causa encontrada: `cSGlobe`
+guarda la latitud en +4 y el rumbo en +6, y sus setters `U()`/`V()` escriben el
+campo contrario al de sus getters; el giro se sumaba al rumbo pero se guardaba
+en la latitud. 0070 reconstruye el ángulo con `Val(R, latitud, rumbo)`, de modo
+que el giro es horizontal como en el original. **Falta que el usuario lo
+confirme repitiendo la escena**; hasta entonces la cámara de esta toma se
+considera sin validar.

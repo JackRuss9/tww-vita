@@ -1,0 +1,45 @@
+Reason: two event-camera faults in the Pirate's Charm scene (MajyuE FIRST_HINT). (1) The close-up after Link picks up the charm is FIXEDPOS with RelUseMask "oo"; the PC FIXEDPOS accepted only single-letter masks and refused to run, leaving a black screen and a stalled event. Retail 800B28F8..2954 reads only RelUseMask[0] (anything but '-' is actor-relative). (2) 0069's ROLLING orbit read the heading with cSGlobe::U() but wrote it with the U() setter, which stores the latitude field: the camera tumbled vertically, showing Link from below (user report). Rebuild the globe with Val(R, latitude, heading) as retail does (+4 latitude, +6 heading += frame*Roll).
+
+--- a/src/d/d_ev_camera.cpp
++++ b/src/d/d_ev_camera.cpp
+@@ -278,11 +278,14 @@
+     memcpy(&mWork, &state, sizeof(state));
+ 
+     mViewCache.mCenter += (state.center - mViewCache.mCenter) * state.cushion;
+-    mViewCache.mDirection.Val(state.eye - state.center);
+-    if (state.transType == 2)
+-        mViewCache.mDirection.V(cSAngle(state.latitude));
+-    mViewCache.mDirection.U(mViewCache.mDirection.U() + cSAngle((f32)m11C * state.roll));
+-    mViewCache.mDirection.R(mViewCache.mDirection.R() + (f32)m11C * state.radiusAdd);
++    // cSGlobe keeps latitude at +4 (V()) and heading at +6 (U()); its U()/V()
++    // setters write the other field, so rebuild it with Val(R, latitude,
++    // heading). Retail 800B2510..800B25A4: +4 = Latitude for TransType 2,
++    // +6 += frame * Roll (a horizontal orbit), R += frame * RadiusAdd.
++    cSGlobe orbit(state.eye - state.center);
++    cSAngle latitude = state.transType == 2 ? cSAngle(state.latitude) : orbit.V();
++    cSAngle heading = orbit.U() + cSAngle((f32)m11C * state.roll);
++    mViewCache.mDirection.Val(orbit.R() + (f32)m11C * state.radiusAdd, latitude, heading);
+     mViewCache.mEye = mViewCache.mCenter + mViewCache.mDirection.Xyz();
+     mViewCache.mFovy = state.fovy;
+     if (state.hasBank) {
+@@ -314,8 +317,7 @@
+         const char* relative = (const char*)pcCameraArgument(this, "RelActor", 4);
+         const char* mask = (const char*)pcCameraArgument(this, "RelUseMask", 4);
+         if ((target && strcmp(target, "@PLAYER") && strcmp(target, "@TARGET")) ||
+-            (relative && strcmp(relative, "@PLAYER")) ||
+-            (mask && strcmp(mask, "n") && strcmp(mask, "o") && strcmp(mask, "-"))) {
++            (relative && strcmp(relative, "@PLAYER"))) {
+             OSReport("[camera] unsupported FIXEDPOS target=%s relative=%s mask=%s\n",
+                      target ? target : "@PLAYER", relative ? relative : "none", mask ? mask : "o");
+             return false;
+@@ -326,7 +328,9 @@
+             ? dComIfGp_event_getItemPartner() : mpPlayerActor;
+         if (!state.target) return false;
+         getEvXyzData(&state.eye, "Eye", mEye);
+-        if (relative && (!mask || strcmp(mask, "-")))
++        // Retail 800B28F8..2954 reads only RelUseMask[0]: anything but '-'
++        // places Eye relative to RelActor ("o", "n" and "oo" alike).
++        if (relative && (!mask || mask[0] != '-'))
+             state.eye = relationalPos(mpPlayerActor, &state.eye);
+         getEvXyzData(&state.gap, "CtrGap", cXyz::Zero);
+         getEvFloatData(&state.fovy, "Fovy", mFovy);

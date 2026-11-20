@@ -1212,3 +1212,12 @@ Verification:
 - tools/disc_events.py dumps event_list.dat events from the CISO (data struct:
   type 0x24, idx 0x28, size 0x2C, next 0x30). play_observer.gdb per-frame
   breakpoint felt slow in the fortress (user report).
+
+## 0070 FIXEDPOS mask "oo" + ROLLING axis
+
+- FIRST_HINT close-up FIXEDPOS RelUseMask "oo" was rejected ("unsupported
+  FIXEDPOS"); retail checks mask[0] only. User passed the scene (jl1KpI).
+- cSGlobe: +4 mAzimuth is latitude (V() getter), +6 mInclination is heading
+  (U() getter); setter U(x) writes +4, V(x) writes +6. ROLLING used
+  U(U()+roll) -> vertical tumble. Fixed via Val(R, lat, heading). Needs the
+  user's visual confirmation (they insist retail does not orbit 360 vertically).
