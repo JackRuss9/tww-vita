@@ -1,0 +1,107 @@
+Reason: the Forsaken Fortress FIRST_HINT event (Tetra calling Link through the Pirate's Charm) uses the ROLLING event camera, whose rollingEvCamera was empty: it never set readiness and never finished, so Link, TAGHINT and the countdowns waited forever with the letterbox up. Reconstructed from retail 800B18E4..800B2660: Center/Eye resolved once relative to RelActor per RelUseMask (o/n/p/r), readiness set, then each frame the view center eases by CtrCus and the eye orbits it (azimuth += frame*Roll degrees, radius += frame*RadiusAdd, fixed Latitude for TransType 2, Fovy, optional Bank). No Timer completes the cut at once; with one, at frame >= Timer.
+
+--- a/src/d/d_ev_camera.cpp
++++ b/src/d/d_ev_camera.cpp
+@@ -198,8 +198,102 @@
+ 
+ /* 800B18E4-800B2680       .text rollingEvCamera__9dCamera_cFv */
+ bool dCamera_c::rollingEvCamera() {
++#ifdef TARGET_PC
++    // Retail ROLLING 800B18E4..800B2660: resolve Center/Eye (relative to
++    // RelActor per RelUseMask) once and set readiness; every frame ease the
++    // view center by CtrCus and orbit the eye: azimuth += frame * Roll degrees,
++    // radius += frame * RadiusAdd, latitude fixed for TransType 2. A missing
++    // Timer completes the cut at once; with one, at frame >= Timer.
++    struct State {
++        cXyz eye, center, rawEye, rawCenter;
++        float fovy, bank, roll, radiusAdd, latitude, cushion;
++        int timer, transType;
++        fopAc_ac_c* actor;
++        char mask[4];
++        bool hasTimer, hasBank;
++    } state = {};
++    static_assert(sizeof(State) <= sizeof(mWork), "ROLLING scratch state");
++
++    // One of RelUseMask's letters applied to a point: o = actor-relative,
++    // n = mirrored to the camera's side of the actor, p = the side farther
++    // from the player, r = mirrored by the camera flag, else absolute.
++    auto resolve = [&](cXyz* raw, char mode, cXyz* out) {
++        if (!state.actor || (mode != 'o' && mode != 'n' && mode != 'p' && mode != 'r')) {
++            *out = *raw;
++            return;
++        }
++        if (mode == 'n') {
++            cSGlobe g(mEye - positionOf(state.actor));
++            if ((s16)(g.U() - directionOf(state.actor)) < 0) raw->x = -raw->x;
++        } else if (mode == 'p') {
++            cXyz player = positionOf(mpPlayerActor);
++            f32 d1 = (relationalPos(state.actor, raw) - player).abs();
++            raw->x = -raw->x;
++            f32 d2 = (relationalPos(state.actor, raw) - player).abs();
++            if (d1 > d2) raw->x = -raw->x;
++        } else if (mode == 'r') {
++            if (m080 & 1) raw->x = -raw->x;
++            *out = relationalPos(state.actor, raw);
++            if (lineBGCheck(&state.center, out, 0x8F)) raw->x = -raw->x;
++        }
++        *out = relationalPos(state.actor, raw);
++    };
++
++    if (m11C == 0) {
++        getEvXyzData(&state.rawEye, "Eye", mEye);
++        getEvXyzData(&state.rawCenter, "Center", mCenter);
++        getEvFloatData(&state.cushion, "CtrCus", 1.0f);
++        getEvIntData(&state.transType, "TransType", 0);
++        getEvFloatData(&state.fovy, "Fovy", mFovy);
++        state.hasBank = pcCameraArgument(this, "Bank", 0) != NULL;
++        getEvFloatData(&state.bank, "Bank", 0.0f);
++        getEvFloatData(&state.roll, "Roll", 2.0f);
++        getEvFloatData(&state.radiusAdd, "RadiusAdd", 0.0f);
++        cSGlobe initial(state.rawEye - state.rawCenter);
++        getEvFloatData(&state.latitude, "Latitude", initial.V().Degree());
++        int* timer = (int*)pcCameraArgument(this, "Timer", 3);
++        state.hasTimer = timer != NULL;
++        state.timer = timer ? *timer : -1;
++        const char* mask = (const char*)pcCameraArgument(this, "RelUseMask", 4);
++        memcpy(state.mask, "oo\0\0", 4);
++        if (mask) strncpy(state.mask, mask, 3);
++        const char* relative = (const char*)pcCameraArgument(this, "RelActor", 4);
++        if (!relative || !strcmp(relative, "@PLAYER")) state.actor = mpPlayerActor;
++        else if (!strcmp(relative, "@STARTER")) state.actor = dComIfGp_event_getPt1();
++        else if (!strcmp(relative, "@PARTNER")) state.actor = dComIfGp_event_getPt2();
++        else if (!strcmp(relative, "@TARGET")) state.actor = dComIfGp_event_getItemPartner();
++        else {
++            state.actor = fopAcM_searchFromName((char*)relative, 0, 0);
++            if (!state.actor) OSReport("[camera] ROLLING relative actor %s not found\n", relative);
++        }
++        resolve(&state.rawCenter, state.mask[0], &state.center);
++        resolve(&state.rawEye, state.mask[1], &state.eye);
++        m100 = m101 = m102 = 1;
++    } else {
++        if (!m100 || !m101 || !m102) return false;
++        memcpy(&state, &mWork, sizeof(state));
++        if ((state.transType == 1 || state.transType == 2) && state.actor)
++            resolve(&state.rawCenter, state.mask[0], &state.center);
++    }
++    memcpy(&mWork, &state, sizeof(state));
++
++    mViewCache.mCenter += (state.center - mViewCache.mCenter) * state.cushion;
++    mViewCache.mDirection.Val(state.eye - state.center);
++    if (state.transType == 2)
++        mViewCache.mDirection.V(cSAngle(state.latitude));
++    mViewCache.mDirection.U(mViewCache.mDirection.U() + cSAngle((f32)m11C * state.roll));
++    mViewCache.mDirection.R(mViewCache.mDirection.R() + (f32)m11C * state.radiusAdd);
++    mViewCache.mEye = mViewCache.mCenter + mViewCache.mDirection.Xyz();
++    mViewCache.mFovy = state.fovy;
++    if (state.hasBank) {
++        mViewCache.mBank = cSAngle((s16)(state.bank * 182.04445f));
++        setFlag(0x400);
++    }
++    return !(state.hasTimer && m11C < (u32)state.timer);
++#else
+     /* Nonmatching */
+     return {}; // tww-vita: not decompiled yet
++#endif
+ }
+ 
+ /* 800B2680-800B2B60       .text fixedPositionEvCamera__9dCamera_cFv */

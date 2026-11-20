@@ -34,7 +34,7 @@ despedida); no impiden avanzar.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 68 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 69 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -1195,3 +1195,24 @@ pasa la ruta real cuando termina en `.bti`; las demás lecturas directas no
 cambian. Compilación y reproducción limpia superadas. **Falta confirmarlo en
 pantalla** con el siguiente cartel: la partida en curso usa el ejecutable
 anterior.
+
+## Bloqueo del talismán en la Fortaleza Maldita (0069)
+
+Dentro de la fortaleza, la primera llamada de Tetra por el talismán (evento
+`FIRST_HINT`) se quedaba parada con las bandas de cinemática. Leyendo el
+evento del disco (`tools/disc_events.py`), su cámara usa el modo `ROLLING`,
+cuya función estaba vacía: no marcaba la cámara como lista ni terminaba, y Link,
+`TAGHINT` y las cuentas atrás esperaban indefinidamente.
+
+0069 reconstruye `rollingEvCamera` a partir del original: centro y ojo fijados
+una vez respecto a `RelActor` según `RelUseMask`, cámara lista, y en cada
+fotograma el centro se suaviza (`CtrCus`) y el ojo gira a su alrededor (`Roll`
+grados por fotograma, `RadiusAdd`, `Latitude` con `TransType` 2, `Fovy`,
+`Bank`). Sin `Timer` el corte termina al momento. Compilación y reproducción
+limpia superadas. **Falta comprobarlo en la partida del usuario**, desde su
+guardado en la fortaleza (`run-pc/card-fortress`).
+
+`tools/play_observer.gdb` registra escenarios, eventos y equipo de una partida
+jugada y, si un evento sigue activo 20 segundos, vuelca qué participante no
+termina. El usuario notó la partida muy lenta con él en la fortaleza; la causa
+probable es el punto de parada por fotograma, pendiente de aligerar.

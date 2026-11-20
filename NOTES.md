@@ -1200,3 +1200,15 @@ Verification:
   then "[endian] not converted '...h.(..' 14432 B" = pn_XX.bti raw from DVD
   (toMainRam passed name ""). PC now stores path, passes it only for .bti.
   Not yet seen on screen (running build predates it).
+
+## 0069 ROLLING event camera (MajyuE FIRST_HINT)
+
+- FIRST_HINT: TAGHINT (WAIT/SURPRIS/MESSAGE2/MESSAGE), Link (surprised,
+  init_wait pos, l_around2, unequip, t_pickup, t_wait), CAMERA PAUSE ->
+  ROLLING (Center 0,-100,0 Eye 0,700,450 @PLAYER oo Roll -0.25 BGCheck 3, no
+  Timer) -> FIXEDPOS, DIRECTOR VIBRATION, TIMEKEEPER COUNTDOWN 5/2.
+- rollingEvCamera stub returned false without readiness. Reconstructed per
+  800B18E4..800B2660 (mWork scratch on PC). Not yet verified in game.
+- tools/disc_events.py dumps event_list.dat events from the CISO (data struct:
+  type 0x24, idx 0x28, size 0x2C, next 0x30). play_observer.gdb per-frame
+  breakpoint felt slow in the fortress (user report).
