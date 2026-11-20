@@ -1,0 +1,39 @@
+Reason: the optional Pirate's Charm conversation (Forsaken Fortress) uses a spherical UNITRANS relative to @PLAYER with RelUseMask "--on"; the PC UNITRANS accepted only '-'/'o' and refused to run, stalling the event. Retail 800B2E80..800B30BC: per pair (mask[0] StartCenter / [1] StartEye, [2] Center / [3] Eye), 'n' mirrors the offset to the side of the actor the camera is already on, and if background then separates that pair's center and eye, the eye is mirrored back. Verified by the user (probe-UPLB6a).
+
+--- a/src/d/d_ev_camera.cpp
++++ b/src/d/d_ev_camera.cpp
+@@ -408,7 +408,7 @@
+         bool supportedMask = !mask || strlen(mask) == 4;
+         if (mask && supportedMask) {
+             for (int i = 0; i < 4; i++)
+-                if (mask[i] != '-' && mask[i] != 'o') supportedMask = false;
++                if (mask[i] != '-' && mask[i] != 'o' && mask[i] != 'n') supportedMask = false;
+         }
+         if (type < 0 || type > 1 || (relative && (!state.relative || !supportedMask))) {
+             OSReport("[camera] unsupported UNITRANS type=%d relative=%s mask=%s\n",
+@@ -424,6 +424,25 @@
+         getEvXyzData(&state.startCenter, "StartCenter", mCenter);
+         getEvXyzData(&state.eye, "Eye", mEye);
+         getEvXyzData(&state.center, "Center", mCenter);
++        // Retail 800B2E80..800B30BC: 'n' (mask[0] StartCenter, [1] StartEye,
++        // [2] Center, [3] Eye) mirrors the offset to the side of the actor
++        // the camera is already on; then, if the pair's center and eye are
++        // separated by background, the eye is mirrored back.
++        if (state.relative) {
++            cXyz* pairs[2][2] = {{&state.startCenter, &state.startEye}, {&state.center, &state.eye}};
++            for (int pair = 0; pair < 2; pair++) {
++                char c0 = state.mask[pair * 2], c1 = state.mask[pair * 2 + 1];
++                if (c0 != 'n' && c1 != 'n') continue;
++                cSGlobe side(mEye - positionOf(state.relative));
++                if ((s16)(side.U() - directionOf(state.relative)).Val() < 0) {
++                    if (c0 == 'n') pairs[pair][0]->x = -pairs[pair][0]->x;
++                    if (c1 == 'n') pairs[pair][1]->x = -pairs[pair][1]->x;
++                }
++                cXyz ctr = relationalPos(state.relative, pairs[pair][0]);
++                cXyz eye = relationalPos(state.relative, pairs[pair][1]);
++                if (lineBGCheck(&ctr, &eye, 0x8F)) pairs[pair][1]->x = -pairs[pair][1]->x;
++            }
++        }
+         getEvFloatData(&state.startFovy, "StartFovy", mFovy);
+         getEvFloatData(&state.fovy, "Fovy", mFovy);
+         state.hasBank = pcCameraArgument(this, "StartBank", 0) || pcCameraArgument(this, "Bank", 0);

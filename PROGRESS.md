@@ -34,7 +34,7 @@ despedida); no impiden avanzar.
 | Salida de audio real | SDL abre a 32 kHz; la grabación contiene señal sin saturación en el tramo medido | Se han observado interrupciones; faltan funciones de música y efectos |
 | Pruebas numéricas de temporizador y animación | Superadas | Casos de cálculo, no prueba de juego completo |
 | Regresión del mezclador DSP | Superada: retornos, filtros, realimentación, liberación y osciladores | No comprueba fidelidad de Wind Waker frente a la consola |
-| Aplicación de parches en fuentes limpias | Superada: 70 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
+| Aplicación de parches en fuentes limpias | Superada: 71 de tww y 6 de sms-port | No reemplaza los árboles locales existentes |
 | Lector JStudio con datos sintéticos big-endian | Superada | Comprueba cabecera, alineación, identificadores de animación y manos |
 
 Los registros y capturas completos se guardan localmente en los directorios
@@ -1233,3 +1233,16 @@ en la latitud. 0070 reconstruye el ángulo con `Val(R, latitud, rumbo)`, de modo
 que el giro es horizontal como en el original. **Falta que el usuario lo
 confirme repitiendo la escena**; hasta entonces la cámara de esta toma se
 considera sin validar.
+
+## Fortaleza: cámara del talismán confirmada y conversación opcional (0071)
+
+- **El usuario confirma la cámara `ROLLING` corregida en 0070**: gira solo en
+  horizontal, como en el original.
+- El fondo negro durante la conversación por el talismán es intencionado:
+  `daTag_Hint_c::darkProc` oscurece cielo, niebla y escenario y una luz azul
+  sale del talismán.
+- La conversación opcional al volver a usar el talismán se bloqueaba: su cámara
+  es un `UNITRANS` esférico con máscara `--on` y la versión de PC no aceptaba
+  la `n`. 0071 la implementa como el original (refleja la toma al lado del actor
+  donde ya está la cámara y la devuelve si una pared separa centro y ojo).
+  **Superado por el usuario** (`probe-UPLB6a`).
