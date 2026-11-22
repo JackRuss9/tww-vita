@@ -1,0 +1,109 @@
+diff --git a/game/include/JSystem/JKernel/JKRExpHeap.h b/game/include/JSystem/JKernel/JKRExpHeap.h
+index 4a3cd23..51e23ca 100644
+--- a/game/include/JSystem/JKernel/JKRExpHeap.h
++++ b/game/include/JSystem/JKernel/JKRExpHeap.h
+@@ -31,7 +31,7 @@ public:
+         u32 getSize() const { return size; }
+         u8 getGroupId() const { return mGroupId; }
+ #if TARGET_PC
+-        // The header is sizeof(CMemBlock) (0x20 on the host, see below), not 0x10.
++        // The native header follows the pointer width, see below.
+         static CMemBlock* getBlock(void* data) { return (CMemBlock*)((uintptr_t)data - sizeof(CMemBlock)); }
+ #else
+         static CMemBlock* getBlock(void* data) { return (CMemBlock*)((u32)data + -0x10); }
+@@ -44,7 +44,7 @@ public:
+         /* 0x4 */ u32 size;
+         /* 0x8 */ CMemBlock* mPrev;
+         /* 0xC */ CMemBlock* mNext;
+-#if TARGET_PC
++#if TARGET_PC && UINTPTR_MAX > UINT32_MAX
+         // With 8-byte pointers the fields end at 0x18. Padded to 0x20 (as in Dusklight,
+         // ref/dusklight/libs/JSystem/include/JSystem/JKernel/JKRExpHeap.h, CC0) so the header stays
+         // a multiple of 16, like the GameCube's 0x10: a block's content then has the block's own
+@@ -55,7 +55,8 @@ public:
+     };  // Size: 0x10
+     friend class CMemBlock;
+ #if TARGET_PC
+-    static_assert(sizeof(CMemBlock) == 0x20, "JKRExpHeap::CMemBlock must be 0x20 bytes on PC");
++    static_assert(sizeof(CMemBlock) == (sizeof(void*) == 8 ? 0x20 : 0x10),
++                  "JKRExpHeap::CMemBlock must preserve 16-byte alignment");
+ #endif
+ 
+ protected:
+diff --git a/game/include/JSystem/JUtility/JUTConsole.h b/game/include/JSystem/JUtility/JUTConsole.h
+index fe228fd..73f2663 100644
+--- a/game/include/JSystem/JUtility/JUTConsole.h
++++ b/game/include/JSystem/JUtility/JUTConsole.h
+@@ -152,7 +152,7 @@ public:
+     typedef JGadget::TLinkList<JUTConsole, -offsetof(JUTConsole, mLinkNode)> ConsoleList;
+ #else
+     // clangd does not support offsetof in template arguments.
+-    typedef JGadget::TLinkList<JUTConsole, -sizeof(JKRDisposer)> ConsoleList;
++    typedef JGadget::TLinkList<JUTConsole, -static_cast<int>(sizeof(JKRDisposer))> ConsoleList;
+ #endif
+ 
+ private:
+diff --git a/game/include/f_op/f_op_msg_mng.h b/game/include/f_op/f_op_msg_mng.h
+index 21957b0..f7e030b 100644
+--- a/game/include/f_op/f_op_msg_mng.h
++++ b/game/include/f_op/f_op_msg_mng.h
+@@ -71,7 +71,7 @@ struct fopMsgM_unk_struct {
+     u16 _6;
+     u16 _8;
+     u16 _A;
+-    s16 _C;
++    s16 iconPosY;
+     u16 _E;
+     u8 _10;
+ };
+diff --git a/game/src/f_op/f_op_msg_mng.cpp b/game/src/f_op/f_op_msg_mng.cpp
+index f71ea56..5864135 100644
+--- a/game/src/f_op/f_op_msg_mng.cpp
++++ b/game/src/f_op/f_op_msg_mng.cpp
+@@ -820,7 +820,7 @@ fopMsgM_unk_struct fopMsgM_selectMessageGet(J2DPane* i_textPane, J2DPane* i_ruby
+                     var_r7 = true;
+                 } else {
+                     sp40._2 = sp40._8 = temp_r6 + msgData.getIconPosX(i);
+-                    sp40._6 = sp40._C = temp_r3_3 + (temp_r5 * ((2 - temp_r3) + (msgData.getIconPosY(i) * 2)));
++                    sp40._6 = sp40.iconPosY = temp_r3_3 + (temp_r5 * ((2 - temp_r3) + (msgData.getIconPosY(i) * 2)));
+                 }
+             } else if (iconNum == fopMsgM_Icon_SELECT_YOKO_RIGHT_e) {
+                 sp40._10 = var_r7;
+@@ -830,14 +830,14 @@ fopMsgM_unk_struct fopMsgM_selectMessageGet(J2DPane* i_textPane, J2DPane* i_ruby
+                     var_r7 = true;
+                 } else {
+                     sp40._2 = sp40._8 = temp_r6 + msgData.getIconPosX(i);
+-                    sp40._6 = sp40._C = temp_r3_3 + (temp_r5 * ((2 - temp_r3) + (msgData.getIconPosY(i) * 2)));
++                    sp40._6 = sp40.iconPosY = temp_r3_3 + (temp_r5 * ((2 - temp_r3) + (msgData.getIconPosY(i) * 2)));
+                 }
+             }
+         }
+     }
+ 
+     sp40._A = temp_r6 + msgData.getNowCursorPos();
+-    sp40._E = sp40._C;
++    sp40._E = sp40.iconPosY;
+     return sp40;
+ }
+ 
+diff --git a/native/include/helpers/endian.h b/native/include/helpers/endian.h
+index 7494ad1..8107e30 100644
+--- a/native/include/helpers/endian.h
++++ b/native/include/helpers/endian.h
+@@ -21,7 +21,7 @@
+ #include "dolphin/mtx.h"
+ 
+ // Platform detection - Little Endian targets
+-#if defined(_WIN32) || defined(__x86_64__) || defined(__i386__) || defined(__aarch64__) || defined(_M_X64) || defined(_M_IX86)
++#if defined(_WIN32) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__) || defined(_M_X64) || defined(_M_IX86)
+     #define TARGET_LITTLE_ENDIAN 1
+ #else
+     #define TARGET_LITTLE_ENDIAN 0
+@@ -41,6 +41,7 @@
+ #else
+     #define BSWAP16(x) (x)
+     #define BSWAP32(x) (x)
++    #define BSWAP64(x) (x)
+ #endif
+ 
+ // clang-format off
