@@ -4,15 +4,21 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <psp2/io/fcntl.h>
 
 enum { CISO_HEADER_SIZE = 0x8000, CISO_MAP_SIZE = CISO_HEADER_SIZE - 8, FST_ENTRY_SIZE = 12 };
 
-typedef struct {
+struct BootDisc {
     SceUID fd;
     uint32_t block_size;
     uint16_t map[CISO_MAP_SIZE];
-} Ciso;
+    uint8_t *table;
+    uint32_t table_size;
+    uint32_t table_entries;
+    uint32_t dol_offset;
+    uint32_t dol_size;
+};
 
 static uint32_t be32(const uint8_t *b)
 {
@@ -36,7 +42,7 @@ static int read_at(SceUID fd, uint64_t offset, void *output, size_t bytes)
     return 0;
 }
 
-static int load_map(Ciso *disc, SceUID log)
+static int load_map(BootDisc *disc, SceUID log)
 {
     uint8_t *header = malloc(CISO_HEADER_SIZE);
     if (!header)
@@ -66,7 +72,7 @@ done:
     return result;
 }
 
-static int disc_read(const Ciso *disc, uint64_t offset, void *output, size_t bytes)
+int boot_disc_read(const BootDisc *disc, uint64_t offset, void *output, size_t bytes)
 {
     uint64_t limit = (uint64_t)CISO_MAP_SIZE * disc->block_size;
     if (offset > limit || bytes > limit - offset)
@@ -115,7 +121,7 @@ static const uint8_t *fst_find(const Fst *fst, const char *path)
         const char *term = memchr(start, '\0', fst->size - name);
         if (!term)
             return NULL;
-        if ((size_t)(term - start) == wanted && memcmp(path, start, wanted) == 0) {
+        if ((size_t)(term - start) == wanted && strncasecmp(path, start, wanted) == 0) {
             if (!slash)
                 return entry[0] == 0 ? entry : NULL;
             if (entry[0] != 1)
@@ -130,33 +136,40 @@ static const uint8_t *fst_find(const Fst *fst, const char *path)
     return NULL;
 }
 
-static int probe_archive(const Ciso *disc, const Fst *fst, SceUID log, const char *path)
+int boot_disc_file(const BootDisc *disc, const char *path, uint32_t *offset, uint32_t *size)
 {
-    probe_log(log, "boot: reading /%s\n", path);
-    const uint8_t *entry = fst_find(fst, path);
+    if (*path == '/')
+        ++path;
+    const Fst fst = {disc->table, disc->table_size, disc->table_entries};
+    const uint8_t *entry = fst_find(&fst, path);
     if (!entry)
         return -1;
-    uint32_t offset = be32(entry + 4), size = be32(entry + 8);
-    uint8_t prefix[16], tail[16];
-    if (size < sizeof(prefix) || disc_read(disc, offset, prefix, sizeof(prefix)) < 0 ||
-        disc_read(disc, (uint64_t)offset + size - sizeof(tail), tail, sizeof(tail)) < 0)
-        return -1;
-    if (memcmp(prefix, "Yaz0", 4) != 0 && memcmp(prefix, "RARC", 4) != 0)
-        return -1;
-    probe_log(log, "boot: archive %.4s at 0x%08x, %u bytes\n", (const char *)prefix,
-        (unsigned int)offset, (unsigned int)size);
+    *offset = be32(entry + 4);
+    *size = be32(entry + 8);
     return 0;
 }
 
-int probe_boot_disc(SceUID log, const char *path)
+void boot_disc_dol(const BootDisc *disc, uint32_t *offset, uint32_t *size)
+{
+    *offset = disc->dol_offset;
+    *size = disc->dol_size;
+}
+
+void boot_disc_close(BootDisc *disc)
+{
+    if (disc->fd >= 0)
+        sceIoClose(disc->fd);
+    free(disc->table);
+    free(disc);
+}
+
+BootDisc *boot_disc_open(SceUID log, const char *path)
 {
     probe_log(log, "boot: opening %s\n", path);
-    Ciso *disc = malloc(sizeof(*disc));
-    uint8_t *table = NULL;
-    int result = -1;
+    BootDisc *disc = calloc(1, sizeof(*disc));
     if (!disc) {
         probe_log(log, "boot: CISO mapping allocation failed\n");
-        return -1;
+        return NULL;
     }
     disc->fd = sceIoOpen(path, SCE_O_RDONLY, 0);
     if (disc->fd < 0) {
@@ -169,7 +182,7 @@ int probe_boot_disc(SceUID log, const char *path)
     }
 
     uint8_t boot[0x440];
-    if (disc_read(disc, 0, boot, sizeof(boot)) < 0 || be32(boot + 0x1c) != 0xc2339f3d ||
+    if (boot_disc_read(disc, 0, boot, sizeof(boot)) < 0 || be32(boot + 0x1c) != 0xc2339f3d ||
         memcmp(boot, "GZLE01", 6) != 0 || boot[7] != 0) {
         probe_log(log, "boot: expected Wind Waker USA revision 0\n");
         goto cleanup;
@@ -177,18 +190,32 @@ int probe_boot_disc(SceUID log, const char *path)
     probe_log(log, "boot: GZLE01 revision 0\n");
     uint32_t dol_offset = be32(boot + 0x420);
     uint8_t dol_header[0x100];
-    if (dol_offset < sizeof(boot) || disc_read(disc, dol_offset, dol_header, sizeof(dol_header)) < 0 ||
+    if (dol_offset < sizeof(boot) || boot_disc_read(disc, dol_offset, dol_header, sizeof(dol_header)) < 0 ||
         be32(dol_header + 0xe0) == 0) {
         probe_log(log, "boot: main.dol header invalid\n");
         goto cleanup;
     }
-    probe_log(log, "boot: main.dol header at 0x%08x, entry 0x%08x\n",
-        (unsigned int)dol_offset, (unsigned int)be32(dol_header + 0xe0));
+    uint64_t dol_size = sizeof(dol_header);
+    // Match nod's raw DOL length, which upstream verifies by SHA-1.
+    for (unsigned int i = 0; i < 18; ++i) {
+        uint64_t section_end = (uint64_t)be32(dol_header + 4 * i) + be32(dol_header + 0x90 + 4 * i);
+        if (section_end > dol_size)
+            dol_size = section_end;
+    }
 
     uint32_t fst_offset = be32(boot + 0x424), fst_size = be32(boot + 0x428);
+    if (dol_size <= sizeof(dol_header) || (uint64_t)dol_offset + dol_size > fst_offset) {
+        probe_log(log, "boot: main.dol sections out of range\n");
+        goto cleanup;
+    }
+    disc->dol_offset = dol_offset;
+    disc->dol_size = (uint32_t)dol_size;
+    probe_log(log, "boot: main.dol at 0x%08x, %u bytes, entry 0x%08x\n",
+        (unsigned int)dol_offset, (unsigned int)disc->dol_size, (unsigned int)be32(dol_header + 0xe0));
+
     uint8_t root[FST_ENTRY_SIZE];
     if (fst_offset < sizeof(boot) || fst_size < sizeof(root) ||
-        disc_read(disc, fst_offset, root, sizeof(root)) < 0 || root[0] != 1) {
+        boot_disc_read(disc, fst_offset, root, sizeof(root)) < 0 || root[0] != 1) {
         probe_log(log, "boot: FST root invalid\n");
         goto cleanup;
     }
@@ -197,24 +224,17 @@ int probe_boot_disc(SceUID log, const char *path)
         probe_log(log, "boot: FST entry count invalid\n");
         goto cleanup;
     }
-    table = malloc(fst_size);
-    if (!table || disc_read(disc, fst_offset, table, fst_size) < 0) {
+    disc->table = malloc(fst_size);
+    if (!disc->table || boot_disc_read(disc, fst_offset, disc->table, fst_size) < 0) {
         probe_log(log, "boot: could not load FST (%u bytes)\n", (unsigned int)fst_size);
         goto cleanup;
     }
-    Fst fst = {table, fst_size, count};
+    disc->table_size = fst_size;
+    disc->table_entries = count;
     probe_log(log, "boot: FST has %u entries\n", (unsigned int)count);
-    if (probe_archive(disc, &fst, log, "res/Stage/sea_T/Stage.arc") < 0 ||
-        probe_archive(disc, &fst, log, "res/Stage/sea/LODALL.arc") < 0) {
-        probe_log(log, "boot: required archive could not be read\n");
-        goto cleanup;
-    }
-    result = 0;
+    return disc;
 
 cleanup:
-    if (disc->fd >= 0)
-        sceIoClose(disc->fd);
-    free(table);
-    free(disc);
-    return result;
+    boot_disc_close(disc);
+    return NULL;
 }

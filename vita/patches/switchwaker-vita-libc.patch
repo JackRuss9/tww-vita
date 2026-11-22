@@ -1,0 +1,27 @@
+diff --git a/native/sdk/include/cos_sdk/host_alloc.h b/native/sdk/include/cos_sdk/host_alloc.h
+index 3d5175b..91c6297 100644
+--- a/native/sdk/include/cos_sdk/host_alloc.h
++++ b/native/sdk/include/cos_sdk/host_alloc.h
+@@ -26,6 +26,9 @@
+ #include <unordered_map>
+ #include <utility>
+ #include <vector>
++#if defined(__vita__)
++#include <malloc.h>
++#endif
+ 
+ namespace cos_sdk {
+ 
+@@ -39,8 +42,12 @@ inline void* HostAllocate(std::size_t size, std::size_t align) {
+     if (align <= alignof(std::max_align_t)) {
+         p = std::malloc(size);
+     } else {
++#if defined(__vita__)
++        p = ::memalign(align, size);
++#else
+         // aligned_alloc needs a size that is a multiple of the (power-of-two) alignment.
+         p = std::aligned_alloc(align, (size + align - 1) & ~(align - 1));
++#endif
+     }
+     if (p == nullptr) {
+         std::abort();

@@ -1,6 +1,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <psp2/ctrl.h>
@@ -81,15 +82,10 @@ static int show_result(SceUID log, int boot_result)
     return result;
 }
 
-int main(void)
+void boot_probe_exit(SceUID log, int status)
 {
-    sceIoMkdir(DATA_DIR, 0777);
-    SceUID log = sceIoOpen(DATA_DIR "/probe.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-    probe_log(log, "TWW Vita hardware probe 7\n");
-    probe_log(log, "ABI: %u-bit pointers\n", (unsigned int)(8 * sizeof(void *)));
-    int boot_result = probe_boot_disc(log, DISC_PATH);
-    probe_log(log, "boot: disc startup data %s\n", boot_result == 0 ? "pass" : "failed");
-    int display = show_result(log, boot_result);
+    probe_log(log, "boot: SwitchWaker startup assets %s\n", status == 0 ? "pass" : "failed");
+    int display = show_result(log, status);
     int sampling = sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
     probe_log(log, "pad: analog mode 0x%08x\n", (unsigned int)sampling);
 
@@ -111,5 +107,14 @@ int main(void)
     probe_log(log, "done\n");
     if (log >= 0)
         sceIoClose(log);
-    return boot_result < 0 || display < 0 || sampling < 0 || log < 0;
+    exit(status != 0 || display < 0 || sampling < 0 || log < 0);
+}
+
+int main(void)
+{
+    sceIoMkdir(DATA_DIR, 0777);
+    SceUID log = sceIoOpen(DATA_DIR "/probe.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+    probe_log(log, "TWW Vita hardware probe 8\n");
+    probe_log(log, "ABI: %u-bit pointers\n", (unsigned int)(8 * sizeof(void *)));
+    boot_probe_exit(log, boot_switchwaker_assets(log, DISC_PATH));
 }

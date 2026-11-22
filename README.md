@@ -29,7 +29,7 @@ cameras remain incomplete; see the progress log for limits.
 | | Command | Status |
 |---|---|---|
 | PC test version (Linux / WSL, 32-bit) | `TWW_ISO=/path/GZLE01.iso ./build-pc.sh`, then `./run-pc.sh` | normal startup, full opening and first Link movement verified; island story work continues |
-| PS Vita hardware probe | `cmake -S vita/probe -B build-vita-probe -G Ninja && cmake --build build-vita-probe` | standalone platform check |
+| PS Vita startup probe | [Build instructions](vita/README.md#build-and-run-the-hardware-probe) | SwitchWaker runtime asset loader |
 
 See [SwitchWaker on Vita](vita/README.md) for the hardware test and the
 integration notes for the SwitchWaker-based port.

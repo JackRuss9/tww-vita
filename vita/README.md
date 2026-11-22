@@ -1,21 +1,27 @@
 # SwitchWaker on Vita
 
-The startup probe opens the CISO and checks the inputs the game will need to
-boot. It maps the disc, reads the executable header and file system table,
-and seeks to the start and end of two archives used by the native title and
-logo code. The probe runs independently of the SwitchWaker executable.
+The startup probe runs SwitchWaker's `pc::loadAssets()` against the Vita
+CISO reader. It checks the DOL and RELs against the USA revision 0 hashes,
+loads the 163 arrays into memory and fills an array registered by the probe.
+This runs before the game engine's initialization.
 
 ## Build and run the hardware probe
 
-From the repository root in Ubuntu with VitaSDK, CMake and Ninja:
+Use Ubuntu with VitaSDK, CMake, Ninja and Python with PyYAML. Check out
+[SwitchWaker `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)
+and [Aurora `3227d76`](https://github.com/encounter/aurora/tree/3227d76c60e1e782ca576610bce61c9e7744d8be).
+Set `SW` and `AURORA` to their absolute paths and `STUBS` to an absolute
+directory for the generated headers. From the tww-vita repository root:
 
 ```sh
-cmake -S vita/probe -B build-vita-probe -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build-vita-probe
+git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-libc.patch"
+(cd "$SW" && bash native/tools/gen_assets.sh --stubs --version GZLE01 --out "$STUBS")
+cmake -S vita/probe -B build-vita-probe -G Ninja -DCMAKE_BUILD_TYPE=Release -DTWW_SWITCHWAKER_DIR="$SW" -DTWW_AURORA_DIR="$AURORA" -DTWW_SWITCHWAKER_ASSETS="$STUBS" && cmake --build build-vita-probe
 ```
 
 Set `VITASDK` to the SDK installation directory. Install
 `build-vita-probe/tww-vita-probe.vpk` in VitaShell and open **TWW Vita Probe**.
-Expect a green screen if all start-up reads succeed, or red if a read fails. Press START
+Expect a green screen if the loader succeeds, or red if it reports an error. Press START
 while moving both sticks. The app logs the stick readings at the time START is
 pressed, then exits. It also exits on its own after about 30 seconds.
 Collect `ux0:/data/tww/probe.log` before running the probe again.
@@ -24,8 +30,8 @@ The earlier graphics probe embedded the MIT-licensed texture shaders from
 [libvita2d](https://github.com/xerpi/libvita2d/tree/a8f15ab09d5233f0a4e4ad0e8f6ade0da888cbed/libvita2d/shader).
 
 Keep your USA revision 0 GameCube CISO at `ux0:/data/tww/WindWaker.ciso`.
-The log names each checked archive and reports `boot: disc startup data pass`
-when the disc checks succeed.
+The log names the files read by the loader and reports
+`boot: SwitchWaker startup assets pass` when all checks succeed.
 
 ## Integration points
 
