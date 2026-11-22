@@ -113,7 +113,7 @@ SceShaccCgExt and taiHEN stubs. Use a VitaSDK with GNU ld support for
 ```sh
 git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-gcc.patch" "$PWD/vita/patches/switchwaker-vita-gx-ownership.patch" "$PWD/vita/patches/switchwaker-vita-title-log.patch"
 git -C "$AURORA" apply "$PWD/vita/patches/aurora-vita-dvd.patch"
-git -C "$GXM/.." apply "$PWD/vita/patches/mh3-aurora-vita-gxm.patch"
+git -C "$GXM/.." apply "$PWD/vita/patches/mh3-aurora-vita-gxm.patch" "$PWD/vita/patches/mh3-aurora-public-gx.patch"
 cmake -S "$GXM" -B build-vita-gxm -G Ninja -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-fno-short-enums -DCMAKE_CXX_FLAGS=-fno-short-enums -DBUILD_SHARED_LIBS=OFF -DAURORA_ENABLE_CARD=OFF -DAURORA_ENABLE_DVD=OFF -DAURORA_SDL3_PROVIDER=vendor -DAURORA_SDL3_LINKAGE=static -DTWW_GXM_RUNTIME_SHADERS=ON -DTWW_VITASHARK_PREFIX="$SHARK"
 cmake --build build-vita-gxm --target aurora_gx aurora_gd aurora_os aurora_mtx aurora_vi aurora_ms
 cmake -S vita/probe -B build-vita-game -G Ninja -DCMAKE_BUILD_TYPE=Release -DTWW_SWITCHWAKER_DIR="$SW" -DTWW_AURORA_DIR="$AURORA" -DTWW_SWITCHWAKER_ASSETS="$STUBS" -DTWW_BUILD_GAME_OBJECTS=ON -DTWW_BUILD_RUNTIME_DVD=ON -DTWW_GXM_AURORA_DIR="$GXM" -DTWW_GXM_BUILD_DIR="$PWD/build-vita-gxm" -DTWW_VITASHARK_PREFIX="$SHARK"
@@ -128,9 +128,9 @@ resources from the CISO.
 
 The Vita executable starts SwitchWaker's `aurora_main` with runtime DVD and
 GXM. It writes `ux0:/data/tww/boot.log` and flushes the boot checkpoints.
-The log records GXM initialization, the first presented frame, the logo and
+The log records GXM initialization, admission and presentation of the first game frame, the logo and
 opening scenes, the title draw and the file-select screen if reached.
-The 01.16 build runs muted and reports empty memory-card slots. The GXM
+The 01.17 build runs muted and reports empty memory-card slots. The GXM
 readback path for the Picto Box still needs implementation.
 On real hardware, 01.16 initialized GXM, compiled the initial utility
 shaders, loaded the 163 disc asset arrays and entered `main01`. The crash
@@ -139,14 +139,14 @@ before the first game frame. The `shaders` directory is the runtime
 compiler cache.
 
 The Monster Hunter Tri revision used for 01.16 intentionally aborts on
-the public GX/FIFO interface. SwitchWaker uses that interface for callback
-registration, draw commands, display lists and embedded framebuffer
-copies. The parent of the EFB copy removal,
-[Grarak/mh3-wii `37c57f5`](https://github.com/Grarak/mh3-wii/tree/37c57f5a32556e089d513aee8f3766a86bf6c8a6/aurora-main),
-contains GXM and the public GX/FIFO implementations, including the
-callback and both copy calls. It is a candidate for the next renderer
-build and still needs the Wind Waker shader compiler integration and
-hardware validation.
+the public GX/FIFO interface. Build 01.17 retains that GXM renderer and
+restores the public GX entry points and FIFO decoding from
+[Grarak/mh3-wii `31301ed`](https://github.com/Grarak/mh3-wii/tree/31301edbebc4b629fce35b2303fda279554320b6/aurora-main).
+It also restores texture copies from
+[Grarak/mh3-wii `37c57f5`](https://github.com/Grarak/mh3-wii/tree/37c57f5a32556e089d513aee8f3766a86bf6c8a6/aurora-main)
+and drains pending GX commands before sealing each frame. The complete
+01.17 executable links and packages with VitaSDK. Its first run on
+physical hardware is still pending.
 
 ## Integration points
 

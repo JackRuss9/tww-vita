@@ -276,7 +276,7 @@ if(TWW_GXM_BUILD_DIR)
     SceProcessmgr_stub SceCamera_stub SceKernelModulemgr_stub
     -Wl,--end-group)
 
-  tww_package_vpk(switchwaker-vita 01.16 "SwitchWaker Vita" UNSAFE
+  tww_package_vpk(switchwaker-vita 01.17 "SwitchWaker Vita" UNSAFE
     FILE "${TWW_SWITCHWAKER_DIR}/LICENSE" switchwaker-LICENSE.txt
     FILE "${TWW_GXM_AURORA_DIR}/LICENSE" aurora-LICENSE.txt
     FILE "${TWW_GXM_AURORA_DIR}/../LICENSE" mh3-wii-LICENSE.txt)

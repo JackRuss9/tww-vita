@@ -1,0 +1,4387 @@
+diff --git a/aurora-main/lib/aurora.cpp b/aurora-main/lib/aurora.cpp
+index f3388d4..a5cbe2a 100644
+--- a/aurora-main/lib/aurora.cpp
++++ b/aurora-main/lib/aurora.cpp
+@@ -584,6 +584,7 @@ void end_native_frame() {
+ // resolves the frame-latent EFB readbacks, and presents.
+ void end_frame() {
+ #ifdef AURORA_ENABLE_GX
++  gx::fifo::drain();
+   window::pump_events();
+   std::lock_guard gpuLock(g_rendererGpuMutex);
+ 
+diff --git a/aurora-main/lib/dolphin/gx/GXAurora.cpp b/aurora-main/lib/dolphin/gx/GXAurora.cpp
+index 1026faf..1500a67 100644
+--- a/aurora-main/lib/dolphin/gx/GXAurora.cpp
++++ b/aurora-main/lib/dolphin/gx/GXAurora.cpp
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #include "dolphin/gx/GXAurora.h"
+ 
+ #include <algorithm>
+@@ -16,19 +15,27 @@
+ aurora::Module Log("aurora::gx");
+ 
+ static void GXWriteString(const char* label) {
+-  aurora_legacy_gx_panic("GXWriteString");
++  auto length = strlen(label);
++
++  if (length > std::numeric_limits<u16>::max()) {
++    Log.warn("Debug marker size over u16 max, truncating");
++    length = std::numeric_limits<u16>::max();
++  }
++
++  GX_WRITE_U16(length);
++  GX_WRITE_DATA(label, length);
+ }
+ 
+ void GXPushDebugGroup(const char* label) {
+-  aurora_legacy_gx_panic("GXPushDebugGroup");
++  GX_WRITE_AURORA(GX_LOAD_AURORA_DEBUG_GROUP_PUSH);
++  GXWriteString(label);
+ }
+ 
+-void GXPopDebugGroup() {
+-  aurora_legacy_gx_panic("GXPopDebugGroup");
+-}
++void GXPopDebugGroup() { GX_WRITE_AURORA(GX_LOAD_AURORA_DEBUG_GROUP_POP); }
+ 
+ void GXInsertDebugMarker(const char* label) {
+-  aurora_legacy_gx_panic("GXInsertDebugMarker");
++  GX_WRITE_AURORA(GX_LOAD_AURORA_DEBUG_MARKER_INSERT);
++  GXWriteString(label);
+ }
+ 
+ void AuroraSetViewportPolicy(AuroraViewportPolicy policy) {
+@@ -77,11 +84,21 @@ void AuroraGetSurfaceSize(u32* width, u32* height) {
+ }
+ 
+ void GXSetViewportRender(f32 left, f32 top, f32 wd, f32 ht, f32 nearz, f32 farz) {
+-  aurora_legacy_gx_panic("GXSetViewportRender");
++  GX_WRITE_AURORA(GX_LOAD_AURORA_VIEWPORT_RENDER);
++  GX_WRITE_F32(left);
++  GX_WRITE_F32(top);
++  GX_WRITE_F32(wd);
++  GX_WRITE_F32(ht);
++  GX_WRITE_F32(nearz);
++  GX_WRITE_F32(farz);
+ }
+ 
+ void GXSetScissorRender(u32 left, u32 top, u32 wd, u32 ht) {
+-  aurora_legacy_gx_panic("GXSetScissorRender");
++  GX_WRITE_AURORA(GX_LOAD_AURORA_SCISSOR_RENDER);
++  GX_WRITE_U32(left);
++  GX_WRITE_U32(top);
++  GX_WRITE_U32(wd);
++  GX_WRITE_U32(ht);
+ }
+ 
+ namespace {
+@@ -96,21 +113,71 @@ void WriteMappedRenderState(const aurora::gx::MappedRenderState& mapped) {
+ } // namespace
+ 
+ void GXSetViewportScissorRenderSafeArea(f32 aspect) {
+-  aurora_legacy_gx_panic("GXSetViewportScissorRenderSafeArea");
++  const auto [targetWidth, targetHeight] = aurora::gfx::get_render_target_size();
++  if (targetWidth == 0 || targetHeight == 0 || !std::isfinite(aspect) || aspect <= 0.0f) {
++    return;
++  }
++
++  // Apply queued viewport changes before direct layout draws use the safe area.
++  aurora::gx::fifo::drain();
++  auto mapped = aurora::gx::map_logical_render_state();
++  const float targetAspect = static_cast<float>(targetWidth) / static_cast<float>(targetHeight);
++
++  float safeLeft = 0.0f;
++  float safeTop = 0.0f;
++  float safeWidth = static_cast<float>(targetWidth);
++  float safeHeight = static_cast<float>(targetHeight);
++  if (targetAspect > aspect) {
++    safeWidth = safeHeight * aspect;
++    safeLeft = (static_cast<float>(targetWidth) - safeWidth) * 0.5f;
++  } else if (targetAspect < aspect) {
++    safeHeight = safeWidth / aspect;
++    safeTop = (static_cast<float>(targetHeight) - safeHeight) * 0.5f;
++  }
++
++  const float scaleX = safeWidth / static_cast<float>(targetWidth);
++  const float scaleY = safeHeight / static_cast<float>(targetHeight);
++  mapped.viewport.left = safeLeft + mapped.viewport.left * scaleX;
++  mapped.viewport.top = safeTop + mapped.viewport.top * scaleY;
++  mapped.viewport.width *= scaleX;
++  mapped.viewport.height *= scaleY;
++
++  const float scissorLeft = safeLeft + static_cast<float>(mapped.scissor.x) * scaleX;
++  const float scissorTop = safeTop + static_cast<float>(mapped.scissor.y) * scaleY;
++  const float scissorRight =
++      safeLeft + static_cast<float>(mapped.scissor.x + mapped.scissor.width) * scaleX;
++  const float scissorBottom =
++      safeTop + static_cast<float>(mapped.scissor.y + mapped.scissor.height) * scaleY;
++  const int32_t left = std::clamp(static_cast<int32_t>(std::floor(scissorLeft)), 0,
++                                  static_cast<int32_t>(targetWidth));
++  const int32_t top = std::clamp(static_cast<int32_t>(std::floor(scissorTop)), 0,
++                                 static_cast<int32_t>(targetHeight));
++  const int32_t right = std::clamp(static_cast<int32_t>(std::ceil(scissorRight)), left,
++                                   static_cast<int32_t>(targetWidth));
++  const int32_t bottom = std::clamp(static_cast<int32_t>(std::ceil(scissorBottom)), top,
++                                    static_cast<int32_t>(targetHeight));
++  mapped.scissor = {left, top, right - left, bottom - top};
++
++  WriteMappedRenderState(mapped);
+ }
+ 
+ void GXRestoreViewportScissorRender() {
+-  aurora_legacy_gx_panic("GXRestoreViewportScissorRender");
++  // Run queued GX draws before leaving the direct layout safe area.
++  aurora::gx::fifo::drain();
++  WriteMappedRenderState(aurora::gx::map_logical_render_state());
+ }
+ 
+ void GXSetTexCopySrcRender(u16 left, u16 top, u16 wd, u16 ht) {
+-  aurora_legacy_gx_panic("GXSetTexCopySrcRender");
++  aurora::gx::g_gxState.texCopySrc = {left, top, wd, ht};
++  aurora::gx::g_gxState.texCopySrcRenderSpace = true;
+ }
+ 
+ void GXCreateFrameBuffer(u32 width, u32 height) {
+-  aurora_legacy_gx_panic("GXCreateFrameBuffer");
++  aurora::gx::fifo::drain();
++  aurora::gfx::begin_offscreen(width, height);
+ }
+ 
+ void GXRestoreFrameBuffer() {
+-  aurora_legacy_gx_panic("GXRestoreFrameBuffer");
++  aurora::gx::fifo::drain();
++  aurora::gfx::end_offscreen();
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXBump.cpp b/aurora-main/lib/dolphin/gx/GXBump.cpp
+index 75594de..511bcfe 100644
+--- a/aurora-main/lib/dolphin/gx/GXBump.cpp
++++ b/aurora-main/lib/dolphin/gx/GXBump.cpp
+@@ -1,54 +1,213 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+ extern "C" {
+ void GXSetNumIndStages(u8 num) {
+-  aurora_legacy_gx_panic("GXSetNumIndStages");
++  SET_REG_FIELD(0, __gx->genMode, 3, 16, num);
++  __gx->dirtyState |= 6; // gen mode dirty + BP mask dirty
+ }
+ 
+ void GXSetIndTexOrder(GXIndTexStageID indStage, GXTexCoordID texCoord, GXTexMapID texMap) {
+-  aurora_legacy_gx_panic("GXSetIndTexOrder");
++  switch (indStage) {
++  case GX_INDTEXSTAGE0:
++    SET_REG_FIELD(0, __gx->iref, 3, 0, texMap);
++    SET_REG_FIELD(0, __gx->iref, 3, 3, texCoord);
++    break;
++  case GX_INDTEXSTAGE1:
++    SET_REG_FIELD(0, __gx->iref, 3, 6, texMap);
++    SET_REG_FIELD(0, __gx->iref, 3, 9, texCoord);
++    break;
++  case GX_INDTEXSTAGE2:
++    SET_REG_FIELD(0, __gx->iref, 3, 12, texMap);
++    SET_REG_FIELD(0, __gx->iref, 3, 15, texCoord);
++    break;
++  case GX_INDTEXSTAGE3:
++    SET_REG_FIELD(0, __gx->iref, 3, 18, texMap);
++    SET_REG_FIELD(0, __gx->iref, 3, 21, texCoord);
++    break;
++  }
++  GX_WRITE_RAS_REG(__gx->iref);
++  __gx->bpSent = 1;
++  __gx->dirtyState |= 3; // SU tex regs + BP mask dirty
+ }
+ 
+ void GXSetIndTexCoordScale(GXIndTexStageID indStage, GXIndTexScale scaleS, GXIndTexScale scaleT) {
+-  aurora_legacy_gx_panic("GXSetIndTexCoordScale");
++  if (indStage < GX_INDTEXSTAGE2) {
++    switch (indStage) {
++    case GX_INDTEXSTAGE0:
++      SET_REG_FIELD(0, __gx->IndTexScale0, 4, 0, scaleS);
++      SET_REG_FIELD(0, __gx->IndTexScale0, 4, 4, scaleT);
++      break;
++    case GX_INDTEXSTAGE1:
++      SET_REG_FIELD(0, __gx->IndTexScale0, 4, 8, scaleS);
++      SET_REG_FIELD(0, __gx->IndTexScale0, 4, 12, scaleT);
++      break;
++    }
++    GX_WRITE_RAS_REG(__gx->IndTexScale0);
++  } else {
++    switch (indStage) {
++    case GX_INDTEXSTAGE2:
++      SET_REG_FIELD(0, __gx->IndTexScale1, 4, 0, scaleS);
++      SET_REG_FIELD(0, __gx->IndTexScale1, 4, 4, scaleT);
++      break;
++    case GX_INDTEXSTAGE3:
++      SET_REG_FIELD(0, __gx->IndTexScale1, 4, 8, scaleS);
++      SET_REG_FIELD(0, __gx->IndTexScale1, 4, 12, scaleT);
++      break;
++    }
++    GX_WRITE_RAS_REG(__gx->IndTexScale1);
++  }
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetIndTexMtx(GXIndTexMtxID id, const void* offset, s8 scaleExp) {
+-  aurora_legacy_gx_panic("GXSetIndTexMtx");
++  u32 idx = 0;
++  if (id >= GX_ITM_0 && id <= GX_ITM_2) {
++    idx = id - GX_ITM_0;
++  } else if (id >= GX_ITM_S0 && id <= GX_ITM_S2) {
++    idx = id - GX_ITM_S0;
++  } else if (id >= GX_ITM_T0 && id <= GX_ITM_T2) {
++    idx = id - GX_ITM_T0;
++  }
++
++  const auto* mtx = reinterpret_cast<const f32*>(offset);
++  s32 adjScale = scaleExp + 17;
++
++  // Write 3 BP registers for the 2x3 matrix
++
++  // Column 0: m[0][0] and m[1][0]
++  u32 reg0 = 0;
++  s32 m00 = static_cast<s32>(1024.0f * mtx[0]) & 0x7FF;
++  s32 m10 = static_cast<s32>(1024.0f * mtx[3]) & 0x7FF;
++  SET_REG_FIELD(0, reg0, 11, 0, m00);
++  SET_REG_FIELD(0, reg0, 11, 11, m10);
++  SET_REG_FIELD(0, reg0, 2, 22, adjScale & 3);
++  SET_REG_FIELD(0, reg0, 8, 24, idx * 3 + 6);
++  GX_WRITE_RAS_REG(reg0);
++
++  // Column 1: m[0][1] and m[1][1]
++  u32 reg1 = 0;
++  s32 m01 = static_cast<s32>(1024.0f * mtx[1]) & 0x7FF;
++  s32 m11 = static_cast<s32>(1024.0f * mtx[4]) & 0x7FF;
++  SET_REG_FIELD(0, reg1, 11, 0, m01);
++  SET_REG_FIELD(0, reg1, 11, 11, m11);
++  SET_REG_FIELD(0, reg1, 2, 22, (adjScale >> 2) & 3);
++  SET_REG_FIELD(0, reg1, 8, 24, idx * 3 + 7);
++  GX_WRITE_RAS_REG(reg1);
++
++  // Column 2: m[0][2] and m[1][2]
++  u32 reg2 = 0;
++  s32 m02 = static_cast<s32>(1024.0f * mtx[2]) & 0x7FF;
++  s32 m12 = static_cast<s32>(1024.0f * mtx[5]) & 0x7FF;
++  SET_REG_FIELD(0, reg2, 11, 0, m02);
++  SET_REG_FIELD(0, reg2, 11, 11, m12);
++  SET_REG_FIELD(0, reg2, 2, 22, (adjScale >> 4) & 3);
++  SET_REG_FIELD(0, reg2, 8, 24, idx * 3 + 8);
++  GX_WRITE_RAS_REG(reg2);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetTevIndirect(GXTevStageID tevStage, GXIndTexStageID indStage, GXIndTexFormat fmt, GXIndTexBiasSel biasSel,
+                       GXIndTexMtxID matrixSel, GXIndTexWrap wrapS, GXIndTexWrap wrapT, GXBool addPrev, GXBool indLod,
+                       GXIndTexAlphaSel alphaSel) {
+-  aurora_legacy_gx_panic("GXSetTevIndirect");
++  // BP register: tev_stage + 0x10
++  u32 reg = 0;
++  SET_REG_FIELD(0, reg, 2, 0, indStage);
++  SET_REG_FIELD(0, reg, 2, 2, fmt);
++  SET_REG_FIELD(0, reg, 3, 4, biasSel);
++  SET_REG_FIELD(0, reg, 2, 7, alphaSel);
++  SET_REG_FIELD(0, reg, 4, 9, matrixSel);
++  SET_REG_FIELD(0, reg, 3, 13, wrapS);
++  SET_REG_FIELD(0, reg, 3, 16, wrapT);
++  SET_REG_FIELD(0, reg, 1, 19, indLod);
++  SET_REG_FIELD(0, reg, 1, 20, addPrev);
++  SET_REG_FIELD(0, reg, 8, 24, tevStage + 16);
++  GX_WRITE_RAS_REG(reg);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetTevDirect(GXTevStageID stageId) {
+-  aurora_legacy_gx_panic("GXSetTevDirect");
++  GXSetTevIndirect(stageId, GX_INDTEXSTAGE0, GX_ITF_8, GX_ITB_NONE, GX_ITM_OFF, GX_ITW_OFF, GX_ITW_OFF, GX_FALSE,
++                   GX_FALSE, GX_ITBA_OFF);
+ }
+ 
+ void GXSetTevIndWarp(GXTevStageID tevStage, GXIndTexStageID indStage, GXBool signedOffsets, GXBool replaceMode,
+                      GXIndTexMtxID matrixSel) {
+-  aurora_legacy_gx_panic("GXSetTevIndWarp");
++  const auto wrap = replaceMode ? GX_ITW_0 : GX_ITW_OFF;
++  const auto biasSel = signedOffsets ? GX_ITB_STU : GX_ITB_NONE;
++  GXSetTevIndirect(tevStage, indStage, GX_ITF_8, biasSel, matrixSel, wrap, wrap, false, false, GX_ITBA_OFF);
+ }
+ 
+ void GXSetTevIndRepeat(GXTevStageID tevStage) {
+-  aurora_legacy_gx_panic("GXSetTevIndRepeat");
++  GXSetTevIndirect(tevStage, GX_INDTEXSTAGE0, GX_ITF_8, GX_ITB_NONE, GX_ITM_OFF, GX_ITW_0, GX_ITW_0, GX_TRUE,
++                   GX_FALSE, GX_ITBA_OFF);
+ }
+ 
+ void GXSetTevIndBumpXYZ(GXTevStageID tevStage, GXIndTexStageID indStage, GXIndTexMtxID matrixSel) {
+-  aurora_legacy_gx_panic("GXSetTevIndBumpXYZ");
++  GXSetTevIndirect(tevStage, indStage, GX_ITF_8, GX_ITB_STU, matrixSel, GX_ITW_OFF, GX_ITW_OFF, GX_FALSE, GX_FALSE,
++                   GX_ITBA_OFF);
+ }
+ 
+ void GXSetTevIndBumpST(GXTevStageID tevStage, GXIndTexStageID indStage, GXIndTexMtxID matrixSel) {
+-  aurora_legacy_gx_panic("GXSetTevIndBumpST");
++  GXIndTexMtxID sMtx, tMtx;
++  switch (matrixSel) {
++  case GX_ITM_0:
++    sMtx = GX_ITM_S0;
++    tMtx = GX_ITM_T0;
++    break;
++  case GX_ITM_1:
++    sMtx = GX_ITM_S1;
++    tMtx = GX_ITM_T1;
++    break;
++  case GX_ITM_2:
++    sMtx = GX_ITM_S2;
++    tMtx = GX_ITM_T2;
++    break;
++  default:
++    sMtx = GX_ITM_OFF;
++    tMtx = GX_ITM_OFF;
++    break;
++  }
++  // Stage 0: STU bias, S-dynamic matrix, wrap=0/0
++  GXSetTevIndirect(tevStage, indStage, GX_ITF_8, GX_ITB_STU, sMtx, GX_ITW_0, GX_ITW_0, GX_FALSE, GX_FALSE,
++                   GX_ITBA_OFF);
++  // Stage 1: STU bias, T-dynamic matrix, wrap=0/0, add prev
++  GXSetTevIndirect(static_cast<GXTevStageID>(tevStage + 1), indStage, GX_ITF_8, GX_ITB_STU, tMtx, GX_ITW_0, GX_ITW_0,
++                   GX_TRUE, GX_FALSE, GX_ITBA_OFF);
++  // Stage 2: no bias, matrix off, wrap off, add prev
++  GXSetTevIndirect(static_cast<GXTevStageID>(tevStage + 2), indStage, GX_ITF_8, GX_ITB_NONE, GX_ITM_OFF, GX_ITW_OFF,
++                   GX_ITW_OFF, GX_TRUE, GX_FALSE, GX_ITBA_OFF);
+ }
+ 
+ void GXSetTevIndTile(GXTevStageID tevStage, GXIndTexStageID indStage, u16 tileSizeS, u16 tileSizeT, u16 tileSizeS_exp,
+                      u16 tileSizeT_exp, GXIndTexFormat fmt, GXIndTexMtxID matrixSel, GXIndTexBiasSel biasSel,
+                      GXIndTexAlphaSel alphaSel) {
+-  aurora_legacy_gx_panic("GXSetTevIndTile");
++  // Convert tile size exponents to wrap modes
++  auto sizeToWrap = [](u16 sizeExp) -> GXIndTexWrap {
++    switch (sizeExp) {
++    case 8: return GX_ITW_256;
++    case 7: return GX_ITW_128;
++    case 6: return GX_ITW_64;
++    case 5: return GX_ITW_32;
++    case 4: return GX_ITW_16;
++    default: return GX_ITW_0;
++    }
++  };
++  GXIndTexWrap wrapS = sizeToWrap(tileSizeS_exp);
++  GXIndTexWrap wrapT = sizeToWrap(tileSizeT_exp);
++
++  // Set up the indirect matrix for tiling
++  f32 mtx[2][3] = {};
++  s8 scaleExp = 0;
++  if (biasSel == GX_ITB_S || biasSel == GX_ITB_ST || biasSel == GX_ITB_SU || biasSel == GX_ITB_STU) {
++    mtx[0][0] = static_cast<f32>(tileSizeS);
++    scaleExp = tileSizeS_exp;
++  }
++  if (biasSel == GX_ITB_T || biasSel == GX_ITB_ST || biasSel == GX_ITB_TU || biasSel == GX_ITB_STU) {
++    mtx[1][1] = static_cast<f32>(tileSizeT);
++    scaleExp = tileSizeT_exp;
++  }
++  GXSetIndTexMtx(matrixSel, mtx, scaleExp);
++  GXSetTevIndirect(tevStage, indStage, fmt, biasSel, matrixSel, wrapS, wrapT, GX_FALSE, GX_FALSE, alphaSel);
+ }
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXCpu2Efb.cpp b/aurora-main/lib/dolphin/gx/GXCpu2Efb.cpp
+index bc1e3bb..9815bd4 100644
+--- a/aurora-main/lib/dolphin/gx/GXCpu2Efb.cpp
++++ b/aurora-main/lib/dolphin/gx/GXCpu2Efb.cpp
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ 
+ #include "../../gfx/depth_peek.hpp"
+@@ -6,5 +5,16 @@
+ #include <dolphin/gx/GXCpu2Efb.h>
+ 
+ void GXPeekZ(u16 x, u16 y, u32* z) {
+-  aurora_legacy_gx_panic("GXPeekZ");
++  aurora::gfx::depth_peek::poll();
++
++  if (z != nullptr) {
++    u32 value = 0;
++    if (aurora::gfx::depth_peek::read_latest(x, y, value)) {
++      *z = value;
++    } else {
++      *z = g_gxState.clearDepth & 0x00ffffffu;
++    }
++  }
++
++  aurora::gfx::depth_peek::request_snapshot();
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXCull.cpp b/aurora-main/lib/dolphin/gx/GXCull.cpp
+index a220a8c..0611778 100644
+--- a/aurora-main/lib/dolphin/gx/GXCull.cpp
++++ b/aurora-main/lib/dolphin/gx/GXCull.cpp
+@@ -1,24 +1,60 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+ extern "C" {
+ 
+ void GXSetScissor(u32 left, u32 top, u32 width, u32 height) {
+-  aurora_legacy_gx_panic("GXSetScissor");
++  const u32 tp = top + 342;
++  const u32 lf = left + 342;
++  const u32 bm = tp + height - 1;
++  const u32 rt = lf + width - 1;
++
++  SET_REG_FIELD(0, __gx->suScis0, 11, 0, tp);
++  SET_REG_FIELD(0, __gx->suScis0, 11, 12, lf);
++  SET_REG_FIELD(0, __gx->suScis1, 11, 0, bm);
++  SET_REG_FIELD(0, __gx->suScis1, 11, 12, rt);
++
++  GX_WRITE_RAS_REG(__gx->suScis0);
++  GX_WRITE_RAS_REG(__gx->suScis1);
++  __gx->bpSent = 1;
+ }
+ 
+ // TODO GXSetScissorBoxOffset
+ 
+ void GXSetCullMode(GXCullMode mode) {
+-  aurora_legacy_gx_panic("GXSetCullMode");
++  // Swap front/back to match hardware convention
++  GXCullMode hwMode;
++  switch (mode) {
++  case GX_CULL_FRONT:
++    hwMode = GX_CULL_BACK;
++    break;
++  case GX_CULL_BACK:
++    hwMode = GX_CULL_FRONT;
++    break;
++  default:
++    hwMode = mode;
++    break;
++  }
++  SET_REG_FIELD(0, __gx->genMode, 2, 14, hwMode);
++  __gx->dirtyState |= 4; // gen mode dirty
+ }
+ 
+ void GXSetClipMode(GXClipMode mode) {
+-  aurora_legacy_gx_panic("GXSetClipMode");
++  GX_WRITE_XF_REG(5, mode);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetCoPlanar(GXBool enable) {
+-  aurora_legacy_gx_panic("GXSetCoPlanar");
++  u32 reg;
++  SET_REG_FIELD(0, __gx->genMode, 1, 19, enable);
++
++  // This sets a mask that causes only one bit to be updated in genMode on the next write.
++  reg = 0x0008000;
++  SET_REG_FIELD(0, reg, 8, 24, 0xFE);
++  SET_REG_FIELD(0, reg, 24, 0, 1 << 19);
++  GX_WRITE_RAS_REG(reg);
++
++  // immediately flush
++  GX_WRITE_RAS_REG(__gx->genMode);
+ }
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXDispList.cpp b/aurora-main/lib/dolphin/gx/GXDispList.cpp
+index 1e2fad7..bf22212 100644
+--- a/aurora-main/lib/dolphin/gx/GXDispList.cpp
++++ b/aurora-main/lib/dolphin/gx/GXDispList.cpp
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+@@ -11,18 +10,80 @@ static __GXData_struct sSavedGXData;
+ 
+ extern "C" {
+ void GXBeginDisplayList(void* list, u32 size) {
+-  aurora_legacy_gx_panic("GXBeginDisplayList");
++  CHECK(!aurora::gx::fifo::in_display_list(), "Display list began twice!");
++
++  // Flush any pending dirty state before recording
++  if (__gx->dirtyState != 0) {
++    __GXSetDirtyState();
++  }
++
++  // Save current shadow register state if requested
++  if (__gx->dlSaveContext != 0) {
++    std::memcpy(&sSavedGXData, __gx, sizeof(sSavedGXData));
++  }
++
++  __gx->inDispList = 1;
++
++  // Redirect FIFO writes to the user-provided buffer
++  aurora::gx::fifo::begin_display_list(static_cast<u8*>(list), size);
+ }
+ 
+ u32 GXEndDisplayList() {
+-  aurora_legacy_gx_panic("GXEndDisplayList");
++  // Flush any pending dirty state into the display list
++  if (__gx->dirtyState != 0) {
++    __GXSetDirtyState();
++  }
++
++  // End FIFO redirection and get the byte count (ROUNDUP32)
++  u32 bytesWritten = aurora::gx::fifo::end_display_list();
++
++  // Restore saved shadow register state
++  if (__gx->dlSaveContext != 0) {
++    std::memcpy(__gx, &sSavedGXData, sizeof(*__gx));
++  }
++
++  __gx->inDispList = 0;
++
++  return bytesWritten;
+ }
+ 
+ void GXCallDisplayList(const void* data, u32 nbytes) {
+-  aurora_legacy_gx_panic("GXCallDisplayList");
++  // Flush any pending dirty state before calling
++  if (__gx->dirtyState != 0) {
++    __GXSetDirtyState();
++  }
++
++  // Flush pending primitives
++  if (*reinterpret_cast<u32*>(&__gx->vNum) != 0) {
++    __GXSendFlushPrim();
++  }
++
++  // Nested display-list calls add bytes instead of changing live renderer state.
++  if (aurora::gx::fifo::in_display_list()) {
++    aurora::gx::fifo::write_data(data, nbytes);
++    return;
++  }
++
++  // Decode the display list immediately while its borrowed resources are valid.
++  aurora::gx::fifo::drain();
++  aurora::gx::fifo::process(static_cast<const u8*>(data), nbytes, true);
+ }
+ 
+ void GXCallDisplayListLE(const void* data, u32 nbytes) {
+-  aurora_legacy_gx_panic("GXCallDisplayListLE");
++  // Flush any pending dirty state before calling
++  if (__gx->dirtyState != 0) {
++    __GXSetDirtyState();
++  }
++
++  // Flush pending primitives
++  if (*reinterpret_cast<u32*>(&__gx->vNum) != 0) {
++    __GXSendFlushPrim();
++  }
++
++  // Decode little-endian lists separately after finishing the normal FIFO work.
++  aurora::gx::fifo::drain();
++
++  // Process the display list through the command processor (little-endian)
++  aurora::gx::fifo::process(static_cast<const u8*>(data), nbytes, false);
+ }
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXDraw.cpp b/aurora-main/lib/dolphin/gx/GXDraw.cpp
+index 082e583..62e2c38 100644
+--- a/aurora-main/lib/dolphin/gx/GXDraw.cpp
++++ b/aurora-main/lib/dolphin/gx/GXDraw.cpp
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ 
+ extern "C" {
+@@ -97,23 +96,224 @@ static void SubDivTriangle(u8 depth, u8 i, f32 (*data)[3], u8 (*ndx)[3]) {
+ }
+ 
+ void GXDrawCylinder(u8 numEdges) {
+-  aurora_legacy_gx_panic("GXDrawCylinder");
++    s32 i;
++    f32 top;
++    f32 bottom;
++    f32 x[100];
++    f32 y[100];
++    f32 angle;
++
++    top = 1.0f;
++    bottom = -top;
++    CHECK(numEdges <= 99, "GXDrawCylinder: too many edges");
++
++    GetVertState();
++
++    for (i = 0; i <= numEdges; i++) {
++        angle = (3.1415927f * (2.0f * i)) / numEdges;
++        x[i] = cosf(angle);
++        y[i] = sinf(angle);
++    }
++
++    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT3, (numEdges + 1) * 2);
++    for (i = 0; i <= numEdges; i++) {
++        GXPosition3f32(x[i], y[i], bottom);
++        GXNormal3f32(x[i], y[i], 0.0f);
++        GXPosition3f32(x[i], y[i], top);
++        GXNormal3f32(x[i], y[i], 0.0f);
++
++    }
++    GXEnd();
++
++    GXBegin(GX_TRIANGLEFAN, GX_VTXFMT3, numEdges + 2);
++    GXPosition3f32(0.0f, 0.0f, top);
++    GXNormal3f32(0.0f, 0.0f, 1.0f);
++    for (i = 0; i <= numEdges; i++) {
++        GXPosition3f32(x[i], -y[i], top);
++        GXNormal3f32(0.0f, 0.0f, 1.0f);
++
++    }
++    GXEnd();
++
++    GXBegin(GX_TRIANGLEFAN, GX_VTXFMT3, numEdges + 2);
++    GXPosition3f32(0.0f, 0.0f, bottom);
++    GXNormal3f32(0.0f, 0.0f, -1.0f);
++    for (i = 0; i <= numEdges; i++) {
++        GXPosition3f32(x[i], y[i], bottom);
++        GXNormal3f32(0.0f, 0.0f, -1.0f);
++    }
++    GXEnd();
++
++    RestoreVertState();
+ }
+ 
+ void GXDrawTorus(f32 rc, u8 numc, u8 numt) {
+-  aurora_legacy_gx_panic("GXDrawTorus");
++    GXAttrType ttype;
++    s32 i, j, k;
++    f32 s, t;
++    f32 x, y, z;
++    f32 twopi = 6.2831855f;
++    f32 rt;
++
++    CHECK(rc < 1.0f, "GXDrawTorus: doughnut too fat");
++
++    rt = 1.0f - rc;
++    GXGetVtxDesc(GX_VA_TEX0, &ttype);
++    GetVertState();
++
++    if (ttype != GX_NONE) {
++        GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
++        GXSetVtxAttrFmt(GX_VTXFMT3, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
++    }
++
++    for (i = 0; i < numc; i++) {
++        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT3, (numt + 1) * 2);
++        for (j = 0; j <= numt; j++) {
++            for (k = 1; k >= 0; k--) {
++                s = (i + k) % numc;
++                t = j % numt;
++                x = (rt - rc * cosf(s * twopi / numc)) * cosf(t * twopi / numt);
++                y = (rt - rc * cosf(s * twopi / numc)) * sinf(t * twopi / numt);
++                z = rc * sinf(s * twopi / numc);
++                GXPosition3f32(x, y, z);
++                x = -cosf(t * twopi / numt) * cosf(s * twopi / numc);
++                y = -sinf(t * twopi / numt) * cosf(s * twopi / numc);
++                z = sinf(s * twopi / numc);
++                GXNormal3f32(x, y, z);
++                if (ttype != GX_NONE) {
++                    GXTexCoord2f32((i + k) / (f32)numc, j / (f32)numt);
++                }
++            }
++        }
++        GXEnd();
++    }
++    RestoreVertState();
+ }
+ 
+ void GXDrawSphere(u8 numMajor, u8 numMinor) {
+-  aurora_legacy_gx_panic("GXDrawSphere");
++    GXAttrType ttype;
++    f32 radius = 1.0f;
++    f32 majorStep = 3.1415927f / numMajor;
++    f32 minorStep = 6.2831855f / numMinor;
++    s32 i, j;
++    f32 a, b;
++    f32 r0, r1;
++    f32 z0, z1;
++    f32 c;
++    f32 x, y;
++
++    GXGetVtxDesc(GX_VA_TEX0, &ttype);
++    GetVertState();
++
++    if (ttype != GX_NONE) {
++        GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
++        GXSetVtxAttrFmt(GX_VTXFMT3, GX_VA_TEX0, GX_TEX_ST, GX_RGBA6, 0);
++    }
++
++    for (i = 0; i < numMajor; i++) {
++        a = i * majorStep;
++        b = a + majorStep;
++        r0 = radius * sinf(a);
++        r1 = radius * sinf(b);
++        z0 = radius * cosf(a);
++        z1 = radius * cosf(b);
++        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT3, (numMinor + 1) * 2);
++        for (j = 0; j <= numMinor; j++) {
++            c = j * minorStep;
++            x = cosf(c);
++            y = sinf(c);
++            GXPosition3f32(x * r1, y * r1, z1);
++            GXNormal3f32((x * r1) / radius, (y * r1) / radius, z1 / radius);
++            if (ttype != GX_NONE) {
++                GXTexCoord2f32((f32)j / (f32)numMinor, (f32)(i + 1) / (f32)numMajor);
++            }
++            GXPosition3f32(x * r0, y * r0, z0);
++            GXNormal3f32((x * r0) / radius, (y * r0) / radius, z0 / radius);
++            if (ttype != GX_NONE) {
++                GXTexCoord2f32((f32)j / (f32)numMinor, (f32)i / (f32)numMajor);
++            }
++        }
++        GXEnd();
++    }
++    RestoreVertState();
+ }
+ 
+ static void GXDrawCubeFace(f32 nx, f32 ny, f32 nz, f32 tx, f32 ty, f32 tz, f32 bx, f32 by, f32 bz, GXAttrType binormal, GXAttrType texture) {
+-  aurora_legacy_gx_panic("GXDrawCubeFace");
++    GXPosition3f32(0.57735026f * (nx + tx + bx), 0.57735026f * (ny + ty + by), 0.57735026f * (nz + tz + bz));
++    GXNormal3f32(nx, ny, nz);
++
++    if (binormal != GX_NONE) {
++        GXNormal3f32(tx, ty, tz);
++        GXNormal3f32(bx, by, bz);
++    }
++
++    if (texture != GX_NONE) {
++        GXTexCoord2s8(1, 1);
++    }
++
++    GXPosition3f32(0.57735026f * (nx - tx + bx), 0.57735026f * (ny - ty + by), 0.57735026f * (nz - tz + bz));
++    GXNormal3f32(nx, ny, nz);
++
++    if (binormal != GX_NONE) {
++        GXNormal3f32(tx, ty, tz);
++        GXNormal3f32(bx, by, bz);
++    }
++
++    if (texture != GX_NONE) {
++        GXTexCoord2s8(0, 1);
++    }
++
++    GXPosition3f32(0.57735026f * (nx - tx - bx), 0.57735026f * (ny - ty - by), 0.57735026f * (nz - tz - bz));
++    GXNormal3f32(nx, ny, nz);
++
++    if (binormal != GX_NONE) {
++        GXNormal3f32(tx, ty, tz);
++        GXNormal3f32(bx, by, bz);
++    }
++
++    if (texture != GX_NONE) {
++        GXTexCoord2s8(0, 0);
++    }
++
++    GXPosition3f32(0.57735026f * (nx + tx - bx), 0.57735026f * (ny + ty - by), 0.57735026f * (nz + tz - bz));
++    GXNormal3f32(nx, ny, nz);
++
++    if (binormal != GX_NONE) {
++        GXNormal3f32(tx, ty, tz);
++        GXNormal3f32(bx, by, bz);
++    }
++
++    if (texture != GX_NONE) {
++        GXTexCoord2s8(1, 0);
++    }
+ }
+ 
+ void GXDrawCube(void) {
+-  aurora_legacy_gx_panic("GXDrawCube");
++    GXAttrType ntype;
++    GXAttrType ttype;
++
++    GXGetVtxDesc(GX_VA_NBT, &ntype);
++    GXGetVtxDesc(GX_VA_TEX0, &ttype);
++    GetVertState();
++    if (ntype != GX_NONE) {
++        GXSetVtxDesc(GX_VA_NBT, GX_DIRECT);
++        GXSetVtxAttrFmt(GX_VTXFMT3, GX_VA_NBT, GX_TEX_ST, GX_RGBA6, 0);
++    }
++    if (ttype != GX_NONE) {
++        GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
++        GXSetVtxAttrFmt(GX_VTXFMT3, GX_VA_TEX0, GX_TEX_ST, GX_RGB8, 0);
++    }
++
++    GXBegin(GX_QUADS, GX_VTXFMT3, 24);
++    GXDrawCubeFace(-1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f, ntype, ttype);
++    GXDrawCubeFace(1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, -1.0f, ntype, ttype);
++    GXDrawCubeFace(0.0f, -1.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, ntype, ttype);
++    GXDrawCubeFace(0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, ntype, ttype);
++    GXDrawCubeFace(0.0f, 0.0f, -1.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, ntype, ttype);
++    GXDrawCubeFace(0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, ntype, ttype);
++    GXEnd();
++
++    RestoreVertState();
+ }
+ 
+ static u32 polygons[12][5] = {
+@@ -155,7 +355,32 @@ static f32 verts[20][3] = {
+ };
+ 
+ void GXDrawDodeca(void) {
+-  aurora_legacy_gx_panic("GXDrawDodeca");
++    u32 i;
++    f32 *p0;
++    f32 *p1;
++    f32 *p2;
++    f32 u[3];
++    f32 v[3];
++    f32 n[3];
++
++    GetVertState();
++    for (i = 0; i < 12; i++) {
++        p0 = verts[polygons[i][0]];
++        p1 = verts[polygons[i][1]];
++        p2 = verts[polygons[i][2]];
++        vsub(p1, p2, u);
++        vsub(p1, p0, v);
++        vcross(u, v, n);
++        normalize(n);
++        GXBegin(GX_TRIANGLEFAN, GX_VTXFMT3, 5);
++        myvertex(verts[polygons[i][4]], n);
++        myvertex(verts[polygons[i][3]], n);
++        myvertex(p2, n);
++        myvertex(p1, n);
++        myvertex(p0, n);
++        GXEnd();
++    }
++    RestoreVertState();
+ }
+ 
+ static f32 odata[6][3] = {
+@@ -179,7 +404,13 @@ static u8 ondex[8][3] = {
+ };
+ 
+ void GXDrawOctahedron(void) {
+-  aurora_legacy_gx_panic("GXDrawOctahedron");
++    s32 i;
++
++    GetVertState();
++    for (i = 7; i >= 0; i--) {
++        SubDivTriangle(0, i, odata, ondex);
++    }
++    RestoreVertState();
+ }
+ 
+ static f32 idata[12][3] = {
+@@ -221,11 +452,23 @@ static u8 uindex[20][3] = {
+ };
+ 
+ void GXDrawIcosahedron(void) {
+-  aurora_legacy_gx_panic("GXDrawIcosahedron");
++    s32 i;
++
++    GetVertState();
++    for (i = 19; i >= 0; i--) {
++        SubDivTriangle(0, i, idata, uindex);
++    }
++    RestoreVertState();
+ }
+ 
+ void GXDrawSphere1(u8 depth) {
+-  aurora_legacy_gx_panic("GXDrawSphere1");
++    s32 i;
++
++    GetVertState();
++    for (i = 19; i >= 0; i--) {
++        SubDivTriangle(depth, i, idata, uindex);
++    }
++    RestoreVertState();
+ }
+ 
+ static u32 CmpNormal32(f32 n1[3], f32 n2[3]) {
+@@ -295,6 +538,14 @@ static void SubDivNrm(u8 depth, u8 i, f32 (*data)[3], u8 (*ndx)[3]) {
+ }
+ 
+ u32 GXGenNormalTable(u8 depth, f32* table) {
+-  aurora_legacy_gx_panic("GXGenNormalTable");
++    s32 i;
++
++    nrm_cnt = 0;
++    nrm_tab = table;
++    for (i = 7; i >= 0; i--) {
++        SubDivNrm(depth, i, odata, ondex);
++    }
++
++    return nrm_cnt;
+ }
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXExtra.cpp b/aurora-main/lib/dolphin/gx/GXExtra.cpp
+index d0e05b2..32c0a79 100644
+--- a/aurora-main/lib/dolphin/gx/GXExtra.cpp
++++ b/aurora-main/lib/dolphin/gx/GXExtra.cpp
+@@ -1,18 +1,27 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ #include "dolphin/gx/GXAurora.h"
+ 
+ extern "C" {
+ void GXDestroyTexObj(GXTexObj* obj_) {
+-  aurora_legacy_gx_panic("GXDestroyTexObj");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  // Destroying a GX texture descriptor must not discard cached texture pixels.
++  obj->texObjId = 0;
+ }
+ 
+ void GXDestroyTlutObj(GXTlutObj* obj_) {
+-  aurora_legacy_gx_panic("GXDestroyTlutObj");
++  auto* obj = reinterpret_cast<GXTlutObj_*>(obj_);
++  if (obj->tlutObjId != 0) {
++    GX_WRITE_AURORA(GX_LOAD_AURORA_DESTROY_TLUT);
++    GX_WRITE_U32(obj->tlutObjId);
++  }
++  obj->tlutObjId = 0;
+ }
+ 
+ void GXDestroyCopyTex(void* dest) {
+-  aurora_legacy_gx_panic("GXDestroyCopyTex");
++  if (dest != nullptr) {
++    GX_WRITE_AURORA(GX_LOAD_AURORA_DESTROY_COPY_TEX);
++    GX_WRITE_U64(reinterpret_cast<u64>(dest));
++  }
+ }
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXFifo.cpp b/aurora-main/lib/dolphin/gx/GXFifo.cpp
+index 9528802..ab86547 100644
+--- a/aurora-main/lib/dolphin/gx/GXFifo.cpp
++++ b/aurora-main/lib/dolphin/gx/GXFifo.cpp
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ 
+ extern "C" {
+@@ -7,22 +6,20 @@ static GXFifoObj* GPFifo;
+ static GXFifoObj* CPUFifo;
+ 
+ void GXGetGPStatus(GXBool* overhi, GXBool* underlow, GXBool* readIdle, GXBool* cmdIdle, GXBool* brkpt) {
+-  aurora_legacy_gx_panic("GXGetGPStatus");
++  *overhi = *underlow = *readIdle = *cmdIdle = *brkpt = false;
++  *readIdle = true;
+ }
+ 
+ // TODO GXGetFifoStatus
+ 
+ void GXGetFifoPtrs(GXFifoObj* fifo, void** readPtr, void** writePtr) {
+-  aurora_legacy_gx_panic("GXGetFifoPtrs");
++  *readPtr = NULL;
++  *writePtr = NULL;
+ }
+ 
+-GXFifoObj* GXGetCPUFifo() {
+-  aurora_legacy_gx_panic("GXGetCPUFifo");
+-}
++GXFifoObj* GXGetCPUFifo() { return CPUFifo; }
+ 
+-GXFifoObj* GXGetGPFifo() {
+-  aurora_legacy_gx_panic("GXGetGPFifo");
+-}
++GXFifoObj* GXGetGPFifo() { return GPFifo; }
+ 
+ // TODO GXGetFifoBase
+ // TODO GXGetFifoSize
+@@ -31,27 +28,17 @@ GXFifoObj* GXGetGPFifo() {
+ // TODO GXEnableBreakPt
+ // TODO GXDisableBreakPt
+ 
+-void GXInitFifoBase(GXFifoObj* fifo, void* base, u32 size) {
+-  aurora_legacy_gx_panic("GXInitFifoBase");
+-}
++void GXInitFifoBase(GXFifoObj* fifo, void* base, u32 size) {}
+ 
+-void GXInitFifoPtrs(GXFifoObj* fifo, void* readPtr, void* writePtr) {
+-  aurora_legacy_gx_panic("GXInitFifoPtrs");
+-}
++void GXInitFifoPtrs(GXFifoObj* fifo, void* readPtr, void* writePtr) {}
+ 
+ // TODO GXInitFifoLimits
+ 
+-void GXSetCPUFifo(GXFifoObj* fifo) {
+-  aurora_legacy_gx_panic("GXSetCPUFifo");
+-}
++void GXSetCPUFifo(GXFifoObj* fifo) { CPUFifo = fifo; }
+ 
+-void GXSetGPFifo(GXFifoObj* fifo) {
+-  aurora_legacy_gx_panic("GXSetGPFifo");
+-}
++void GXSetGPFifo(GXFifoObj* fifo) { GPFifo = fifo; }
+ 
+-void GXSaveCPUFifo(GXFifoObj* fifo) {
+-  aurora_legacy_gx_panic("GXSaveCPUFifo");
+-}
++void GXSaveCPUFifo(GXFifoObj* fifo) {}
+ 
+ // TODO GXSaveGPFifo
+ // TODO GXRedirectWriteGatherPipe
+diff --git a/aurora-main/lib/dolphin/gx/GXFrameBuffer.cpp b/aurora-main/lib/dolphin/gx/GXFrameBuffer.cpp
+index 57bb75e..7647f0c 100644
+--- a/aurora-main/lib/dolphin/gx/GXFrameBuffer.cpp
++++ b/aurora-main/lib/dolphin/gx/GXFrameBuffer.cpp
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+@@ -325,71 +324,292 @@ GXRenderModeObj GXMpal480IntDf = {
+ };
+ 
+ void GXAdjustForOverscan(GXRenderModeObj* rmin, GXRenderModeObj* rmout, u16 hor, u16 ver) {
+-  aurora_legacy_gx_panic("GXAdjustForOverscan");
++  *rmout = *rmin;
++  const auto renderSize = aurora::gfx::get_render_target_size();
++  rmout->fbWidth = static_cast<u16>(std::min<uint32_t>(renderSize.x, UINT16_MAX));
++  rmout->efbHeight = static_cast<u16>(std::min<uint32_t>(renderSize.y, UINT16_MAX));
++  rmout->xfbHeight = static_cast<u16>(std::min<uint32_t>(renderSize.y, UINT16_MAX));
+ }
+ 
+ void GXSetDispCopySrc(u16 left, u16 top, u16 wd, u16 ht) {
+-  aurora_legacy_gx_panic("GXSetDispCopySrc");
++  g_gxState.dispCopySrc = {left, top, wd, ht};
++  GX_WRITE_RAS_REG(0x49000000u | ((static_cast<u32>(top) & 0x3ffu) << 10) | (static_cast<u32>(left) & 0x3ffu));
++  GX_WRITE_RAS_REG(0x4a000000u | (((static_cast<u32>(ht) - 1u) * 0x400u) & 0x000ffc00u) |
++                   ((static_cast<u32>(wd) - 1u) & 0x3ffu));
+ }
+ 
+ void GXSetTexCopySrc(u16 left, u16 top, u16 wd, u16 ht) {
+-  aurora_legacy_gx_panic("GXSetTexCopySrc");
++  g_gxState.texCopySrc = {left, top, wd, ht};
++  g_gxState.texCopySrcRenderSpace = false;
+ }
+ 
+ void GXSetDispCopyDst(u16 wd, u16 ht) {
+-  aurora_legacy_gx_panic("GXSetDispCopyDst");
++  g_gxState.dispCopyDstWidth = wd;
++  g_gxState.dispCopyDstHeight = ht;
++  GX_WRITE_RAS_REG(0x4d000000u | ((((static_cast<u32>(wd) & 0x7fffu) << 1) >> 5) & 0x3ffu));
+ }
+ 
+ void GXSetTexCopyDst(u16 wd, u16 ht, GXTexFmt fmt, GXBool mipmap) {
+-  aurora_legacy_gx_panic("GXSetTexCopyDst");
++  g_gxState.texCopyFmt = fmt;
++  g_gxState.texCopyDstWidth = wd;
++  g_gxState.texCopyDstHeight = ht;
++  g_gxState.texCopyHalfScale = mipmap != GX_FALSE;
+ }
+ 
+ void GXSetDispCopyFrame2Field(u32 mode) {
+-  aurora_legacy_gx_panic("GXSetDispCopyFrame2Field");
++  g_gxState.dispCopyFrame2Field = mode & 3;
+ }
+ 
+ void GXSetCopyClamp(GXFBClamp clamp) {
+-  aurora_legacy_gx_panic("GXSetCopyClamp");
++  g_gxState.copyClamp = static_cast<GXFBClamp>(static_cast<u32>(clamp) & 3);
+ }
+ 
+ u32 GXSetDispCopyYScale(f32 vscale) {
+-  aurora_legacy_gx_panic("GXSetDispCopyYScale");
++  const u32 iScale = y_scale_to_integer(vscale);
++  g_gxState.dispCopyYScale = vscale;
++  GX_WRITE_RAS_REG(0x4e000000u | iScale);
++  __gx->bpSent = 0;
++  return get_num_xfb_lines_internal(static_cast<u16>(g_gxState.dispCopySrc.height), iScale);
+ }
+ 
+ void GXSetCopyClear(GXColor color, u32 depth) {
+-  aurora_legacy_gx_panic("GXSetCopyClear");
++  // BP 0x4F: clear color R + A
++  u32 reg0 = 0;
++  SET_REG_FIELD(0, reg0, 8, 0, color.r);
++  SET_REG_FIELD(0, reg0, 8, 8, color.a);
++  SET_REG_FIELD(0, reg0, 8, 24, 0x4F);
++  GX_WRITE_RAS_REG(reg0);
++
++  // BP 0x50: clear color B + G
++  u32 reg1 = 0;
++  SET_REG_FIELD(0, reg1, 8, 0, color.b);
++  SET_REG_FIELD(0, reg1, 8, 8, color.g);
++  SET_REG_FIELD(0, reg1, 8, 24, 0x50);
++  GX_WRITE_RAS_REG(reg1);
++
++  // BP 0x51: clear Z (24-bit)
++  u32 reg2 = 0;
++  SET_REG_FIELD(0, reg2, 24, 0, depth);
++  SET_REG_FIELD(0, reg2, 8, 24, 0x51);
++  GX_WRITE_RAS_REG(reg2);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetCopyFilter(GXBool aa, u8 sample_pattern[12][2], GXBool vf, u8 vfilter[7]) {
+-  aurora_legacy_gx_panic("GXSetCopyFilter");
++  g_gxState.copyFilterAa = aa;
++  g_gxState.copyFilterVf = vf;
++  if (sample_pattern) {
++    for (size_t i = 0; i < g_gxState.copyFilterSamplePattern.size(); ++i) {
++      g_gxState.copyFilterSamplePattern[i][0] = sample_pattern[i][0];
++      g_gxState.copyFilterSamplePattern[i][1] = sample_pattern[i][1];
++    }
++  }
++  if (vfilter) {
++    for (size_t i = 0; i < g_gxState.copyFilterVFilter.size(); ++i) {
++      g_gxState.copyFilterVFilter[i] = vfilter[i];
++    }
++  }
++
++  if (!aa) {
++    for (auto& sample : g_gxState.copyFilterSamplePattern) {
++      sample = {6, 6};
++    }
++  }
++  if (!vf) {
++    g_gxState.copyFilterVFilter = {0, 0, 21, 22, 21, 0, 0};
++  }
++
++  GX_WRITE_RAS_REG(pack_copy_filter_samples(0x01, g_gxState.copyFilterSamplePattern, 0));
++  GX_WRITE_RAS_REG(pack_copy_filter_samples(0x02, g_gxState.copyFilterSamplePattern, 6));
++  GX_WRITE_RAS_REG(pack_copy_filter_samples(0x03, g_gxState.copyFilterSamplePattern, 12));
++  GX_WRITE_RAS_REG(pack_copy_filter_samples(0x04, g_gxState.copyFilterSamplePattern, 18));
++  GX_WRITE_RAS_REG(pack_copy_filter0(g_gxState.copyFilterVFilter));
++  GX_WRITE_RAS_REG(pack_copy_filter1(g_gxState.copyFilterVFilter));
++  __gx->bpSent = 0;
+ }
+ 
+ void GXSetDispCopyGamma(GXGamma gamma) {
+-  aurora_legacy_gx_panic("GXSetDispCopyGamma");
++  g_gxState.dispCopyGamma = static_cast<GXGamma>(static_cast<u32>(gamma) & 3u);
++  g_gxState.bpRegCache[0x52] = (g_gxState.bpRegCache[0x52] & ~(3u << 7)) |
++                               ((static_cast<u32>(g_gxState.dispCopyGamma) & 3u) << 7);
+ }
+ 
+ void GXCopyDisp(void* dest, GXBool clear) {
+-  aurora_legacy_gx_panic("GXCopyDisp");
++  (void)dest;
++  // Finish queued commands before this copy reads live EFB state.
++  if (aurora::gx::fifo::get_buffer_size() != 0) {
++    aurora::gx::fifo::drain();
++  }
++  const auto rect = aurora::gx::map_logical_scissor(g_gxState.dispCopySrc);
++  const auto logicalDstWidth =
++      std::max<u32>(g_gxState.dispCopyDstWidth != 0 ? g_gxState.dispCopyDstWidth : static_cast<u32>(g_gxState.dispCopySrc.width), 1);
++  const auto logicalDstHeight =
++      std::max<u32>(g_gxState.dispCopyDstHeight != 0 ? g_gxState.dispCopyDstHeight : static_cast<u32>(g_gxState.dispCopySrc.height), 1);
++  const auto [dstWidth, dstHeight] = scale_copy_dst(logicalDstWidth, logicalDstHeight);
++
++  if (!g_gxState.displayCopyTexture || g_gxState.displayCopyWidth != dstWidth ||
++      g_gxState.displayCopyHeight != dstHeight) {
++    g_gxState.displayCopyTexture = aurora::gfx::new_render_texture(dstWidth, dstHeight, GX_TF_RGBA8, "Display Copy");
++    g_gxState.displayCopyWidth = dstWidth;
++    g_gxState.displayCopyHeight = dstHeight;
++  }
++
++  const auto clearState = get_copy_clear_state(clear);
++  auto copyFilter = combined_copy_filter_coefficients(g_gxState.copyFilterVFilter);
++  if (aurora::g_config.disableCopyFilter) {
++    copyFilter = {0, copyFilter[0] + copyFilter[1] + copyFilter[2], 0};
++  }
++  aurora::gfx::resolve_pass(g_gxState.displayCopyTexture, rect, clearState.clearColor, clearState.clearAlpha,
++                            clearState.clearDepth, clearState.clearColorValue, aurora::gx::clear_depth_value(),
++                            GX_TF_RGBA8, nullptr, false, &copyFilter, false,
++                            static_cast<float>(rect.height) / std::max<float>(g_gxState.dispCopySrc.height, 1.0f),
++                            (g_gxState.copyClamp & GX_CLAMP_TOP) != 0,
++                            (g_gxState.copyClamp & GX_CLAMP_BOTTOM) != 0);
++  aurora::gx::set_display_copy_present_source();
+ }
+ 
+ void GXCopyTex(void* dest, GXBool clear) {
+-  aurora_legacy_gx_panic("GXCopyTex");
++  // Texture copies must see all earlier draws and state changes.
++  if (aurora::gx::fifo::get_buffer_size() != 0) {
++    aurora::gx::fifo::drain();
++  }
++  const auto sourceRect = map_texture_copy_source(g_gxState.texCopySrc, g_gxState.texCopySrcRenderSpace);
++  const auto rect = sourceRect.clearRect;
++  // Keep guest dimensions for cache identity while preserving scaled GPU detail.
++  const auto logicalDstWidth = std::max<u32>(g_gxState.texCopyDstWidth, 1);
++  const auto logicalDstHeight = std::max<u32>(g_gxState.texCopyDstHeight, 1);
++  const auto [scaledDstWidth, scaledDstHeight] = scale_copy_dst(logicalDstWidth, logicalDstHeight);
++  const auto texCopyFmt = g_gxState.texCopyFmt;
++  const bool sourceHasAlpha = aurora::gx::render_target_has_alpha(g_gxState.pixelFmt);
++  const bool forceOpaqueAlpha = !sourceHasAlpha && !aurora::gx::is_depth_format(texCopyFmt);
++  const auto resolveFmt = texCopyFmt;
++
++  const aurora::gx::GXState::CopyTextureKey key{
++      .dest = dest,
++      .width = logicalDstWidth,
++      .height = logicalDstHeight,
++      .format = texCopyFmt,
++  };
++  // Keep one live copy per destination and retire stale GPU textures.
++  for (auto cacheIt = g_gxState.copyTextureCache.begin(); cacheIt != g_gxState.copyTextureCache.end();) {
++    if (cacheIt->first.dest == dest && !(cacheIt->first == key)) {
++      g_gxState.copyTextureCache.erase(cacheIt++);
++    } else {
++      ++cacheIt;
++    }
++  }
++  auto it = g_gxState.copyTextureCache.find(key);
++  if (it == g_gxState.copyTextureCache.end()) {
++    // A fresh copy texture has no earlier contents to fall back on: render this frame.
++    aurora::gfx::require_frame_render();
++    auto handle = acquire_copy_texture(key, scaledDstWidth, scaledDstHeight, texCopyFmt);
++    it = g_gxState.copyTextureCache.emplace(key, aurora::gx::GXState::CopyTextureRef{.handle = handle, .revision = 0}).first;
++  }
++  auto& handle = it->second;
++  const u32 currentFrame = aurora::gfx::current_frame();
++  const bool sampledThisFrame = handle.sampledThisFrame && handle.lastSampledFrame == currentFrame;
++  const bool scaledSizeChanged = !handle.handle || handle.handle->size.width != scaledDstWidth ||
++                                 handle.handle->size.height != scaledDstHeight;
++  auto clearState = get_copy_clear_state(clear);
++  if (sampledThisFrame || scaledSizeChanged) {
++    aurora::gfx::require_frame_render();
++    const u32 revision = handle.revision;
++    const u32 lastProducedFrame = handle.lastProducedFrame;
++    handle = aurora::gx::GXState::CopyTextureRef{
++        .handle = acquire_copy_texture(key, scaledDstWidth, scaledDstHeight, texCopyFmt),
++        .revision = revision,
++        .lastProducedFrame = lastProducedFrame,
++    };
++  }
++
++  const bool alphaUpdate = g_gxState.alphaUpdate && aurora::gx::render_target_has_alpha(g_gxState.pixelFmt);
++  if (alphaUpdate && g_gxState.dstAlpha != UINT32_MAX) {
++    if (!clear) {
++      // TODO: Confirm how this copy should handle alpha without changing the EFB.
++    }
++    aurora::gfx::push_draw_command(aurora::gfx::clear::DrawData{
++        .color = {0.f, 0.f, 0.f, g_gxState.dstAlpha / 255.f},
++        .clearColor = false,
++        .clearAlpha = true,
++        .clearDepth = false,
++    });
++  }
++  if (aurora::gx::render_target_has_alpha(g_gxState.pixelFmt)) {
++    clearState.clearAlpha = clear && alphaUpdate;
++  }
++  const auto copyFilter = combined_copy_filter_coefficients(g_gxState.copyFilterVFilter);
++  // Every GXCopyTex is observable texture data. Reusing a destination in this
++  // or the previous frame does not guarantee another redraw: menu thumbnail
++  // scratch targets can be reused and then retained. Depth copies have the
++  // same requirement. Only display presentation may skip unfinished draws.
++  const bool persistentCopy = true;
++  aurora::gfx::resolve_pass(handle.handle, rect, clearState.clearColor, clearState.clearAlpha, clearState.clearDepth,
++                            clearState.clearColorValue, aurora::gx::clear_depth_value(), resolveFmt,
++                            &sourceRect.sampleRect, g_gxState.texCopyHalfScale, &copyFilter, forceOpaqueAlpha,
++                            sourceRect.sampleRect.w() / std::max<float>(g_gxState.texCopySrc.height, 1.0f),
++                            (g_gxState.copyClamp & GX_CLAMP_TOP) != 0,
++                            (g_gxState.copyClamp & GX_CLAMP_BOTTOM) != 0, persistentCopy);
++  ++handle.revision;
++  handle.lastProducedFrame = currentFrame;
++  handle.width = logicalDstWidth;
++  handle.height = logicalDstHeight;
++  handle.format = texCopyFmt;
++  handle.dataSize = GXGetTexBufferSize(static_cast<u16>(logicalDstWidth), static_cast<u16>(logicalDstHeight), texCopyFmt, GX_FALSE, 0);
++  aurora::gx::notify_copy_texture_created();
++  g_gxState.copyTextures[dest] = handle;
++  // Keep the GPU copy and download it only if guest code reads the destination.
++  aurora::gfx::efb_ram::schedule(dest, logicalDstWidth, logicalDstHeight, texCopyFmt, handle.handle);
+ }
+ 
+ void GXClearBoundingBox() {
+-  aurora_legacy_gx_panic("GXClearBoundingBox");
++  g_gxState.boundingBox = {1023, 0, 1023, 0};
++  GX_WRITE_RAS_REG(0x550003FFu);
++  GX_WRITE_RAS_REG(0x560003FFu);
++  __gx->bpSent = 0;
+ }
+ 
+ void GXReadBoundingBox(u16* left, u16* right, u16* top, u16* bottom) {
+-  aurora_legacy_gx_panic("GXReadBoundingBox");
++  if (left) {
++    *left = g_gxState.boundingBox[0];
++  }
++  if (right) {
++    *right = g_gxState.boundingBox[1];
++  }
++  if (top) {
++    *top = g_gxState.boundingBox[2];
++  }
++  if (bottom) {
++    *bottom = g_gxState.boundingBox[3];
++  }
+ }
+ 
+ u16 GXGetNumXfbLines(u16 efbHeight, f32 yScale) {
+-  aurora_legacy_gx_panic("GXGetNumXfbLines");
++  return get_num_xfb_lines_internal(efbHeight, y_scale_to_integer(yScale));
+ }
+ 
+ f32 GXGetYScaleFactor(u16 efbHeight, u16 xfbHeight) {
+-  aurora_legacy_gx_panic("GXGetYScaleFactor");
++  CHECK(efbHeight != 0, "GXGetYScaleFactor requires non-zero EFB height");
++  CHECK(xfbHeight != 0 && xfbHeight <= 1024, "GXGetYScaleFactor requires 1..1024 XFB lines");
++
++  u32 targetHeight = xfbHeight;
++  f32 yScale = static_cast<f32>(targetHeight) / static_cast<f32>(efbHeight);
++  u16 realHeight = GXGetNumXfbLines(efbHeight, yScale);
++
++  while (realHeight > xfbHeight && targetHeight > 1) {
++    --targetHeight;
++    yScale = static_cast<f32>(targetHeight) / static_cast<f32>(efbHeight);
++    realHeight = GXGetNumXfbLines(efbHeight, yScale);
++  }
++
++  f32 resultScale = yScale;
++  while (realHeight < xfbHeight && targetHeight < 1024) {
++    resultScale = yScale;
++    ++targetHeight;
++    yScale = static_cast<f32>(targetHeight) / static_cast<f32>(efbHeight);
++    realHeight = GXGetNumXfbLines(efbHeight, yScale);
++  }
++
++  return resultScale;
+ }
+ 
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXGeometry.cpp b/aurora-main/lib/dolphin/gx/GXGeometry.cpp
+index af5f2c8..df0105f 100644
+--- a/aurora-main/lib/dolphin/gx/GXGeometry.cpp
++++ b/aurora-main/lib/dolphin/gx/GXGeometry.cpp
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ #include "dolphin/gd/GDGeometry.h"
+@@ -176,54 +175,288 @@ static inline bool AuroraVtxAttrFmtDiffers(GXVtxFmt vtxfmt, GXAttr attr, GXCompC
+ extern "C" {
+ 
+ void GXSetVtxDesc(GXAttr attr, GXAttrType type) {
+-  aurora_legacy_gx_panic("GXSetVtxDesc");
++  const u32 oldVcdLo = __gx->vcdLo;
++  const u32 oldVcdHi = __gx->vcdHi;
++  const u8 oldHasNrms = __gx->hasNrms;
++  const u8 oldHasBiNrms = __gx->hasBiNrms;
++  const u32 oldNrmType = __gx->nrmType;
++  const bool auroraStateChanged = AuroraVtxDescDiffers(attr, type);
++
++  SETVCDATTR(attr, type);
++  if (__gx->hasNrms || __gx->hasBiNrms) {
++    SET_REG_FIELD(0, __gx->vcdLo, 2, 11, __gx->nrmType);
++  } else {
++    SET_REG_FIELD(0, __gx->vcdLo, 2, 11, 0);
++  }
++  if (aurora::gx::fifo::in_display_list() || auroraStateChanged || __gx->vcdLo != oldVcdLo ||
++      __gx->vcdHi != oldVcdHi || __gx->hasNrms != oldHasNrms || __gx->hasBiNrms != oldHasBiNrms ||
++      __gx->nrmType != oldNrmType) {
++    __gx->dirtyState |= 8;
++  }
+ }
+ 
+ void GXSetSourceVtxDesc(GXAttr attr, GXAttrType type) {
+-  aurora_legacy_gx_panic("GXSetSourceVtxDesc");
++  if (attr >= GX_VA_PNMTXIDX && attr < GX_VA_MAX_ATTR) {
++    g_gxState.sourceVtxDesc[attr] = type;
++  }
+ }
+ 
+ void GXSetVtxDescv(GXVtxDescList* list) {
+-  aurora_legacy_gx_panic("GXSetVtxDescv");
++  const u32 oldVcdLo = __gx->vcdLo;
++  const u32 oldVcdHi = __gx->vcdHi;
++  const u8 oldHasNrms = __gx->hasNrms;
++  const u8 oldHasBiNrms = __gx->hasBiNrms;
++  const u32 oldNrmType = __gx->nrmType;
++  bool auroraStateChanged = false;
++
++  while (list->attr != GX_VA_NULL) {
++    auroraStateChanged = auroraStateChanged || AuroraVtxDescDiffers(list->attr, list->type);
++    SETVCDATTR(list->attr, list->type);
++    ++list;
++  }
++  if (__gx->hasNrms || __gx->hasBiNrms) {
++    SET_REG_FIELD(0, __gx->vcdLo, 2, 11, __gx->nrmType);
++  } else {
++    SET_REG_FIELD(0, __gx->vcdLo, 2, 11, 0);
++  }
++  if (aurora::gx::fifo::in_display_list() || auroraStateChanged || __gx->vcdLo != oldVcdLo ||
++      __gx->vcdHi != oldVcdHi || __gx->hasNrms != oldHasNrms || __gx->hasBiNrms != oldHasBiNrms ||
++      __gx->nrmType != oldNrmType) {
++    __gx->dirtyState |= 8;
++  }
+ }
+ 
+ void GXClearVtxDesc() {
+-  aurora_legacy_gx_panic("GXClearVtxDesc");
++  __gx->vcdLo = 0;
++  SET_REG_FIELD(0, __gx->vcdLo, 2, 9, 1); // GX_VA_POS = GX_DIRECT
++  __gx->vcdHi = 0;
++  __gx->hasNrms = 0;
++  __gx->hasBiNrms = 0;
++  __gx->dirtyState |= 8;
+ }
+ 
+ void GXSetVtxAttrFmt(GXVtxFmt vtxfmt, GXAttr attr, GXCompCnt cnt, GXCompType type, u8 frac) {
+-  aurora_legacy_gx_panic("GXSetVtxAttrFmt");
++  CHECK(vtxfmt >= GX_VTXFMT0 && vtxfmt < GX_MAX_VTXFMT, "invalid vtxfmt {}", underlying(vtxfmt));
++  CHECK(attr >= GX_VA_POS && attr < GX_VA_MAX_ATTR, "invalid attr {}", underlying(attr));
++
++  u32* va = &__gx->vatA[vtxfmt];
++  u32* vb = &__gx->vatB[vtxfmt];
++  u32* vc = &__gx->vatC[vtxfmt];
++  const u32 oldVa = *va;
++  const u32 oldVb = *vb;
++  const u32 oldVc = *vc;
++  const bool auroraStateChanged = AuroraVtxAttrFmtDiffers(vtxfmt, attr, cnt, type, frac);
++  SETVAT(va, vb, vc, attr, cnt, type, frac);
++  if (aurora::gx::fifo::in_display_list() || auroraStateChanged || *va != oldVa || *vb != oldVb ||
++      *vc != oldVc) {
++    __gx->dirtyState |= 0x10;
++    __gx->dirtyVAT |= static_cast<u8>(1 << vtxfmt);
++  }
+ }
+ 
+ void GXSetVtxAttrFmtv(GXVtxFmt vtxfmt, const GXVtxAttrFmtList* list) {
+-  aurora_legacy_gx_panic("GXSetVtxAttrFmtv");
++  CHECK(vtxfmt >= GX_VTXFMT0 && vtxfmt < GX_MAX_VTXFMT, "invalid vtxfmt {}", underlying(vtxfmt));
++  CHECK(list != nullptr, "null vtx attr fmt list");
++
++  u32* va = &__gx->vatA[vtxfmt];
++  u32* vb = &__gx->vatB[vtxfmt];
++  u32* vc = &__gx->vatC[vtxfmt];
++  const u32 oldVa = *va;
++  const u32 oldVb = *vb;
++  const u32 oldVc = *vc;
++  bool auroraStateChanged = false;
++  while (list->attr != GX_VA_NULL) {
++    CHECK(list->attr >= GX_VA_POS && list->attr < GX_VA_MAX_ATTR, "invalid attr {}", underlying(list->attr));
++    auroraStateChanged =
++        auroraStateChanged || AuroraVtxAttrFmtDiffers(vtxfmt, list->attr, list->cnt, list->type, list->frac);
++    SETVAT(va, vb, vc, list->attr, list->cnt, list->type, list->frac);
++    ++list;
++  }
++
++  if (aurora::gx::fifo::in_display_list() || auroraStateChanged || *va != oldVa || *vb != oldVb ||
++      *vc != oldVc) {
++    __gx->dirtyState |= 0x10;
++    __gx->dirtyVAT |= static_cast<u8>(1 << vtxfmt);
++  }
+ }
+ 
+ void GXSetArray(GXAttr attr, const void* data, u32 size, u8 stride, bool le) {
+-  aurora_legacy_gx_panic("GXSetArray");
++  GXAttr cpAttr = static_cast<GXAttr>(attr);
++  if (attr == GX_VA_NBT) {
++    cpAttr = GX_VA_NRM;
++  }
++  u32 cpIdx = cpAttr - GX_VA_POS;
++
++  assert((cpIdx & ~0xF) == 0);
++
++  // Write array base
++  GX_WRITE_AURORA(GX_LOAD_AURORA_ARRAYBASE | cpIdx);
++  GX_WRITE_U64(reinterpret_cast<u64>(data));
++  GX_WRITE_U32(size);
++  GX_WRITE_U8(le ? 1 : 0);
++
++  // Write array stride
++  GX_WRITE_CP_REG(CP_REG_ARRAYSTRIDE_ID | cpIdx, stride);
+ }
+ 
+ void GXSetTexCoordGen2(GXTexCoordID dst, GXTexGenType type, GXTexGenSrc src, u32 mtx, GXBool normalize, u32 postMtx) {
+-  aurora_legacy_gx_panic("GXSetTexCoordGen2");
++  CHECK(dst >= GX_TEXCOORD0 && dst <= GX_TEXCOORD7, "invalid tex coord {}", underlying(dst));
++
++  u32 reg = 0;
++  u32 row = 5;
++  u32 form = 0;
++
++  switch (src) {
++  case GX_TG_POS:
++    row = 0;
++    form = 1;
++    break;
++  case GX_TG_NRM:
++    row = 1;
++    form = 1;
++    break;
++  case GX_TG_BINRM:
++    row = 3;
++    form = 1;
++    break;
++  case GX_TG_TANGENT:
++    row = 4;
++    form = 1;
++    break;
++  case GX_TG_COLOR0:
++    row = 2;
++    break;
++  case GX_TG_COLOR1:
++    row = 2;
++    break;
++  case GX_TG_TEX0:
++    row = 5;
++    break;
++  case GX_TG_TEX1:
++    row = 6;
++    break;
++  case GX_TG_TEX2:
++    row = 7;
++    break;
++  case GX_TG_TEX3:
++    row = 8;
++    break;
++  case GX_TG_TEX4:
++    row = 9;
++    break;
++  case GX_TG_TEX5:
++    row = 10;
++    break;
++  case GX_TG_TEX6:
++    row = 11;
++    break;
++  case GX_TG_TEX7:
++    row = 12;
++    break;
++  default:
++    break;
++  }
++
++  switch (type) {
++  case GX_TG_MTX2x4:
++    SET_REG_FIELD(0, reg, 1, 1, 0);
++    SET_REG_FIELD(0, reg, 1, 2, form);
++    SET_REG_FIELD(0, reg, 3, 4, 0);
++    SET_REG_FIELD(0, reg, 5, 7, row);
++    break;
++  case GX_TG_MTX3x4:
++    SET_REG_FIELD(0, reg, 1, 1, 1);
++    SET_REG_FIELD(0, reg, 1, 2, form);
++    SET_REG_FIELD(0, reg, 3, 4, 0);
++    SET_REG_FIELD(0, reg, 5, 7, row);
++    break;
++  case GX_TG_SRTG:
++    SET_REG_FIELD(0, reg, 1, 1, 0);
++    SET_REG_FIELD(0, reg, 1, 2, form);
++    if (src == GX_TG_COLOR0) {
++      SET_REG_FIELD(0, reg, 3, 4, 2);
++    } else {
++      SET_REG_FIELD(0, reg, 3, 4, 3);
++    }
++    SET_REG_FIELD(0, reg, 5, 7, 2);
++    break;
++  default:
++    // Bump mapping types
++    if (type >= 2 && type <= 9) {
++      SET_REG_FIELD(0, reg, 1, 1, 0);
++      SET_REG_FIELD(0, reg, 1, 2, form);
++      SET_REG_FIELD(0, reg, 3, 4, 1);
++      SET_REG_FIELD(0, reg, 5, 7, row);
++      SET_REG_FIELD(0, reg, 3, 12, src - 12);
++      SET_REG_FIELD(0, reg, 3, 15, type - 2);
++    }
++    break;
++  }
++
++  GX_WRITE_XF_REG(dst + 0x40, reg);
++
++  // Post-transform register
++  u32 postReg = 0;
++  SET_REG_FIELD(0, postReg, 6, 0, postMtx - 64);
++  SET_REG_FIELD(0, postReg, 1, 8, normalize);
++  GX_WRITE_XF_REG(dst + 0x50, postReg);
++
++  // Update matrix index shadows
++  switch (dst) {
++  case GX_TEXCOORD0:
++    SET_REG_FIELD(0, __gx->matIdxA, 6, 6, mtx);
++    break;
++  case GX_TEXCOORD1:
++    SET_REG_FIELD(0, __gx->matIdxA, 6, 12, mtx);
++    break;
++  case GX_TEXCOORD2:
++    SET_REG_FIELD(0, __gx->matIdxA, 6, 18, mtx);
++    break;
++  case GX_TEXCOORD3:
++    SET_REG_FIELD(0, __gx->matIdxA, 6, 24, mtx);
++    break;
++  case GX_TEXCOORD4:
++    SET_REG_FIELD(0, __gx->matIdxB, 6, 0, mtx);
++    break;
++  case GX_TEXCOORD5:
++    SET_REG_FIELD(0, __gx->matIdxB, 6, 6, mtx);
++    break;
++  case GX_TEXCOORD6:
++    SET_REG_FIELD(0, __gx->matIdxB, 6, 12, mtx);
++    break;
++  default:
++    SET_REG_FIELD(0, __gx->matIdxB, 6, 18, mtx);
++    break;
++  }
++  __GXSetMatrixIndex(static_cast<GXAttr>(dst + 1));
+ }
+ 
+ void GXSetNumTexGens(u8 num) {
+-  aurora_legacy_gx_panic("GXSetNumTexGens");
++  SET_REG_FIELD(0, __gx->genMode, 4, 0, num);
++  GX_WRITE_XF_REG(0x3F, num);
++  __gx->dirtyState |= 4;
+ }
+ 
+-void GXInvalidateVtxCache() {
+-  aurora_legacy_gx_panic("GXInvalidateVtxCache");
+-}
++void GXInvalidateVtxCache() { GX_WRITE_U8(0x48); }
+ 
+ void GXSetLineWidth(u8 width, GXTexOffset offs) {
+-  aurora_legacy_gx_panic("GXSetLineWidth");
++  SET_REG_FIELD(0, __gx->lpSize, 8, 0, width);
++  SET_REG_FIELD(0, __gx->lpSize, 3, 16, offs);
++  GX_WRITE_RAS_REG(__gx->lpSize);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetPointSize(u8 pointSize, GXTexOffset texOffsets) {
+-  aurora_legacy_gx_panic("GXSetPointSize");
++  SET_REG_FIELD(0, __gx->lpSize, 8, 8, pointSize);
++  SET_REG_FIELD(0, __gx->lpSize, 3, 19, texOffsets);
++  GX_WRITE_RAS_REG(__gx->lpSize);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXEnableTexOffsets(GXTexCoordID coord, GXBool line_enable, GXBool point_enable) {
+-  aurora_legacy_gx_panic("GXEnableTexOffsets");
++  SET_REG_FIELD(0, __gx->suTs0[coord], 1, 18, line_enable);
++  SET_REG_FIELD(0, __gx->suTs0[coord], 1, 19, point_enable);
++  GX_WRITE_RAS_REG(__gx->suTs0[coord]);
++  __gx->bpSent = 1;
+ }
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXGet.cpp b/aurora-main/lib/dolphin/gx/GXGet.cpp
+index 808e6e7..57ba5c5 100644
+--- a/aurora-main/lib/dolphin/gx/GXGet.cpp
++++ b/aurora-main/lib/dolphin/gx/GXGet.cpp
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+@@ -19,92 +18,304 @@ static inline u8 GetFracForNrm(GXCompType type) {
+ }
+ 
+ void GXGetVtxDesc(GXAttr attr, GXAttrType* type) {
+-  aurora_legacy_gx_panic("GXGetVtxDesc");
++  CHECK(type != nullptr, "null vtx desc output");
++
++  u32 cpType = 0;
++  switch (attr) {
++  case GX_VA_PNMTXIDX:
++    cpType = GET_REG_FIELD(__gx->vcdLo, 1, 0);
++    break;
++  case GX_VA_TEX0MTXIDX:
++    cpType = GET_REG_FIELD(__gx->vcdLo, 1, 1);
++    break;
++  case GX_VA_TEX1MTXIDX:
++    cpType = GET_REG_FIELD(__gx->vcdLo, 1, 2);
++    break;
++  case GX_VA_TEX2MTXIDX:
++    cpType = GET_REG_FIELD(__gx->vcdLo, 1, 3);
++    break;
++  case GX_VA_TEX3MTXIDX:
++    cpType = GET_REG_FIELD(__gx->vcdLo, 1, 4);
++    break;
++  case GX_VA_TEX4MTXIDX:
++    cpType = GET_REG_FIELD(__gx->vcdLo, 1, 5);
++    break;
++  case GX_VA_TEX5MTXIDX:
++    cpType = GET_REG_FIELD(__gx->vcdLo, 1, 6);
++    break;
++  case GX_VA_TEX6MTXIDX:
++    cpType = GET_REG_FIELD(__gx->vcdLo, 1, 7);
++    break;
++  case GX_VA_TEX7MTXIDX:
++    cpType = GET_REG_FIELD(__gx->vcdLo, 1, 8);
++    break;
++  case GX_VA_POS:
++    cpType = GET_REG_FIELD(__gx->vcdLo, 2, 9);
++    break;
++  case GX_VA_NRM:
++    cpType = __gx->hasNrms ? GET_REG_FIELD(__gx->vcdLo, 2, 11) : GX_NONE;
++    break;
++  case GX_VA_NBT:
++    cpType = __gx->hasBiNrms ? GET_REG_FIELD(__gx->vcdLo, 2, 11) : GX_NONE;
++    break;
++  case GX_VA_CLR0:
++    cpType = GET_REG_FIELD(__gx->vcdLo, 2, 13);
++    break;
++  case GX_VA_CLR1:
++    cpType = GET_REG_FIELD(__gx->vcdLo, 2, 15);
++    break;
++  case GX_VA_TEX0:
++    cpType = GET_REG_FIELD(__gx->vcdHi, 2, 0);
++    break;
++  case GX_VA_TEX1:
++    cpType = GET_REG_FIELD(__gx->vcdHi, 2, 2);
++    break;
++  case GX_VA_TEX2:
++    cpType = GET_REG_FIELD(__gx->vcdHi, 2, 4);
++    break;
++  case GX_VA_TEX3:
++    cpType = GET_REG_FIELD(__gx->vcdHi, 2, 6);
++    break;
++  case GX_VA_TEX4:
++    cpType = GET_REG_FIELD(__gx->vcdHi, 2, 8);
++    break;
++  case GX_VA_TEX5:
++    cpType = GET_REG_FIELD(__gx->vcdHi, 2, 10);
++    break;
++  case GX_VA_TEX6:
++    cpType = GET_REG_FIELD(__gx->vcdHi, 2, 12);
++    break;
++  case GX_VA_TEX7:
++    cpType = GET_REG_FIELD(__gx->vcdHi, 2, 14);
++    break;
++  default:
++    break;
++  }
++
++  *type = static_cast<GXAttrType>(cpType);
+ }
+ 
+ void GXGetVtxDescv(GXVtxDescList* vcd) {
+-  aurora_legacy_gx_panic("GXGetVtxDescv");
++  CHECK(vcd != nullptr, "null vtx desc list");
++
++  GXVtxDescList* out = vcd;
++  for (GXAttr attr = GX_VA_PNMTXIDX; attr <= GX_VA_TEX7; attr = static_cast<GXAttr>(attr + 1), ++out) {
++    out->attr = attr;
++    GXGetVtxDesc(attr, &out->type);
++  }
++  out->attr = GX_VA_NBT;
++  GXGetVtxDesc(GX_VA_NBT, &out->type);
++  ++out;
++  out->attr = GX_VA_NULL;
+ }
+ 
+ void GXGetVtxAttrFmt(GXVtxFmt idx, GXAttr attr, GXCompCnt* compCnt, GXCompType* compType, u8* shift) {
+-  aurora_legacy_gx_panic("GXGetVtxAttrFmt");
++  CHECK(compCnt != nullptr && compType != nullptr && shift != nullptr, "null vtx attr fmt output");
++
++  const u32 va = __gx->vatA[idx];
++  const u32 vb = __gx->vatB[idx];
++  const u32 vc = __gx->vatC[idx];
++
++  switch (attr) {
++  case GX_VA_POS:
++    *compCnt = static_cast<GXCompCnt>(GET_REG_FIELD(va, 1, 0));
++    *compType = static_cast<GXCompType>(GET_REG_FIELD(va, 3, 1));
++    *shift = static_cast<u8>(GET_REG_FIELD(va, 5, 4));
++    return;
++  case GX_VA_NRM:
++  case GX_VA_NBT:
++    *compCnt = static_cast<GXCompCnt>(GET_REG_FIELD(va, 1, 9));
++    if (*compCnt == GX_TEX_ST && GET_REG_FIELD(va, 1, 31) != 0) {
++      *compCnt = GX_NRM_NBT3;
++    }
++    *compType = static_cast<GXCompType>(GET_REG_FIELD(va, 3, 10));
++    *shift = GetFracForNrm(*compType);
++    return;
++  case GX_VA_CLR0:
++    *compCnt = static_cast<GXCompCnt>(GET_REG_FIELD(va, 1, 13));
++    *compType = static_cast<GXCompType>(GET_REG_FIELD(va, 3, 14));
++    *shift = 0;
++    return;
++  case GX_VA_CLR1:
++    *compCnt = static_cast<GXCompCnt>(GET_REG_FIELD(va, 1, 17));
++    *compType = static_cast<GXCompType>(GET_REG_FIELD(va, 3, 18));
++    *shift = 0;
++    return;
++  case GX_VA_TEX0:
++    *compCnt = static_cast<GXCompCnt>(GET_REG_FIELD(va, 1, 21));
++    *compType = static_cast<GXCompType>(GET_REG_FIELD(va, 3, 22));
++    *shift = static_cast<u8>(GET_REG_FIELD(va, 5, 25));
++    return;
++  case GX_VA_TEX1:
++    *compCnt = static_cast<GXCompCnt>(GET_REG_FIELD(vb, 1, 0));
++    *compType = static_cast<GXCompType>(GET_REG_FIELD(vb, 3, 1));
++    *shift = static_cast<u8>(GET_REG_FIELD(vb, 5, 4));
++    return;
++  case GX_VA_TEX2:
++    *compCnt = static_cast<GXCompCnt>(GET_REG_FIELD(vb, 1, 9));
++    *compType = static_cast<GXCompType>(GET_REG_FIELD(vb, 3, 10));
++    *shift = static_cast<u8>(GET_REG_FIELD(vb, 5, 13));
++    return;
++  case GX_VA_TEX3:
++    *compCnt = static_cast<GXCompCnt>(GET_REG_FIELD(vb, 1, 18));
++    *compType = static_cast<GXCompType>(GET_REG_FIELD(vb, 3, 19));
++    *shift = static_cast<u8>(GET_REG_FIELD(vb, 5, 22));
++    return;
++  case GX_VA_TEX4:
++    *compCnt = static_cast<GXCompCnt>(GET_REG_FIELD(vb, 1, 27));
++    *compType = static_cast<GXCompType>(GET_REG_FIELD(vb, 3, 28));
++    *shift = static_cast<u8>(GET_REG_FIELD(vc, 5, 0));
++    return;
++  case GX_VA_TEX5:
++    *compCnt = static_cast<GXCompCnt>(GET_REG_FIELD(vc, 1, 5));
++    *compType = static_cast<GXCompType>(GET_REG_FIELD(vc, 3, 6));
++    *shift = static_cast<u8>(GET_REG_FIELD(vc, 5, 9));
++    return;
++  case GX_VA_TEX6:
++    *compCnt = static_cast<GXCompCnt>(GET_REG_FIELD(vc, 1, 14));
++    *compType = static_cast<GXCompType>(GET_REG_FIELD(vc, 3, 15));
++    *shift = static_cast<u8>(GET_REG_FIELD(vc, 5, 18));
++    return;
++  case GX_VA_TEX7:
++    *compCnt = static_cast<GXCompCnt>(GET_REG_FIELD(vc, 1, 23));
++    *compType = static_cast<GXCompType>(GET_REG_FIELD(vc, 3, 24));
++    *shift = static_cast<u8>(GET_REG_FIELD(vc, 5, 27));
++    return;
++  default:
++    *compCnt = GX_TEX_ST;
++    *compType = GX_RGB565;
++    *shift = 0;
++    return;
++  }
+ }
+ 
+ void GXGetVtxAttrFmtv(GXVtxFmt fmt, GXVtxAttrFmtList* vat) {
+-  aurora_legacy_gx_panic("GXGetVtxAttrFmtv");
++  CHECK(vat != nullptr, "null vtx attr fmt list");
++
++  GXVtxAttrFmtList* out = vat;
++  for (GXAttr attr = GX_VA_POS; attr <= GX_VA_TEX7; attr = static_cast<GXAttr>(attr + 1), ++out) {
++    out->attr = attr;
++    GXGetVtxAttrFmt(fmt, attr, &out->cnt, &out->type, &out->frac);
++  }
++  out->attr = GX_VA_NULL;
+ }
+ 
+ void GXGetLineWidth(u8* width, GXTexOffset* texOffsets) {
+-  aurora_legacy_gx_panic("GXGetLineWidth");
++  CHECK(width != nullptr && texOffsets != nullptr, "null line width output");
++
++  *width = static_cast<u8>(GET_REG_FIELD(__gx->lpSize, 8, 0));
++  *texOffsets = static_cast<GXTexOffset>(GET_REG_FIELD(__gx->lpSize, 3, 16));
+ }
+ 
+ void GXGetPointSize(u8* pointSize, GXTexOffset* texOffsets) {
+-  aurora_legacy_gx_panic("GXGetPointSize");
++  CHECK(pointSize != nullptr && texOffsets != nullptr, "null point size output");
++
++  *pointSize = static_cast<u8>(GET_REG_FIELD(__gx->lpSize, 8, 8));
++  *texOffsets = static_cast<GXTexOffset>(GET_REG_FIELD(__gx->lpSize, 3, 19));
+ }
+ 
+ void GXGetViewportv(f32 *vp) {
+-  aurora_legacy_gx_panic("GXGetViewportv");
++  CHECK(vp != nullptr, "null viewport output");
++
++  vp[0] = __gx->vpLeft;
++  vp[1] = __gx->vpTop;
++  vp[2] = __gx->vpWd;
++  vp[3] = __gx->vpHt;
++  vp[4] = __gx->vpNearz;
++  vp[5] = __gx->vpFarz;
+ }
+ 
+ void GXGetProjectionv(f32* p) {
+-  aurora_legacy_gx_panic("GXGetProjectionv");
++  p[0] = __gx->projType == GX_PERSPECTIVE ? 0.0f : 1.0f;
++  p[1] = __gx->projMtx[0];
++  p[2] = __gx->projMtx[1];
++  p[3] = __gx->projMtx[2];
++  p[4] = __gx->projMtx[3];
++  p[5] = __gx->projMtx[4];
++  p[6] = __gx->projMtx[5];
+ }
+ 
+ void GXGetScissor(u32* left, u32* top, u32* wd, u32* ht) {
+-  aurora_legacy_gx_panic("GXGetScissor");
++  CHECK(left != nullptr && top != nullptr && wd != nullptr && ht != nullptr, "null scissor output");
++
++  const u32 tp = GET_REG_FIELD(__gx->suScis0, 11, 0);
++  const u32 lf = GET_REG_FIELD(__gx->suScis0, 11, 12);
++  const u32 bm = GET_REG_FIELD(__gx->suScis1, 11, 0);
++  const u32 rt = GET_REG_FIELD(__gx->suScis1, 11, 12);
++
++  *left = lf - 342;
++  *top = tp - 342;
++  *wd = rt - lf + 1;
++  *ht = bm - tp + 1;
+ }
+ 
+ void GXGetCullMode(GXCullMode* mode) {
+-  aurora_legacy_gx_panic("GXGetCullMode");
++  CHECK(mode != nullptr, "null cull mode output");
++
++  const auto hwMode = static_cast<GXCullMode>(GET_REG_FIELD(__gx->genMode, 2, 14));
++  switch (hwMode) {
++  case GX_CULL_FRONT:
++    *mode = GX_CULL_BACK;
++    break;
++  case GX_CULL_BACK:
++    *mode = GX_CULL_FRONT;
++    break;
++  default:
++    *mode = hwMode;
++    break;
++  }
+ }
+ 
+ void GXGetLightAttnA(GXLightObj* light_, float* a0, float* a1, float* a2) {
+-  aurora_legacy_gx_panic("GXGetLightAttnA");
++  auto* light = reinterpret_cast<const GXLightObj_*>(light_);
++  *a0 = light->a0;
++  *a1 = light->a1;
++  *a2 = light->a2;
+ }
+ 
+ void GXGetLightAttnK(GXLightObj* light_, float* k0, float* k1, float* k2) {
+-  aurora_legacy_gx_panic("GXGetLightAttnK");
++  auto* light = reinterpret_cast<const GXLightObj_*>(light_);
++  *k0 = light->k0;
++  *k1 = light->k1;
++  *k2 = light->k2;
+ }
+ 
+ void GXGetLightPos(GXLightObj* light_, float* x, float* y, float* z) {
+-  aurora_legacy_gx_panic("GXGetLightPos");
++  auto* light = reinterpret_cast<const GXLightObj_*>(light_);
++  *x = light->px;
++  *y = light->py;
++  *z = light->pz;
+ }
+ 
+ void GXGetLightDir(GXLightObj* light_, float* nx, float* ny, float* nz) {
+-  aurora_legacy_gx_panic("GXGetLightDir");
++  auto* light = reinterpret_cast<const GXLightObj_*>(light_);
++  *nx = -light->nx;
++  *ny = -light->ny;
++  *nz = -light->nz;
+ }
+ 
+ void GXGetLightColor(GXLightObj* light_, GXColor* col) {
+-  aurora_legacy_gx_panic("GXGetLightColor");
++  auto* light = reinterpret_cast<const GXLightObj_*>(light_);
++  *col = light->color;
+ }
+ 
+ void* GXGetTexObjData(GXTexObj* tex_obj) {
+-  aurora_legacy_gx_panic("GXGetTexObjData");
++  return const_cast<void*>(reinterpret_cast<const GXTexObj_*>(tex_obj)->data);
+ }
+ 
+-u16 GXGetTexObjWidth(GXTexObj* tex_obj) {
+-  aurora_legacy_gx_panic("GXGetTexObjWidth");
+-}
++u16 GXGetTexObjWidth(GXTexObj* tex_obj) { return static_cast<u16>(reinterpret_cast<const GXTexObj_*>(tex_obj)->width()); }
+ 
+-u16 GXGetTexObjHeight(GXTexObj* tex_obj) {
+-  aurora_legacy_gx_panic("GXGetTexObjHeight");
+-}
++u16 GXGetTexObjHeight(GXTexObj* tex_obj) { return static_cast<u16>(reinterpret_cast<const GXTexObj_*>(tex_obj)->height()); }
+ 
+ GXTexFmt GXGetTexObjFmt(GXTexObj* tex_obj) {
+-  aurora_legacy_gx_panic("GXGetTexObjFmt");
++  return static_cast<GXTexFmt>(reinterpret_cast<const GXTexObj_*>(tex_obj)->format());
+ }
+ 
+-GXTexWrapMode GXGetTexObjWrapS(GXTexObj* tex_obj) {
+-  aurora_legacy_gx_panic("GXGetTexObjWrapS");
+-}
++GXTexWrapMode GXGetTexObjWrapS(GXTexObj* tex_obj) { return reinterpret_cast<const GXTexObj_*>(tex_obj)->wrap_s(); }
+ 
+-GXTexWrapMode GXGetTexObjWrapT(GXTexObj* tex_obj) {
+-  aurora_legacy_gx_panic("GXGetTexObjWrapT");
+-}
++GXTexWrapMode GXGetTexObjWrapT(GXTexObj* tex_obj) { return reinterpret_cast<const GXTexObj_*>(tex_obj)->wrap_t(); }
+ 
+-GXBool GXGetTexObjMipMap(GXTexObj* tex_obj) {
+-  aurora_legacy_gx_panic("GXGetTexObjMipMap");
+-}
++GXBool GXGetTexObjMipMap(GXTexObj* tex_obj) { return reinterpret_cast<const GXTexObj_*>(tex_obj)->has_mips(); }
+ 
+ // TODO GXGetTexObjAll
+ // TODO GXGetTexObjMinFilt
+@@ -116,9 +327,7 @@ GXBool GXGetTexObjMipMap(GXTexObj* tex_obj) {
+ // TODO GXGetTexObjEdgeLOD
+ // TODO GXGetTexObjMaxAniso
+ // TODO GXGetTexObjLODAll
+-u32 GXGetTexObjTlut(const GXTexObj* tex_obj) {
+-  aurora_legacy_gx_panic("GXGetTexObjTlut");
+-}
++u32 GXGetTexObjTlut(const GXTexObj* tex_obj) { return reinterpret_cast<const GXTexObj_*>(tex_obj)->tlut; }
+ 
+ // TODO GXGetTlutObjData
+ // TODO GXGetTlutObjFmt
+diff --git a/aurora-main/lib/dolphin/gx/GXLighting.cpp b/aurora-main/lib/dolphin/gx/GXLighting.cpp
+index e273015..f7331c6 100644
+--- a/aurora-main/lib/dolphin/gx/GXLighting.cpp
++++ b/aurora-main/lib/dolphin/gx/GXLighting.cpp
+@@ -1,66 +1,291 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+ extern "C" {
+ void GXInitLightAttn(GXLightObj* light_, float a0, float a1, float a2, float k0, float k1, float k2) {
+-  aurora_legacy_gx_panic("GXInitLightAttn");
++  auto* light = reinterpret_cast<GXLightObj_*>(light_);
++  light->a0 = a0;
++  light->a1 = a1;
++  light->a2 = a2;
++  light->k0 = k0;
++  light->k1 = k1;
++  light->k2 = k2;
+ }
+ 
+ void GXInitLightAttnA(GXLightObj* light_, float a0, float a1, float a2) {
+-  aurora_legacy_gx_panic("GXInitLightAttnA");
++  auto* light = reinterpret_cast<GXLightObj_*>(light_);
++  light->a0 = a0;
++  light->a1 = a1;
++  light->a2 = a2;
+ }
+ 
+ void GXInitLightAttnK(GXLightObj* light_, float k0, float k1, float k2) {
+-  aurora_legacy_gx_panic("GXInitLightAttnK");
++  auto* light = reinterpret_cast<GXLightObj_*>(light_);
++  light->k0 = k0;
++  light->k1 = k1;
++  light->k2 = k2;
+ }
+ 
+ void GXInitLightSpot(GXLightObj* light_, float cutoff, GXSpotFn spotFn) {
+-  aurora_legacy_gx_panic("GXInitLightSpot");
++  if (cutoff <= 0.f || cutoff > 90.f) {
++    spotFn = GX_SP_OFF;
++  }
++
++  float cr = std::cos((cutoff * M_PIF) / 180.f);
++  float a0 = 1.f;
++  float a1 = 0.f;
++  float a2 = 0.f;
++  switch (spotFn) {
++  default:
++    break;
++  case GX_SP_FLAT:
++    a0 = -1000.f * cr;
++    a1 = 1000.f;
++    a2 = 0.f;
++    break;
++  case GX_SP_COS:
++    a0 = -cr / (1.f - cr);
++    a1 = 1.f / (1.f - cr);
++    a2 = 0.f;
++    break;
++  case GX_SP_COS2:
++    a0 = 0.f;
++    a1 = -cr / (1.f - cr);
++    a2 = 1.f / (1.f - cr);
++    break;
++  case GX_SP_SHARP: {
++    const float d = (1.f - cr) * (1.f - cr);
++    a0 = cr * (cr - 2.f) / d;
++    a1 = 2.f / d;
++    a2 = -1.f / d;
++    break;
++  }
++  case GX_SP_RING1: {
++    const float d = (1.f - cr) * (1.f - cr);
++    a0 = -4.f * cr / d;
++    a1 = 4.f * (1.f + cr) / d;
++    a2 = -4.f / d;
++    break;
++  }
++  case GX_SP_RING2: {
++    const float d = (1.f - cr) * (1.f - cr);
++    a0 = 1.f - 2.f * cr * cr / d;
++    a1 = 4.f * cr / d;
++    a2 = -2.f / d;
++    break;
++  }
++  }
++
++  auto* light = reinterpret_cast<GXLightObj_*>(light_);
++  light->a0 = a0;
++  light->a1 = a1;
++  light->a2 = a2;
+ }
+ 
+ void GXInitLightDistAttn(GXLightObj* light_, float refDistance, float refBrightness, GXDistAttnFn distFunc) {
+-  aurora_legacy_gx_panic("GXInitLightDistAttn");
++  if (refDistance < 0.f || refBrightness < 0.f || refBrightness >= 1.f) {
++    distFunc = GX_DA_OFF;
++  }
++  float k0 = 1.f;
++  float k1 = 0.f;
++  float k2 = 0.f;
++  switch (distFunc) {
++  case GX_DA_GENTLE:
++    k0 = 1.0f;
++    k1 = (1.0f - refBrightness) / (refBrightness * refDistance);
++    k2 = 0.0f;
++    break;
++  case GX_DA_MEDIUM:
++    k0 = 1.0f;
++    k1 = 0.5f * (1.0f - refBrightness) / (refBrightness * refDistance);
++    k2 = 0.5f * (1.0f - refBrightness) / (refBrightness * refDistance * refDistance);
++    break;
++  case GX_DA_STEEP:
++    k0 = 1.0f;
++    k1 = 0.0f;
++    k2 = (1.0f - refBrightness) / (refBrightness * refDistance * refDistance);
++    break;
++  case GX_DA_OFF:
++    k0 = 1.0f;
++    k1 = 0.0f;
++    k2 = 0.0f;
++    break;
++  }
++
++  auto* light = reinterpret_cast<GXLightObj_*>(light_);
++  light->k0 = k0;
++  light->k1 = k1;
++  light->k2 = k2;
+ }
+ 
+ void GXInitLightPos(GXLightObj* light_, float x, float y, float z) {
+-  aurora_legacy_gx_panic("GXInitLightPos");
++  auto* light = reinterpret_cast<GXLightObj_*>(light_);
++  light->px = x;
++  light->py = y;
++  light->pz = z;
+ }
+ 
+ void GXInitLightColor(GXLightObj* light_, GXColor col) {
+-  aurora_legacy_gx_panic("GXInitLightColor");
++  auto* light = reinterpret_cast<GXLightObj_*>(light_);
++  light->color = col;
+ }
+ 
+ void GXLoadLightObjImm(GXLightObj* light_, GXLightID id) {
+-  aurora_legacy_gx_panic("GXLoadLightObjImm");
++  u32 idx = std::log2<u32>(id);
++  auto* light = reinterpret_cast<const GXLightObj_*>(light_);
++
++  // XF bulk write: 16 values at light base address
++  // Light addresses: 0x600 + idx * 0x10
++  u32 addr = 0x600 + idx * 0x10;
++  u32 reg = addr | (0xF << 16); // 16-1=15 values
++
++  // Convert color to packed u32 for XF
++  u32 colorPacked = (static_cast<u32>(light->color.r) << 24) | (static_cast<u32>(light->color.g) << 16) |
++                    (static_cast<u32>(light->color.b) << 8) | static_cast<u32>(light->color.a);
++
++  GX_WRITE_U8(0x10);
++  GX_WRITE_U32(reg);
++  // Padding (3 u32s)
++  GX_WRITE_U32(0);
++  GX_WRITE_U32(0);
++  GX_WRITE_U32(0);
++  // Color
++  GX_WRITE_U32(colorPacked);
++  // Cosine attenuation (a0, a1, a2)
++  GX_WRITE_F32(light->a0);
++  GX_WRITE_F32(light->a1);
++  GX_WRITE_F32(light->a2);
++  // Distance attenuation (k0, k1, k2)
++  GX_WRITE_F32(light->k0);
++  GX_WRITE_F32(light->k1);
++  GX_WRITE_F32(light->k2);
++  // Position (px, py, pz)
++  GX_WRITE_F32(light->px);
++  GX_WRITE_F32(light->py);
++  GX_WRITE_F32(light->pz);
++  // Direction (nx, ny, nz)
++  GX_WRITE_F32(light->nx);
++  GX_WRITE_F32(light->ny);
++  GX_WRITE_F32(light->nz);
+ }
+ 
+ void GXSetChanAmbColor(GXChannelID id, GXColor color) {
+-  aurora_legacy_gx_panic("GXSetChanAmbColor");
++  if (id == GX_COLOR0A0) {
++    GXSetChanAmbColor(GX_COLOR0, color);
++    GXSetChanAmbColor(GX_ALPHA0, color);
++    return;
++  } else if (id == GX_COLOR1A1) {
++    GXSetChanAmbColor(GX_COLOR1, color);
++    GXSetChanAmbColor(GX_ALPHA1, color);
++    return;
++  }
++  CHECK(id >= GX_COLOR0 && id <= GX_ALPHA1, "bad channel {}", static_cast<int>(id));
++
++  // XF ambient color registers: 0x100A (chan 0), 0x100B (chan 1)
++  u32 packed = (static_cast<u32>(color.r) << 24) | (static_cast<u32>(color.g) << 16) |
++               (static_cast<u32>(color.b) << 8) | static_cast<u32>(color.a);
++  if (id == GX_COLOR0 || id == GX_ALPHA0) {
++    __gx->ambColor[0] = packed;
++    GX_WRITE_XF_REG(0xA, packed);
++  } else {
++    __gx->ambColor[1] = packed;
++    GX_WRITE_XF_REG(0xB, packed);
++  }
++  __gx->bpSent = 0;
+ }
+ 
+ void GXSetChanMatColor(GXChannelID id, GXColor color) {
+-  aurora_legacy_gx_panic("GXSetChanMatColor");
++  if (id == GX_COLOR0A0) {
++    GXSetChanMatColor(GX_COLOR0, color);
++    GXSetChanMatColor(GX_ALPHA0, color);
++    return;
++  } else if (id == GX_COLOR1A1) {
++    GXSetChanMatColor(GX_COLOR1, color);
++    GXSetChanMatColor(GX_ALPHA1, color);
++    return;
++  }
++  CHECK(id >= GX_COLOR0 && id <= GX_ALPHA1, "bad channel {}", static_cast<int>(id));
++
++  // XF material color registers: 0x100C (chan 0), 0x100D (chan 1)
++  u32 packed = (static_cast<u32>(color.r) << 24) | (static_cast<u32>(color.g) << 16) |
++               (static_cast<u32>(color.b) << 8) | static_cast<u32>(color.a);
++  if (id == GX_COLOR0 || id == GX_ALPHA0) {
++    __gx->matColor[0] = packed;
++    GX_WRITE_XF_REG(0xC, packed);
++  } else {
++    __gx->matColor[1] = packed;
++    GX_WRITE_XF_REG(0xD, packed);
++  }
++  __gx->bpSent = 0;
+ }
+ 
+ void GXSetNumChans(u8 num) {
+-  aurora_legacy_gx_panic("GXSetNumChans");
++  SET_REG_FIELD(0, __gx->genMode, 3, 4, num);
++  GX_WRITE_XF_REG(9, num);
++  __gx->dirtyState |= 4;
+ }
+ 
+ void GXInitLightDir(GXLightObj* light_, float nx, float ny, float nz) {
+-  aurora_legacy_gx_panic("GXInitLightDir");
++  auto* light = reinterpret_cast<GXLightObj_*>(light_);
++  light->nx = -nx;
++  light->ny = -ny;
++  light->nz = -nz;
+ }
+ 
+ void GXInitSpecularDir(GXLightObj* light_, float nx, float ny, float nz) {
+-  aurora_legacy_gx_panic("GXInitSpecularDir");
++  float hx = -nx;
++  float hy = -ny;
++  float hz = (-nz + 1.0f);
++  float mag = ((hx * hx) + (hy * hy) + (hz * hz));
++  if (mag != 0.0f) {
++    mag = 1.0f / sqrtf(mag);
++  }
++
++  auto* light = reinterpret_cast<GXLightObj_*>(light_);
++  light->px = (nx * GX_LARGE_NUMBER);
++  light->py = (ny * GX_LARGE_NUMBER);
++  light->pz = (nz * GX_LARGE_NUMBER);
++  light->nx = hx * mag;
++  light->ny = hy * mag;
++  light->nz = hz * mag;
+ }
+ 
+ void GXInitSpecularDirHA(GXLightObj* light_, float nx, float ny, float nz, float hx, float hy, float hz) {
+-  aurora_legacy_gx_panic("GXInitSpecularDirHA");
++  auto* light = reinterpret_cast<GXLightObj_*>(light_);
++  light->px = (nx * GX_LARGE_NUMBER);
++  light->py = (ny * GX_LARGE_NUMBER);
++  light->pz = (nz * GX_LARGE_NUMBER);
++  light->nx = hx;
++  light->ny = hy;
++  light->nz = hz;
+ }
+ 
+ void GXSetChanCtrl(GXChannelID id, bool lightingEnabled, GXColorSrc ambSrc, GXColorSrc matSrc, u32 lightState,
+                    GXDiffuseFn diffFn, GXAttnFn attnFn) {
+-  aurora_legacy_gx_panic("GXSetChanCtrl");
++  if (id == GX_COLOR0A0) {
++    GXSetChanCtrl(GX_COLOR0, lightingEnabled, ambSrc, matSrc, lightState, diffFn, attnFn);
++    GXSetChanCtrl(GX_ALPHA0, lightingEnabled, ambSrc, matSrc, lightState, diffFn, attnFn);
++    return;
++  } else if (id == GX_COLOR1A1) {
++    GXSetChanCtrl(GX_COLOR1, lightingEnabled, ambSrc, matSrc, lightState, diffFn, attnFn);
++    GXSetChanCtrl(GX_ALPHA1, lightingEnabled, ambSrc, matSrc, lightState, diffFn, attnFn);
++    return;
++  }
++  CHECK(id >= GX_COLOR0 && id <= GX_ALPHA1, "bad channel {}", static_cast<int>(id));
++
++  // Build XF channel control register
++  u32 reg = 0;
++  SET_REG_FIELD(0, reg, 1, 0, matSrc);
++  SET_REG_FIELD(0, reg, 1, 1, lightingEnabled);
++  SET_REG_FIELD(0, reg, 4, 2, lightState & 0xF); // lights 0-3
++  SET_REG_FIELD(0, reg, 1, 6, ambSrc);
++  SET_REG_FIELD(0, reg, 2, 7, (attnFn == GX_AF_SPEC) ? GX_DF_NONE : diffFn);
++  SET_REG_FIELD(0, reg, 1, 9, (attnFn != GX_AF_NONE));   // raw XF attn bit 0
++  SET_REG_FIELD(0, reg, 1, 10, (attnFn != GX_AF_SPEC));  // raw XF attn bit 1
++  SET_REG_FIELD(0, reg, 4, 11, (lightState >> 4) & 0xF); // lights 4-7
++
++  // XF channel control registers: 0x100E-0x1011
++  GX_WRITE_XF_REG(0xE + id, reg);
++  __gx->bpSent = 0;
+ }
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXManage.cpp b/aurora-main/lib/dolphin/gx/GXManage.cpp
+index 8559f1b..e9084f1 100644
+--- a/aurora-main/lib/dolphin/gx/GXManage.cpp
++++ b/aurora-main/lib/dolphin/gx/GXManage.cpp
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+@@ -15,53 +14,393 @@ extern "C" {
+ static GXDrawDoneCallback DrawDoneCB = nullptr;
+ 
+ GXFifoObj* GXInit(void* base, u32 size) {
+-  aurora_legacy_gx_panic("GXInit");
++  GXRenderModeObj* rmode;
++  f32 identity_mtx[3][4];
++  GXColor clear = {64, 64, 64, 255};
++  GXColor black = {0, 0, 0, 0};
++  GXColor white = {255, 255, 255, 255};
++  u32 i;
++
++  std::memset(&sGXData, 0, sizeof(sGXData));
++  __gx = &sGXData;
++  __gx->inDispList = 0;
++  __gx->dlSaveContext = 1;
++  __gx->tcsManEnab = 0;
++  __gx->vNum = 0;
++
++  // Initialize FIFO subsystem
++  aurora::gx::fifo::init();
++  GXInitFifoBase(&sFifoObj, base, size);
++  GXSetCPUFifo(&sFifoObj);
++  GXSetGPFifo(&sFifoObj);
++
++  // Initialize shadow registers: genMode, bpMask, lpSize
++  __gx->genMode = 0;
++  SET_REG_FIELD(0, __gx->genMode, 8, 24, 0x00);
++  __gx->bpMask = 0xFF;
++  SET_REG_FIELD(0, __gx->bpMask, 8, 24, 0x0F);
++  __gx->lpSize = 0;
++  SET_REG_FIELD(0, __gx->lpSize, 8, 24, 0x22);
++
++  // TEV / tref / ksel shadow registers
++  for (i = 0; i < 16; i++) {
++    __gx->tevc[i] = 0;
++    __gx->teva[i] = 0;
++    __gx->tref[i / 2] = 0;
++    __gx->texmapId[i] = GX_TEXMAP_NULL;
++    SET_REG_FIELD(0, __gx->tevc[i], 8, 24, 0xC0 + i * 2);
++    SET_REG_FIELD(0, __gx->teva[i], 8, 24, 0xC1 + i * 2);
++    SET_REG_FIELD(0, __gx->tevKsel[i / 2], 8, 24, 0xF6 + i / 2);
++    SET_REG_FIELD(0, __gx->tref[i / 2], 8, 24, 0x28 + i / 2);
++  }
++
++  // iref and SU texture scale registers
++  __gx->iref = 0;
++  SET_REG_FIELD(0, __gx->iref, 8, 24, 0x27);
++  for (i = 0; i < 8; i++) {
++    __gx->suTs0[i] = 0;
++    __gx->suTs1[i] = 0;
++    SET_REG_FIELD(0, __gx->suTs0[i], 8, 24, 0x30 + i * 2);
++    SET_REG_FIELD(0, __gx->suTs1[i], 8, 24, 0x31 + i * 2);
++  }
++
++  // Other BP command byte init
++  SET_REG_FIELD(0, __gx->suScis0, 8, 24, 0x20);
++  SET_REG_FIELD(0, __gx->suScis1, 8, 24, 0x21);
++  SET_REG_FIELD(0, __gx->cmode0, 8, 24, 0x41);
++  SET_REG_FIELD(0, __gx->cmode1, 8, 24, 0x42);
++  SET_REG_FIELD(0, __gx->zmode, 8, 24, 0x40);
++  SET_REG_FIELD(0, __gx->peCtrl, 8, 24, 0x43);
++  SET_REG_FIELD(0, __gx->IndTexScale0, 8, 24, 0x25);
++  SET_REG_FIELD(0, __gx->IndTexScale1, 8, 24, 0x26);
++
++  __gx->dirtyState = 0;
++  __gx->dirtyVAT = 0;
++
++  // VAT initialization: set default bits and write vatB to CP
++  for (i = 0; i < GX_MAX_VTXFMT; i++) {
++    SET_REG_FIELD(0, __gx->vatA[i], 1, 30, 1);
++    SET_REG_FIELD(0, __gx->vatB[i], 1, 31, 1);
++    GX_WRITE_U8(8);
++    GX_WRITE_U8(i | 0x80);
++    GX_WRITE_U32(__gx->vatB[i]);
++  }
++
++  // XF register init: error/mode control + dual-tex transform
++  {
++    u32 reg1 = 0;
++    u32 reg2 = 0;
++    SET_REG_FIELD(0, reg1, 1, 0, 1);
++    SET_REG_FIELD(0, reg1, 1, 1, 1);
++    SET_REG_FIELD(0, reg1, 1, 2, 1);
++    SET_REG_FIELD(0, reg1, 1, 3, 1);
++    SET_REG_FIELD(0, reg1, 1, 4, 1);
++    SET_REG_FIELD(0, reg1, 1, 5, 1);
++    GX_WRITE_XF_REG(0, reg1);
++    SET_REG_FIELD(0, reg2, 1, 0, 1);
++    GX_WRITE_XF_REG(0x12, reg2);
++  }
++
++  // BP 0x58 register init
++  {
++    u32 reg = 0;
++    SET_REG_FIELD(0, reg, 1, 0, 1);
++    SET_REG_FIELD(0, reg, 1, 1, 1);
++    SET_REG_FIELD(0, reg, 1, 2, 1);
++    SET_REG_FIELD(0, reg, 1, 3, 1);
++    SET_REG_FIELD(0, reg, 8, 24, 0x58);
++    GX_WRITE_RAS_REG(reg);
++  }
++
++  // Default render mode (NTSC)
++  rmode = &GXNtsc480IntDf;
++
++  // Default state initialization via API calls
++  GXSetCopyClear(clear, 0xFFFFFF);
++  GXSetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 0x3C);
++  GXSetTexCoordGen(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX1, 0x3C);
++  GXSetTexCoordGen(GX_TEXCOORD2, GX_TG_MTX2x4, GX_TG_TEX2, 0x3C);
++  GXSetTexCoordGen(GX_TEXCOORD3, GX_TG_MTX2x4, GX_TG_TEX3, 0x3C);
++  GXSetTexCoordGen(GX_TEXCOORD4, GX_TG_MTX2x4, GX_TG_TEX4, 0x3C);
++  GXSetTexCoordGen(GX_TEXCOORD5, GX_TG_MTX2x4, GX_TG_TEX5, 0x3C);
++  GXSetTexCoordGen(GX_TEXCOORD6, GX_TG_MTX2x4, GX_TG_TEX6, 0x3C);
++  GXSetTexCoordGen(GX_TEXCOORD7, GX_TG_MTX2x4, GX_TG_TEX7, 0x3C);
++  GXSetNumTexGens(1);
++  GXClearVtxDesc();
++  GXInvalidateVtxCache();
++  GXSetLineWidth(6, GX_TO_ZERO);
++  GXSetPointSize(6, GX_TO_ZERO);
++  GXEnableTexOffsets(GX_TEXCOORD0, GX_DISABLE, GX_DISABLE);
++  GXEnableTexOffsets(GX_TEXCOORD1, GX_DISABLE, GX_DISABLE);
++  GXEnableTexOffsets(GX_TEXCOORD2, GX_DISABLE, GX_DISABLE);
++  GXEnableTexOffsets(GX_TEXCOORD3, GX_DISABLE, GX_DISABLE);
++  GXEnableTexOffsets(GX_TEXCOORD4, GX_DISABLE, GX_DISABLE);
++  GXEnableTexOffsets(GX_TEXCOORD5, GX_DISABLE, GX_DISABLE);
++  GXEnableTexOffsets(GX_TEXCOORD6, GX_DISABLE, GX_DISABLE);
++  GXEnableTexOffsets(GX_TEXCOORD7, GX_DISABLE, GX_DISABLE);
++
++  // Identity matrix
++  identity_mtx[0][0] = 1.0f;
++  identity_mtx[0][1] = 0.0f;
++  identity_mtx[0][2] = 0.0f;
++  identity_mtx[0][3] = 0.0f;
++  identity_mtx[1][0] = 0.0f;
++  identity_mtx[1][1] = 1.0f;
++  identity_mtx[1][2] = 0.0f;
++  identity_mtx[1][3] = 0.0f;
++  identity_mtx[2][0] = 0.0f;
++  identity_mtx[2][1] = 0.0f;
++  identity_mtx[2][2] = 1.0f;
++  identity_mtx[2][3] = 0.0f;
++  GXLoadPosMtxImm(identity_mtx, GX_PNMTX0);
++  GXLoadNrmMtxImm(identity_mtx, GX_PNMTX0);
++  GXSetCurrentMtx(GX_PNMTX0);
++  GXLoadTexMtxImm(identity_mtx, GX_IDENTITY, GX_MTX3x4);
++  GXLoadTexMtxImm(identity_mtx, GX_PTIDENTITY, GX_MTX3x4);
++
++  GXSetViewport(0.0f, 0.0f, rmode->fbWidth, rmode->xfbHeight, 0.0f, 1.0f);
++  GXSetCoPlanar(GX_DISABLE);
++  GXSetCullMode(GX_CULL_BACK);
++  GXSetClipMode(GX_CLIP_ENABLE);
++  GXSetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
++  // GXSetScissorBoxOffset(0, 0);
++
++  GXSetNumChans(0);
++  GXSetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_VTX, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
++  GXSetChanAmbColor(GX_COLOR0A0, black);
++  GXSetChanMatColor(GX_COLOR0A0, white);
++  GXSetChanCtrl(GX_COLOR1A1, GX_DISABLE, GX_SRC_REG, GX_SRC_VTX, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
++  GXSetChanAmbColor(GX_COLOR1A1, black);
++  GXSetChanMatColor(GX_COLOR1A1, white);
++
++  GXInvalidateTexAll();
++  // __gx->nextTexRgn = 0;
++  // for (i = 0; i < 8; i++)
++  //   GXInitTexCacheRegion(&__gx->TexRegions[i], 0, i * 0x8000, 0, 0x80000 + i * 0x8000, 0);
++  // __gx->nextTexRgnCI = 0;
++  // for (i = 0; i < 4; i++)
++  //   GXInitTexCacheRegion(&__gx->TexRegionsCI[i], 0, (i * 2 + 8) * 0x8000, 0, (i * 2 + 9) * 0x8000, 0);
++  // for (i = 0; i < 16; i++)
++  //   GXInitTlutRegion(&__gx->TlutRegions[i], 0xC0000 + i * 0x2000, 16);
++  // for (i = 0; i < 4; i++)
++  //   GXInitTlutRegion(&__gx->TlutRegions[i + 16], 0xE0000 + i * 0x8000, 64);
++  // GXSetTexRegionCallback(__GXDefaultTexRegionCallback);
++  // GXSetTlutRegionCallback(__GXDefaultTlutRegionCallback);
++
++  GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
++  GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR0A0);
++  GXSetTevOrder(GX_TEVSTAGE2, GX_TEXCOORD2, GX_TEXMAP2, GX_COLOR0A0);
++  GXSetTevOrder(GX_TEVSTAGE3, GX_TEXCOORD3, GX_TEXMAP3, GX_COLOR0A0);
++  GXSetTevOrder(GX_TEVSTAGE4, GX_TEXCOORD4, GX_TEXMAP4, GX_COLOR0A0);
++  GXSetTevOrder(GX_TEVSTAGE5, GX_TEXCOORD5, GX_TEXMAP5, GX_COLOR0A0);
++  GXSetTevOrder(GX_TEVSTAGE6, GX_TEXCOORD6, GX_TEXMAP6, GX_COLOR0A0);
++  GXSetTevOrder(GX_TEVSTAGE7, GX_TEXCOORD7, GX_TEXMAP7, GX_COLOR0A0);
++  GXSetTevOrder(GX_TEVSTAGE8, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
++  GXSetTevOrder(GX_TEVSTAGE9, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
++  GXSetTevOrder(GX_TEVSTAGE10, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
++  GXSetTevOrder(GX_TEVSTAGE11, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
++  GXSetTevOrder(GX_TEVSTAGE12, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
++  GXSetTevOrder(GX_TEVSTAGE13, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
++  GXSetTevOrder(GX_TEVSTAGE14, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
++  GXSetTevOrder(GX_TEVSTAGE15, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
++
++  GXSetNumTevStages(1);
++  GXSetTevOp(GX_TEVSTAGE0, GX_REPLACE);
++  GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_AND, GX_ALWAYS, 0);
++  GXSetZTexture(GX_ZT_DISABLE, GX_TF_Z8, 0);
++
++  for (i = GX_TEVSTAGE0; i < GX_MAX_TEVSTAGE; i++) {
++    GXSetTevKColorSel(static_cast<GXTevStageID>(i), GX_TEV_KCSEL_1_4);
++    GXSetTevKAlphaSel(static_cast<GXTevStageID>(i), GX_TEV_KASEL_1);
++    GXSetTevSwapMode(static_cast<GXTevStageID>(i), GX_TEV_SWAP0, GX_TEV_SWAP0);
++  }
++  GXSetTevSwapModeTable(GX_TEV_SWAP0, GX_CH_RED, GX_CH_GREEN, GX_CH_BLUE, GX_CH_ALPHA);
++  GXSetTevSwapModeTable(GX_TEV_SWAP1, GX_CH_RED, GX_CH_RED, GX_CH_RED, GX_CH_ALPHA);
++  GXSetTevSwapModeTable(GX_TEV_SWAP2, GX_CH_GREEN, GX_CH_GREEN, GX_CH_GREEN, GX_CH_ALPHA);
++  GXSetTevSwapModeTable(GX_TEV_SWAP3, GX_CH_BLUE, GX_CH_BLUE, GX_CH_BLUE, GX_CH_ALPHA);
++
++  for (i = GX_TEVSTAGE0; i < GX_MAX_TEVSTAGE; i++)
++    GXSetTevDirect(static_cast<GXTevStageID>(i));
++  GXSetNumIndStages(0);
++  GXSetIndTexCoordScale(GX_INDTEXSTAGE0, GX_ITS_1, GX_ITS_1);
++  GXSetIndTexCoordScale(GX_INDTEXSTAGE1, GX_ITS_1, GX_ITS_1);
++  GXSetIndTexCoordScale(GX_INDTEXSTAGE2, GX_ITS_1, GX_ITS_1);
++  GXSetIndTexCoordScale(GX_INDTEXSTAGE3, GX_ITS_1, GX_ITS_1);
++
++  GXSetFog(GX_FOG_NONE, 0.0f, 1.0f, 0.1f, 1.0f, black);
++  GXSetFogRangeAdj(GX_DISABLE, 0, nullptr);
++  GXSetBlendMode(GX_BM_NONE, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
++  GXSetColorUpdate(GX_ENABLE);
++  GXSetAlphaUpdate(GX_ENABLE);
++  GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
++  GXSetZCompLoc(GX_TRUE);
++  GXSetDither(GX_ENABLE);
++  GXSetDstAlpha(GX_DISABLE, 0);
++  GXSetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR);
++  GXSetFieldMask(GX_ENABLE, GX_ENABLE);
++  GXSetFieldMode(rmode->field_rendering, ((rmode->viHeight == 2 * rmode->xfbHeight) ? GX_ENABLE : GX_DISABLE));
++
++  GXSetDispCopySrc(0, 0, rmode->fbWidth, rmode->efbHeight);
++  GXSetDispCopyDst(rmode->fbWidth, rmode->efbHeight);
++  GXSetDispCopyYScale(static_cast<f32>(rmode->xfbHeight) / static_cast<f32>(rmode->efbHeight));
++  // GXSetCopyClamp(static_cast<GXFBClamp>(GX_CLAMP_TOP | GX_CLAMP_BOTTOM));
++  GXSetCopyFilter(rmode->aa, rmode->sample_pattern, GX_TRUE, rmode->vfilter);
++  GXSetDispCopyGamma(GX_GM_1_0);
++  // GXSetDispCopyFrame2Field(GX_COPY_PROGRESSIVE);
++  // GXClearBoundingBox();
++
++  // GXPokeColorUpdate(GX_TRUE);
++  // GXPokeAlphaUpdate(GX_TRUE);
++  // GXPokeDither(GX_FALSE);
++  // GXPokeBlendMode(GX_BM_NONE, GX_BL_ZERO, GX_BL_ONE, GX_LO_SET);
++  // GXPokeAlphaMode(GX_ALWAYS, 0);
++  // GXPokeAlphaRead(GX_READ_FF);
++  // GXPokeDstAlpha(GX_DISABLE, 0);
++  // GXPokeZMode(GX_TRUE, GX_ALWAYS, GX_TRUE);
++
++  return &sFifoObj;
+ }
+ 
+ void GXDrawDone() {
+-  aurora_legacy_gx_panic("GXDrawDone");
++  aurora::gx::fifo::drain();
++  if (DrawDoneCB != nullptr)
++    DrawDoneCB();
+ }
+ 
+ void GXSetDrawDone() {
+-  aurora_legacy_gx_panic("GXSetDrawDone");
++  aurora::gx::fifo::drain();
++  if (DrawDoneCB != nullptr)
++    DrawDoneCB();
+ }
+ 
+ GXDrawDoneCallback GXSetDrawDoneCallback(GXDrawDoneCallback cb) {
+-  aurora_legacy_gx_panic("GXSetDrawDoneCallback");
++  GXDrawDoneCallback old = DrawDoneCB;
++  DrawDoneCB = cb;
++  return old;
+ }
+ 
+ void GXFlush() {
+-  aurora_legacy_gx_panic("GXFlush");
++  if (__gx->dirtyState) {
++    __GXSetDirtyState();
++  }
+ }
+ 
+ void GXPixModeSync() {
+-  aurora_legacy_gx_panic("GXPixModeSync");
++  GX_WRITE_RAS_REG(__gx->peCtrl);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXTexModeSync() {
+-  aurora_legacy_gx_panic("GXTexModeSync");
++  GX_WRITE_RAS_REG(0x63000000);
++  __gx->bpSent = 1;
+ }
+ 
+ // Dirty state flush functions
+ 
+ void __GXSetDirtyState() {
+-  aurora_legacy_gx_panic("__GXSetDirtyState");
++  if (__gx->dirtyState & 1) {
++    __GXSetSUTexRegs();
++  }
++  if (__gx->dirtyState & 2) {
++    __GXUpdateBPMask();
++  }
++  if (__gx->dirtyState & 4) {
++    __GXSetGenMode();
++  }
++  if (__gx->dirtyState & 8) {
++    __GXSetVCD();
++  }
++  if (__gx->dirtyState & 0x10) {
++    __GXSetVAT();
++  }
++  __gx->dirtyState = 0;
+ }
+ 
+ void __GXSetGenMode() {
+-  aurora_legacy_gx_panic("__GXSetGenMode");
++  GX_WRITE_RAS_REG(__gx->genMode);
++  __gx->bpSent = 1;
+ }
+ 
+ void __GXSendFlushPrim() {
+-  aurora_legacy_gx_panic("__GXSendFlushPrim");
++  // Originally a dummy triangle strip to push the GP through the FIFO and flush pending BP
++  // register changes. We can skip the FIFO writes and just clear the bpSent flag.
++
++  // GX_WRITE_U8(0x98);
++  // GX_WRITE_U16(__gx->vNum);
++  // for (u32 i = 0; i < __gx->vNum * __gx->vLim; i += 4) {
++  //   GX_WRITE_U32(0);
++  // }
++
++  __gx->bpSent = 0;
+ }
+ 
+ void __GXSetVCD() {
+-  aurora_legacy_gx_panic("__GXSetVCD");
++  // Write VCD lo and hi to CP registers
++  GX_WRITE_SOME_REG4(8, 0x50, __gx->vcdLo, -12);
++  GX_WRITE_SOME_REG4(8, 0x60, __gx->vcdHi, -12);
++
++  // Write XF vertex specs
++  u32 nCols = 0;
++  nCols = GET_REG_FIELD(__gx->vcdLo, 2, 13) ? 1 : 0;
++  nCols += GET_REG_FIELD(__gx->vcdLo, 2, 15) ? 1 : 0;
++  u32 nNrm = __gx->hasBiNrms ? 2 : __gx->hasNrms ? 1 : 0;
++  u32 nTex = 0;
++  nTex += GET_REG_FIELD(__gx->vcdHi, 2, 0) ? 1 : 0;
++  nTex += GET_REG_FIELD(__gx->vcdHi, 2, 2) ? 1 : 0;
++  nTex += GET_REG_FIELD(__gx->vcdHi, 2, 4) ? 1 : 0;
++  nTex += GET_REG_FIELD(__gx->vcdHi, 2, 6) ? 1 : 0;
++  nTex += GET_REG_FIELD(__gx->vcdHi, 2, 8) ? 1 : 0;
++  nTex += GET_REG_FIELD(__gx->vcdHi, 2, 10) ? 1 : 0;
++  nTex += GET_REG_FIELD(__gx->vcdHi, 2, 12) ? 1 : 0;
++  nTex += GET_REG_FIELD(__gx->vcdHi, 2, 14) ? 1 : 0;
++  u32 reg = (nCols) | (nNrm << 2) | (nTex << 4);
++  GX_WRITE_XF_REG(8, reg);
++  __gx->bpSent = 0;
++
++  // Calculate vertex data limit for flush prim
++  if (__gx->vNum != 0) {
++    static u8 tbl1[] = {0, 4, 1, 2};
++    static u8 tbl2[] = {0, 8, 1, 2};
++    static u8 tbl3[] = {0, 12, 1, 2};
++
++    u32 vl = __gx->vcdLo;
++    u32 vh = __gx->vcdHi;
++    u32 vlm = 0;
++    vlm = GET_REG_FIELD(vl, 1, 0);
++    vlm += static_cast<u8>(GET_REG_FIELD(vl, 1, 1));
++    vlm += static_cast<u8>(GET_REG_FIELD(vl, 1, 2));
++    vlm += static_cast<u8>(GET_REG_FIELD(vl, 1, 3));
++    vlm += static_cast<u8>(GET_REG_FIELD(vl, 1, 4));
++    vlm += static_cast<u8>(GET_REG_FIELD(vl, 1, 5));
++    vlm += static_cast<u8>(GET_REG_FIELD(vl, 1, 6));
++    vlm += static_cast<u8>(GET_REG_FIELD(vl, 1, 7));
++    vlm += static_cast<u8>(GET_REG_FIELD(vl, 1, 8));
++    vlm += tbl3[static_cast<u8>(GET_REG_FIELD(vl, 2, 9))];
++    u32 b = (__gx->hasBiNrms << 1) + 1;
++    vlm += tbl3[static_cast<u8>(GET_REG_FIELD(vl, 2, 11))] * b;
++    vlm += tbl1[static_cast<u8>(GET_REG_FIELD(vl, 2, 13))];
++    vlm += tbl1[static_cast<u8>(GET_REG_FIELD(vl, 2, 15))];
++    vlm += tbl2[static_cast<u8>(GET_REG_FIELD(vh, 2, 0))];
++    vlm += tbl2[static_cast<u8>(GET_REG_FIELD(vh, 2, 2))];
++    vlm += tbl2[static_cast<u8>(GET_REG_FIELD(vh, 2, 4))];
++    vlm += tbl2[static_cast<u8>(GET_REG_FIELD(vh, 2, 6))];
++    vlm += tbl2[static_cast<u8>(GET_REG_FIELD(vh, 2, 8))];
++    vlm += tbl2[static_cast<u8>(GET_REG_FIELD(vh, 2, 10))];
++    vlm += tbl2[static_cast<u8>(GET_REG_FIELD(vh, 2, 12))];
++    vlm += tbl2[static_cast<u8>(GET_REG_FIELD(vh, 2, 14))];
++    __gx->vLim = vlm;
++  }
+ }
+ 
+ void __GXSetVAT() {
+-  aurora_legacy_gx_panic("__GXSetVAT");
++  for (u8 i = 0; i < 8; i++) {
++    if (__gx->dirtyVAT & (1 << i)) {
++      GX_WRITE_SOME_REG4(8, i | 0x70, __gx->vatA[i], i - 12);
++      GX_WRITE_SOME_REG4(8, i | 0x80, __gx->vatB[i], i - 12);
++      GX_WRITE_SOME_REG4(8, i | 0x90, __gx->vatC[i], i - 12);
++    }
++  }
++  __gx->dirtyVAT = 0;
+ }
+ 
+ static void __SetSURegs(u32 tmap, u32 tcoord) {
+@@ -82,14 +421,83 @@ static void __SetSURegs(u32 tmap, u32 tcoord) {
+ }
+ 
+ void __GXSetSUTexRegs() {
+-  aurora_legacy_gx_panic("__GXSetSUTexRegs");
++  // SU texture size/bias registers for each active TEV and indirect stage, skipping coords with
++  // manual scale (tcsManEnab). If all coords are manual (0xFF), skip entirely.
++  if (__gx->tcsManEnab == 0xFF) {
++    return;
++  }
++
++  u32 nStages = GET_REG_FIELD(__gx->genMode, 4, 10) + 1;
++  u32 nIndStages = GET_REG_FIELD(__gx->genMode, 3, 16);
++
++  // Indirect texture stages
++  for (u32 i = 0; i < nIndStages; i++) {
++    u32 tmap, coord;
++    switch (i) {
++    case 0:
++      tmap = GET_REG_FIELD(__gx->iref, 3, 0);
++      coord = GET_REG_FIELD(__gx->iref, 3, 3);
++      break;
++    case 1:
++      tmap = GET_REG_FIELD(__gx->iref, 3, 6);
++      coord = GET_REG_FIELD(__gx->iref, 3, 9);
++      break;
++    case 2:
++      tmap = GET_REG_FIELD(__gx->iref, 3, 12);
++      coord = GET_REG_FIELD(__gx->iref, 3, 15);
++      break;
++    default:
++      tmap = GET_REG_FIELD(__gx->iref, 3, 18);
++      coord = GET_REG_FIELD(__gx->iref, 3, 21);
++      break;
++    }
++    if (!(__gx->tcsManEnab & (1 << coord))) {
++      __SetSURegs(tmap, coord);
++    }
++  }
++
++  // Direct TEV stages
++  for (u32 i = 0; i < nStages; i++) {
++    u32* ptref = &__gx->tref[i / 2];
++    u32 map = __gx->texmapId[i];
++    u32 tmap = map & ~0x100u;
++    u32 coord;
++    if (i & 1) {
++      coord = GET_REG_FIELD(*ptref, 3, 15);
++    } else {
++      coord = GET_REG_FIELD(*ptref, 3, 3);
++    }
++    if (tmap != 0xFF && !(__gx->tcsManEnab & (1 << coord)) && (__gx->texmapValid & (1u << i))) {
++      __SetSURegs(tmap, coord);
++    }
++  }
+ }
+ 
+ void __GXUpdateBPMask() {
+-  aurora_legacy_gx_panic("__GXUpdateBPMask");
++  // Mark texture maps used by indirect texture stages in the BP mask
++  u32 nIndStages = GET_REG_FIELD(__gx->genMode, 3, 16);
++  u32 newImask = 0;
++
++  for (u32 i = 0; i < nIndStages; i++) {
++    u32 tmap = GET_REG_FIELD(__gx->iref, 3, i * 6);
++    newImask |= 1u << tmap;
++  }
++
++  if (static_cast<u8>(__gx->bpMask) != static_cast<u8>(newImask)) {
++    SET_REG_FIELD(0, __gx->bpMask, 8, 0, newImask);
++    GX_WRITE_RAS_REG(__gx->bpMask);
++    __gx->bpSent = 1;
++  }
+ }
+ 
+ void __GXSetMatrixIndex(GXAttr matIdxAttr) {
+-  aurora_legacy_gx_panic("__GXSetMatrixIndex");
++  if (matIdxAttr < GX_VA_TEX4MTXIDX) {
++    GX_WRITE_SOME_REG4(8, 0x30, __gx->matIdxA, -12);
++    GX_WRITE_XF_REG(24, __gx->matIdxA);
++  } else {
++    GX_WRITE_SOME_REG4(8, 0x40, __gx->matIdxB, -12);
++    GX_WRITE_XF_REG(25, __gx->matIdxB);
++  }
++  __gx->bpSent = 0;
+ }
+ };
+diff --git a/aurora-main/lib/dolphin/gx/GXPixel.cpp b/aurora-main/lib/dolphin/gx/GXPixel.cpp
+index 52560cb..d4f3fb5 100644
+--- a/aurora-main/lib/dolphin/gx/GXPixel.cpp
++++ b/aurora-main/lib/dolphin/gx/GXPixel.cpp
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+@@ -6,54 +5,243 @@
+ 
+ extern "C" {
+ void GXSetFog(GXFogType type, float startZ, float endZ, float nearZ, float farZ, GXColor color) {
+-  aurora_legacy_gx_panic("GXSetFog");
++  // Compute fog coefficients matching SDK.
++  const bool orthographic = (static_cast<u32>(type) & 0x8u) != 0;
++  f32 a = 0.0f;
++  f32 c = 0.0f;
++  u32 b_m = 0;
++  u32 b_s = 0;
++
++  if (!orthographic) {
++    f32 A;
++    f32 B;
++    f32 C;
++    if (farZ == nearZ || endZ == startZ) {
++      A = 0.0f;
++      B = 0.5f;
++      C = 0.0f;
++    } else {
++      A = (farZ * nearZ) / ((farZ - nearZ) * (endZ - startZ));
++      B = farZ / (farZ - nearZ);
++      C = startZ / (endZ - startZ);
++    }
++
++    // Normalize B mantissa.
++    f32 B_mant = B;
++    int B_expn = 0;
++    while (B_mant > 1.0f) {
++      B_mant *= 0.5f;
++      B_expn++;
++    }
++    while (B_mant > 0.0f && B_mant < 0.5f) {
++      B_mant *= 2.0f;
++      B_expn--;
++    }
++
++    a = std::ldexp(A, -(B_expn + 1));
++    b_m = static_cast<u32>(8.388638e6f * B_mant);
++    b_s = static_cast<u32>(B_expn + 1) & 0x1Fu;
++    c = C;
++  } else if (farZ != nearZ && endZ != startZ) {
++    const f32 invDepthRange = 1.0f / (endZ - startZ);
++    a = invDepthRange * (farZ - nearZ);
++    c = invDepthRange * (startZ - nearZ);
++  }
++
++  u32 a_hex, c_hex;
++  std::memcpy(&a_hex, &a, sizeof(a_hex));
++  std::memcpy(&c_hex, &c, sizeof(c_hex));
++
++  // BP FOG0 (0xEE) - A parameter
++  u32 fog0 = 0;
++  SET_REG_FIELD(0, fog0, 11, 0, (a_hex >> 12) & 0x7FF);
++  SET_REG_FIELD(0, fog0, 8, 11, (a_hex >> 23) & 0xFF);
++  SET_REG_FIELD(0, fog0, 1, 19, (a_hex >> 31));
++  SET_REG_FIELD(0, fog0, 8, 24, 0xEE);
++
++  // BP FOG1 (0xEF) - B mantissa
++  u32 fog1 = 0;
++  SET_REG_FIELD(0, fog1, 24, 0, b_m);
++  SET_REG_FIELD(0, fog1, 8, 24, 0xEF);
++
++  // BP FOG2 (0xF0) - B scale
++  u32 fog2 = 0;
++  SET_REG_FIELD(0, fog2, 5, 0, b_s);
++  SET_REG_FIELD(0, fog2, 8, 24, 0xF0);
++
++  // BP FOG3 (0xF1) - C parameter + type
++  u32 fog3 = 0;
++  SET_REG_FIELD(0, fog3, 11, 0, (c_hex >> 12) & 0x7FF);
++  SET_REG_FIELD(0, fog3, 8, 11, (c_hex >> 23) & 0xFF);
++  SET_REG_FIELD(0, fog3, 1, 19, (c_hex >> 31));
++  SET_REG_FIELD(0, fog3, 1, 20, orthographic ? 1 : 0);
++  SET_REG_FIELD(0, fog3, 3, 21, static_cast<u32>(type) & 0x7u);
++  SET_REG_FIELD(0, fog3, 8, 24, 0xF1);
++
++  // BP FOGCLR (0xF2) - color
++  u32 fogclr = 0;
++  SET_REG_FIELD(0, fogclr, 8, 0, color.b);
++  SET_REG_FIELD(0, fogclr, 8, 8, color.g);
++  SET_REG_FIELD(0, fogclr, 8, 16, color.r);
++  SET_REG_FIELD(0, fogclr, 8, 24, 0xF2);
++
++  GX_WRITE_RAS_REG(fog0);
++  GX_WRITE_RAS_REG(fog1);
++  GX_WRITE_RAS_REG(fog2);
++  GX_WRITE_RAS_REG(fog3);
++  GX_WRITE_RAS_REG(fogclr);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetFogColor(GXColor color) {
+-  aurora_legacy_gx_panic("GXSetFogColor");
++  // BP FOGCLR (0xF2)
++  u32 fogclr = 0;
++  SET_REG_FIELD(0, fogclr, 8, 0, color.b);
++  SET_REG_FIELD(0, fogclr, 8, 8, color.g);
++  SET_REG_FIELD(0, fogclr, 8, 16, color.r);
++  SET_REG_FIELD(0, fogclr, 8, 24, 0xF2);
++  GX_WRITE_RAS_REG(fogclr);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetFogRangeAdj(GXBool enable, u16 center, GXFogAdjTable* table) {
+-  aurora_legacy_gx_panic("GXSetFogRangeAdj");
++  u32 i;
++  u32 range_adj;
++  u32 range_c;
++
++  if (enable) {
++    for (i = 0; i < 10; i += 2) {
++      range_adj = 0;
++      SET_REG_FIELD(0x10D, range_adj, 12, 0, table->r[i]);
++      SET_REG_FIELD(0x10E, range_adj, 12, 12, table->r[i + 1]);
++      SET_REG_FIELD(0x10F, range_adj, 8, 24, (i >> 1) + 0xE9);
++      GX_WRITE_RAS_REG(range_adj);
++    }
++  }
++  range_c = 0;
++  SET_REG_FIELD(0x115, range_c, 10, 0, center + 342);
++  SET_REG_FIELD(0x116, range_c, 1, 10, enable);
++  SET_REG_FIELD(0x117, range_c, 8, 24, 0xE8);
++  GX_WRITE_RAS_REG(range_c);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetBlendMode(GXBlendMode mode, GXBlendFactor src, GXBlendFactor dst, GXLogicOp op) {
+-  aurora_legacy_gx_panic("GXSetBlendMode");
++  SET_REG_FIELD(0, __gx->cmode0, 1, 0, (mode == GX_BM_BLEND || mode == GX_BM_SUBTRACT));
++  SET_REG_FIELD(0, __gx->cmode0, 1, 11, (mode == GX_BM_SUBTRACT));
++  SET_REG_FIELD(0, __gx->cmode0, 1, 1, (mode == GX_BM_LOGIC));
++  SET_REG_FIELD(0, __gx->cmode0, 4, 12, op);
++  SET_REG_FIELD(0, __gx->cmode0, 3, 8, src);
++  SET_REG_FIELD(0, __gx->cmode0, 3, 5, dst);
++  GX_WRITE_RAS_REG(__gx->cmode0);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetColorUpdate(GXBool enabled) {
+-  aurora_legacy_gx_panic("GXSetColorUpdate");
++  SET_REG_FIELD(0, __gx->cmode0, 1, 3, enabled);
++  GX_WRITE_RAS_REG(__gx->cmode0);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetAlphaUpdate(bool enabled) {
+-  aurora_legacy_gx_panic("GXSetAlphaUpdate");
++  SET_REG_FIELD(0, __gx->cmode0, 1, 4, enabled);
++  GX_WRITE_RAS_REG(__gx->cmode0);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetZMode(bool compare_enable, GXCompare func, bool update_enable) {
+-  aurora_legacy_gx_panic("GXSetZMode");
++  SET_REG_FIELD(0, __gx->zmode, 1, 0, compare_enable);
++  SET_REG_FIELD(0, __gx->zmode, 3, 1, func);
++  SET_REG_FIELD(0, __gx->zmode, 1, 4, update_enable);
++  GX_WRITE_RAS_REG(__gx->zmode);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetZCompLoc(GXBool before_tex) {
+-  aurora_legacy_gx_panic("GXSetZCompLoc");
++  SET_REG_FIELD(0, __gx->peCtrl, 1, 6, before_tex);
++  GX_WRITE_RAS_REG(__gx->peCtrl);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetPixelFmt(GXPixelFmt pix_fmt, GXZFmt16 z_fmt) {
+-  aurora_legacy_gx_panic("GXSetPixelFmt");
++  u32 oldPeCtrl = __gx->peCtrl;
++  u8 hwPixelFmt = 0;
++
++  switch (pix_fmt) {
++  case GX_PF_RGB8_Z24:
++    hwPixelFmt = 0;
++    break;
++  case GX_PF_RGBA6_Z24:
++    hwPixelFmt = 1;
++    break;
++  case GX_PF_RGB565_Z16:
++    hwPixelFmt = 2;
++    break;
++  case GX_PF_Z24:
++    hwPixelFmt = 3;
++    break;
++  case GX_PF_Y8:
++  case GX_PF_U8:
++  case GX_PF_V8:
++    hwPixelFmt = 4;
++    break;
++  case GX_PF_YUV420:
++    hwPixelFmt = 5;
++    break;
++  default:
++    UNLIKELY FATAL("GXSetPixelFmt: unsupported pixel format {}", static_cast<u32>(pix_fmt));
++  }
++
++  SET_REG_FIELD(0, __gx->peCtrl, 3, 0, hwPixelFmt);
++  SET_REG_FIELD(0, __gx->peCtrl, 3, 3, z_fmt);
++  if (oldPeCtrl != __gx->peCtrl) {
++    GX_WRITE_RAS_REG(__gx->peCtrl);
++    SET_REG_FIELD(0, __gx->genMode, 1, 9, pix_fmt == GX_PF_RGB565_Z16);
++    __gx->dirtyState |= 4;
++  }
++
++  if (hwPixelFmt == 4) {
++    SET_REG_FIELD(0, __gx->cmode1, 2, 9, (static_cast<u32>(pix_fmt) - GX_PF_Y8) & 0x3);
++    GX_WRITE_RAS_REG(__gx->cmode1);
++  }
++
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetDither(GXBool dither) {
+-  aurora_legacy_gx_panic("GXSetDither");
++  SET_REG_FIELD(0, __gx->cmode0, 1, 2, dither);
++  GX_WRITE_RAS_REG(__gx->cmode0);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetDstAlpha(bool enabled, u8 value) {
+-  aurora_legacy_gx_panic("GXSetDstAlpha");
++  SET_REG_FIELD(0, __gx->cmode1, 8, 0, value);
++  SET_REG_FIELD(0, __gx->cmode1, 1, 8, enabled);
++  GX_WRITE_RAS_REG(__gx->cmode1);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetFieldMask(GXBool odd_mask, GXBool even_mask) {
+-  aurora_legacy_gx_panic("GXSetFieldMask");
++  u32 reg;
++
++  reg = 0;
++  SET_REG_FIELD(0x1FB, reg, 1, 0, even_mask);
++  SET_REG_FIELD(0x1FC, reg, 1, 1, odd_mask);
++  SET_REG_FIELD(0x1FD, reg, 8, 24, 0x44);
++  GX_WRITE_RAS_REG(reg);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetFieldMode(GXBool field_mode, GXBool half_aspect_ratio) {
+-  aurora_legacy_gx_panic("GXSetFieldMode");
++  u32 reg;
++
++  SET_REG_FIELD(0x21A, __gx->lpSize, 1, 22, half_aspect_ratio);
++  GX_WRITE_RAS_REG(__gx->lpSize);
++  __GXFlushTextureState();
++
++  SET_REG_FIELD(0, reg, 8, 24, 0x68);
++  SET_REG_FIELD(0, reg, 1, 0, field_mode);
++  GX_WRITE_RAS_REG(reg);
++  __GXFlushTextureState();
+ }
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXTev.cpp b/aurora-main/lib/dolphin/gx/GXTev.cpp
+index ccfe3a0..8b021fe 100644
+--- a/aurora-main/lib/dolphin/gx/GXTev.cpp
++++ b/aurora-main/lib/dolphin/gx/GXTev.cpp
+@@ -1,72 +1,267 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+ extern "C" {
+ void GXSetTevOp(GXTevStageID id, GXTevMode mode) {
+-  aurora_legacy_gx_panic("GXSetTevOp");
++  GXTevColorArg inputColor = GX_CC_RASC;
++  GXTevAlphaArg inputAlpha = GX_CA_RASA;
++  if (id != GX_TEVSTAGE0) {
++    inputColor = GX_CC_CPREV;
++    inputAlpha = GX_CA_APREV;
++  }
++  switch (mode) {
++  case GX_MODULATE:
++    GXSetTevColorIn(id, GX_CC_ZERO, GX_CC_TEXC, inputColor, GX_CC_ZERO);
++    GXSetTevAlphaIn(id, GX_CA_ZERO, GX_CA_TEXA, inputAlpha, GX_CA_ZERO);
++    break;
++  case GX_DECAL:
++    GXSetTevColorIn(id, inputColor, GX_CC_TEXC, GX_CC_TEXA, GX_CC_ZERO);
++    GXSetTevAlphaIn(id, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, inputAlpha);
++    break;
++  case GX_BLEND:
++    GXSetTevColorIn(id, inputColor, GX_CC_ONE, GX_CC_TEXC, GX_CC_ZERO);
++    GXSetTevAlphaIn(id, GX_CA_ZERO, GX_CA_TEXA, inputAlpha, GX_CA_ZERO);
++    break;
++  case GX_REPLACE:
++    GXSetTevColorIn(id, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_TEXC);
++    GXSetTevAlphaIn(id, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
++    break;
++  case GX_PASSCLR:
++    GXSetTevColorIn(id, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, inputColor);
++    GXSetTevAlphaIn(id, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, inputAlpha);
++    break;
++  }
++  GXSetTevColorOp(id, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
++  GXSetTevAlphaOp(id, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+ }
+ 
+ void GXSetTevColorIn(GXTevStageID stageId, GXTevColorArg a, GXTevColorArg b, GXTevColorArg c, GXTevColorArg d) {
+-  aurora_legacy_gx_panic("GXSetTevColorIn");
++  u32* reg = &__gx->tevc[stageId];
++  SET_REG_FIELD(0, *reg, 4, 12, a);
++  SET_REG_FIELD(0, *reg, 4, 8, b);
++  SET_REG_FIELD(0, *reg, 4, 4, c);
++  SET_REG_FIELD(0, *reg, 4, 0, d);
++  GX_WRITE_RAS_REG(*reg);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetTevAlphaIn(GXTevStageID stageId, GXTevAlphaArg a, GXTevAlphaArg b, GXTevAlphaArg c, GXTevAlphaArg d) {
+-  aurora_legacy_gx_panic("GXSetTevAlphaIn");
++  u32* reg = &__gx->teva[stageId];
++  SET_REG_FIELD(0, *reg, 3, 13, a);
++  SET_REG_FIELD(0, *reg, 3, 10, b);
++  SET_REG_FIELD(0, *reg, 3, 7, c);
++  SET_REG_FIELD(0, *reg, 3, 4, d);
++  GX_WRITE_RAS_REG(*reg);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetTevColorOp(GXTevStageID stageId, GXTevOp op, GXTevBias bias, GXTevScale scale, bool clamp,
+                      GXTevRegID outReg) {
+-  aurora_legacy_gx_panic("GXSetTevColorOp");
++  u32* reg = &__gx->tevc[stageId];
++  SET_REG_FIELD(0, *reg, 1, 18, op & 1);
++  if (op <= 1) {
++    SET_REG_FIELD(0, *reg, 2, 20, scale);
++    SET_REG_FIELD(0, *reg, 2, 16, bias);
++  } else {
++    SET_REG_FIELD(0, *reg, 2, 20, (op >> 1) & 3);
++    SET_REG_FIELD(0, *reg, 2, 16, 3);
++  }
++  SET_REG_FIELD(0, *reg, 1, 19, clamp);
++  SET_REG_FIELD(0, *reg, 2, 22, outReg);
++  GX_WRITE_RAS_REG(*reg);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetTevAlphaOp(GXTevStageID stageId, GXTevOp op, GXTevBias bias, GXTevScale scale, bool clamp,
+                      GXTevRegID outReg) {
+-  aurora_legacy_gx_panic("GXSetTevAlphaOp");
++  u32* reg = &__gx->teva[stageId];
++  SET_REG_FIELD(0, *reg, 1, 18, op & 1);
++  if (op <= 1) {
++    SET_REG_FIELD(0, *reg, 2, 20, scale);
++    SET_REG_FIELD(0, *reg, 2, 16, bias);
++  } else {
++    SET_REG_FIELD(0, *reg, 2, 20, (op >> 1) & 3);
++    SET_REG_FIELD(0, *reg, 2, 16, 3);
++  }
++  SET_REG_FIELD(0, *reg, 1, 19, clamp);
++  SET_REG_FIELD(0, *reg, 2, 22, outReg);
++  GX_WRITE_RAS_REG(*reg);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetTevColor(GXTevRegID id, GXColor color) {
+-  aurora_legacy_gx_panic("GXSetTevColor");
++  CHECK(id >= GX_TEVPREV && id < GX_MAX_TEVREG, "bad tevreg {}", static_cast<int>(id));
++
++  // Write BP registers (RA + BG pairs) - needed for display list capture
++  u32 regRA = 0;
++  SET_REG_FIELD(0, regRA, 11, 0, color.r);
++  SET_REG_FIELD(0, regRA, 11, 12, color.a);
++  SET_REG_FIELD(0, regRA, 8, 24, 0xE0 + id * 2);
++  u32 regBG = 0;
++  SET_REG_FIELD(0, regBG, 11, 0, color.b);
++  SET_REG_FIELD(0, regBG, 11, 12, color.g);
++  SET_REG_FIELD(0, regBG, 8, 24, 0xE1 + id * 2);
++  GX_WRITE_RAS_REG(regRA);
++  GX_WRITE_RAS_REG(regBG);
++  // NOTE: the SDK writes regBG three more times here for hardware timing. The value does not
++  // change and our software command processor needs no sync delay, so skip them.
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetTevColorS10(GXTevRegID id, GXColorS10 color) {
+-  aurora_legacy_gx_panic("GXSetTevColorS10");
++  // Write BP registers (RA + BG pairs) - needed for display list capture
++  u32 regRA = 0;
++  SET_REG_FIELD(0, regRA, 11, 0, color.r & 0x7FF);
++  SET_REG_FIELD(0, regRA, 11, 12, color.a & 0x7FF);
++  SET_REG_FIELD(0, regRA, 8, 24, 0xE0 + id * 2);
++  u32 regBG = 0;
++  SET_REG_FIELD(0, regBG, 11, 0, color.b & 0x7FF);
++  SET_REG_FIELD(0, regBG, 11, 12, color.g & 0x7FF);
++  SET_REG_FIELD(0, regBG, 8, 24, 0xE1 + id * 2);
++  GX_WRITE_RAS_REG(regRA);
++  GX_WRITE_RAS_REG(regBG);
++  // NOTE: the SDK writes regBG three more times here for hardware timing. The value does not
++  // change and our software command processor needs no sync delay, so skip them.
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetAlphaCompare(GXCompare comp0, u8 ref0, GXAlphaOp op, GXCompare comp1, u8 ref1) {
+-  aurora_legacy_gx_panic("GXSetAlphaCompare");
++  // BP register 0xF3
++  u32 reg = 0;
++  SET_REG_FIELD(0, reg, 8, 0, ref0);
++  SET_REG_FIELD(0, reg, 8, 8, ref1);
++  SET_REG_FIELD(0, reg, 3, 16, comp0);
++  SET_REG_FIELD(0, reg, 3, 19, comp1);
++  SET_REG_FIELD(0, reg, 2, 22, op);
++  SET_REG_FIELD(0, reg, 8, 24, 0xF3);
++  GX_WRITE_RAS_REG(reg);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetTevOrder(GXTevStageID id, GXTexCoordID tcid, GXTexMapID tmid, GXChannelID cid) {
+-  aurora_legacy_gx_panic("GXSetTevOrder");
++  // Channel ID mapping to hardware register values
++  static const u8 c2r[] = {0, 1, 0, 1, 0, 1, 7, 5, 6};
++  u32* ptref = &__gx->tref[id / 2];
++  __gx->texmapId[id] = tmid;
++
++  u32 tmap = tmid & ~0x100u;
++  tmap = (tmap >= GX_MAX_TEXMAP) ? GX_TEXMAP0 : tmap;
++  const bool texCoordValid = tcid < GX_MAX_TEXCOORD;
++  if (texCoordValid) {
++    __gx->texmapValid |= 1u << id;
++  } else {
++    __gx->texmapValid &= ~(1u << id);
++  }
++  u32 tcoord = texCoordValid ? tcid : GX_TEXCOORD0;
++  u32 chanHw = (cid == GX_COLOR_NULL) ? 7 : c2r[cid];
++
++  if (id & 1) {
++    SET_REG_FIELD(0, *ptref, 3, 12, tmap);
++    SET_REG_FIELD(0, *ptref, 3, 15, tcoord);
++    SET_REG_FIELD(0, *ptref, 3, 19, chanHw);
++    SET_REG_FIELD(0, *ptref, 1, 18, (tmid != GX_TEXMAP_NULL && !(tmid & 0x100)));
++  } else {
++    SET_REG_FIELD(0, *ptref, 3, 0, tmap);
++    SET_REG_FIELD(0, *ptref, 3, 3, tcoord);
++    SET_REG_FIELD(0, *ptref, 3, 7, chanHw);
++    SET_REG_FIELD(0, *ptref, 1, 6, (tmid != GX_TEXMAP_NULL && !(tmid & 0x100)));
++  }
++
++  GX_WRITE_RAS_REG(*ptref);
++  __gx->bpSent = 1;
++  __gx->dirtyState |= 1; // SU tex regs dirty
+ }
+ 
+ void GXSetZTexture(GXZTexOp op, GXTexFmt fmt, u32 bias) {
+-  aurora_legacy_gx_panic("GXSetZTexture");
++  u32 zfmt;
++  switch (fmt) {
++  case GX_TF_Z8:
++    zfmt = 0;
++    break;
++  case GX_TF_Z16:
++    zfmt = 1;
++    break;
++  case GX_TF_Z24X8:
++    zfmt = 2;
++    break;
++  default:
++    zfmt = 2;
++    break;
++  }
++
++  GX_WRITE_RAS_REG(0xF4000000u | (bias & 0x00FFFFFFu));
++  GX_WRITE_RAS_REG(0xF5000000u | ((static_cast<u32>(op) & 0x3u) << 2) | (zfmt & 0x3u));
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetNumTevStages(u8 num) {
+-  aurora_legacy_gx_panic("GXSetNumTevStages");
++  SET_REG_FIELD(0, __gx->genMode, 4, 10, num - 1);
++  __gx->dirtyState |= 4; // gen mode dirty
+ }
+ 
+ void GXSetTevKColor(GXTevKColorID id, GXColor color) {
+-  aurora_legacy_gx_panic("GXSetTevKColor");
++  CHECK(id >= GX_KCOLOR0 && id < GX_MAX_KCOLOR, "bad kcolor {}", static_cast<int>(id));
++
++  // Write BP registers (RA + BG pairs with bit 23 set for K color)
++  u32 regRA = 0;
++  SET_REG_FIELD(0, regRA, 8, 0, color.r);
++  SET_REG_FIELD(0, regRA, 8, 12, color.a);
++  SET_REG_FIELD(0, regRA, 4, 20, 8); // K color flag
++  SET_REG_FIELD(0, regRA, 8, 24, 0xE0 + id * 2);
++  u32 regBG = 0;
++  SET_REG_FIELD(0, regBG, 8, 0, color.b);
++  SET_REG_FIELD(0, regBG, 8, 12, color.g);
++  SET_REG_FIELD(0, regBG, 4, 20, 8); // K color flag
++  SET_REG_FIELD(0, regBG, 8, 24, 0xE1 + id * 2);
++  GX_WRITE_RAS_REG(regRA);
++  GX_WRITE_RAS_REG(regBG);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetTevKColorSel(GXTevStageID id, GXTevKColorSel sel) {
+-  aurora_legacy_gx_panic("GXSetTevKColorSel");
++  // tevKsel registers: 2 stages per register
++  u32 kselIdx = id / 2;
++  if (id & 1) {
++    SET_REG_FIELD(0, __gx->tevKsel[kselIdx], 5, 14, sel);
++  } else {
++    SET_REG_FIELD(0, __gx->tevKsel[kselIdx], 5, 4, sel);
++  }
++  GX_WRITE_RAS_REG(__gx->tevKsel[kselIdx]);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetTevKAlphaSel(GXTevStageID id, GXTevKAlphaSel sel) {
+-  aurora_legacy_gx_panic("GXSetTevKAlphaSel");
++  u32 kselIdx = id / 2;
++  if (id & 1) {
++    SET_REG_FIELD(0, __gx->tevKsel[kselIdx], 5, 19, sel);
++  } else {
++    SET_REG_FIELD(0, __gx->tevKsel[kselIdx], 5, 9, sel);
++  }
++  GX_WRITE_RAS_REG(__gx->tevKsel[kselIdx]);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetTevSwapMode(GXTevStageID stageId, GXTevSwapSel rasSel, GXTevSwapSel texSel) {
+-  aurora_legacy_gx_panic("GXSetTevSwapMode");
++  // Swap mode is stored in teva register
++  u32* reg = &__gx->teva[stageId];
++  SET_REG_FIELD(0, *reg, 2, 0, rasSel);
++  SET_REG_FIELD(0, *reg, 2, 2, texSel);
++  GX_WRITE_RAS_REG(*reg);
++  __gx->bpSent = 1;
+ }
+ 
+ void GXSetTevSwapModeTable(GXTevSwapSel id, GXTevColorChan red, GXTevColorChan green, GXTevColorChan blue,
+                            GXTevColorChan alpha) {
+-  aurora_legacy_gx_panic("GXSetTevSwapModeTable");
++  CHECK(id >= GX_TEV_SWAP0 && id < GX_MAX_TEVSWAP, "bad tev swap sel {}", static_cast<int>(id));
++  // Swap table is stored in tevKsel registers
++  u32 kselIdx = id * 2;
++  SET_REG_FIELD(0, __gx->tevKsel[kselIdx], 2, 0, red);
++  SET_REG_FIELD(0, __gx->tevKsel[kselIdx], 2, 2, green);
++  GX_WRITE_RAS_REG(__gx->tevKsel[kselIdx]);
++
++  SET_REG_FIELD(0, __gx->tevKsel[kselIdx + 1], 2, 0, blue);
++  SET_REG_FIELD(0, __gx->tevKsel[kselIdx + 1], 2, 2, alpha);
++  GX_WRITE_RAS_REG(__gx->tevKsel[kselIdx + 1]);
++  __gx->bpSent = 1;
+ }
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXTexture.cpp b/aurora-main/lib/dolphin/gx/GXTexture.cpp
+index bb81a59..31ecfae 100644
+--- a/aurora-main/lib/dolphin/gx/GXTexture.cpp
++++ b/aurora-main/lib/dolphin/gx/GXTexture.cpp
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+@@ -184,85 +183,258 @@ void emit_loaded_tlut_metadata(const GXTlutObj_& obj, u32 idx) {
+ extern "C" {
+ void GXInitTexObj(GXTexObj* obj_, const void* data, u16 width, u16 height, GXTexFmt format, GXTexWrapMode wrapS,
+                   GXTexWrapMode wrapT, GXBool mipmap) {
+-  aurora_legacy_gx_panic("GXInitTexObj");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  init_texobj_common(*obj, data, width, height, format, wrapS, wrapT, mipmap);
+ }
+ 
+ void GXInitTexObjCI(GXTexObj* obj_, const void* data, u16 width, u16 height, GXCITexFmt format, GXTexWrapMode wrapS,
+                     GXTexWrapMode wrapT, GXBool mipmap, u32 tlut) {
+-  aurora_legacy_gx_panic("GXInitTexObjCI");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  init_texobj_common(*obj, data, width, height, format, wrapS, wrapT, mipmap);
++  obj->tlut = static_cast<GXTlut>(tlut);
++  obj->flags &= ~2u;
+ }
+ 
+ void GXInitTexObjLOD(GXTexObj* obj_, GXTexFilter minFilt, GXTexFilter magFilt, float minLod, float maxLod,
+                      float lodBias, GXBool biasClamp, GXBool doEdgeLod, GXAnisotropy maxAniso) {
+-  aurora_legacy_gx_panic("GXInitTexObjLOD");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  const float clampedBias = std::clamp(lodBias, -4.0f, 3.99f);
++  const auto lbias = static_cast<u8>(32.0f * clampedBias);
++  SET_REG_FIELD(0, obj->mode0, 8, 9, lbias);
++  SET_REG_FIELD(0, obj->mode0, 1, 4, magFilt == GX_LINEAR ? 1 : 0);
++  SET_REG_FIELD(0, obj->mode0, 3, 5, GX2HWFiltConv[minFilt]);
++  SET_REG_FIELD(0, obj->mode0, 1, 8, doEdgeLod ? 0 : 1);
++  obj->mode0 &= 0xFFFDFFFF;
++  obj->mode0 &= 0xFFFBFFFF;
++  SET_REG_FIELD(0, obj->mode0, 2, 19, maxAniso);
++  SET_REG_FIELD(0, obj->mode0, 1, 21, biasClamp);
++
++  const auto clampedMin = std::clamp(minLod, 0.0f, 10.0f);
++  const auto clampedMax = std::clamp(maxLod, 0.0f, 10.0f);
++  SET_REG_FIELD(0, obj->mode1, 8, 0, static_cast<u8>(16.0f * clampedMin));
++  SET_REG_FIELD(0, obj->mode1, 8, 8, static_cast<u8>(16.0f * clampedMax));
+ }
+ 
+ void GXInitTexObjData(GXTexObj* obj_, const void* data) {
+-  aurora_legacy_gx_panic("GXInitTexObjData");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  obj->data = data;
++  ++obj->texDataVersion;
+ }
+ 
+ void GXInitTexObjWrapMode(GXTexObj* obj_, GXTexWrapMode wrapS, GXTexWrapMode wrapT) {
+-  aurora_legacy_gx_panic("GXInitTexObjWrapMode");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  SET_REG_FIELD(0, obj->mode0, 2, 0, wrapS);
++  SET_REG_FIELD(0, obj->mode0, 2, 2, wrapT);
+ }
+ 
+ void GXInitTexObjTlut(GXTexObj* obj_, u32 tlut) {
+-  aurora_legacy_gx_panic("GXInitTexObjTlut");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  obj->tlut = static_cast<GXTlut>(tlut);
+ }
+ 
+ void GXInitTexObjFilter(GXTexObj* obj_, GXTexFilter minFilt, GXTexFilter magFilt) {
+-  aurora_legacy_gx_panic("GXInitTexObjFilter");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  SET_REG_FIELD(0, obj->mode0, 3, 5, GX2HWFiltConv[minFilt]);
++  SET_REG_FIELD(0, obj->mode0, 1, 4, magFilt == GX_LINEAR ? 1 : 0);
+ }
+ 
+ void GXInitTexObjMaxLOD(GXTexObj* obj_, float maxLod) {
+-  aurora_legacy_gx_panic("GXInitTexObjMaxLOD");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  const auto clampedMax = std::clamp(maxLod, 0.0f, 10.0f);
++  SET_REG_FIELD(0, obj->mode1, 8, 8, static_cast<u8>(16.0f * clampedMax));
+ }
+ 
+ void GXInitTexObjMinLOD(GXTexObj* obj_, float minLod) {
+-  aurora_legacy_gx_panic("GXInitTexObjMinLOD");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  const auto clampedMin = std::clamp(minLod, 0.0f, 10.0f);
++  SET_REG_FIELD(0, obj->mode1, 8, 0, static_cast<u8>(16.0f * clampedMin));
+ }
+ 
+ void GXInitTexObjLODBias(GXTexObj* obj_, float lodBias) {
+-  aurora_legacy_gx_panic("GXInitTexObjLODBias");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  const float clampedBias = std::clamp(lodBias, -4.0f, 3.99f);
++  const auto lbias = static_cast<u8>(32.0f * clampedBias);
++  SET_REG_FIELD(0, obj->mode0, 8, 9, lbias);
+ }
+ 
+ void GXInitTexObjBiasClamp(GXTexObj* obj_, GXBool biasClamp) {
+-  aurora_legacy_gx_panic("GXInitTexObjBiasClamp");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  SET_REG_FIELD(0, obj->mode0, 1, 21, biasClamp);
+ }
+ 
+ void GXInitTexObjEdgeLOD(GXTexObj* obj_, GXBool doEdgeLod) {
+-  aurora_legacy_gx_panic("GXInitTexObjEdgeLOD");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  SET_REG_FIELD(0, obj->mode0, 1, 8, doEdgeLod ? 0 : 1);
+ }
+ 
+ void GXInitTexObjMaxAniso(GXTexObj* obj_, GXAnisotropy maxAniso) {
+-  aurora_legacy_gx_panic("GXInitTexObjMaxAniso");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  SET_REG_FIELD(0, obj->mode0, 2, 19, maxAniso);
+ }
+ 
+ void GXInitTexObjUserData(GXTexObj* obj_, void* userData) {
+-  aurora_legacy_gx_panic("GXInitTexObjUserData");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  obj->userData = userData;
+ }
+ 
+ void* GXGetTexObjUserData(const GXTexObj* obj_) {
+-  aurora_legacy_gx_panic("GXGetTexObjUserData");
++  const auto* obj = reinterpret_cast<const GXTexObj_*>(obj_);
++  return const_cast<void*>(obj->userData);
+ }
+ 
+ void GXLoadTexObj(GXTexObj* obj_, GXTexMapID id) {
+-  aurora_legacy_gx_panic("GXLoadTexObj");
++  auto* obj = reinterpret_cast<GXTexObj_*>(obj_);
++  SET_REG_FIELD(0, obj->mode0, 8, 24, GXTexMode0Ids[id]);
++  SET_REG_FIELD(0, obj->mode1, 8, 24, GXTexMode1Ids[id]);
++  SET_REG_FIELD(0, obj->image0, 8, 24, GXTexImage0Ids[id]);
++
++  u32 image1 = 0;
++  u32 image2 = 0;
++  SET_REG_FIELD(0, image1, 8, 24, GXTexImage1Ids[id]);
++  SET_REG_FIELD(0, image2, 8, 24, GXTexImage2Ids[id]);
++  SET_REG_FIELD(0, obj->image3, 8, 24, GXTexImage3Ids[id]);
++
++  GX_WRITE_RAS_REG(obj->mode0);
++  GX_WRITE_RAS_REG(obj->mode1);
++  GX_WRITE_RAS_REG(obj->image0);
++  GX_WRITE_RAS_REG(image1);
++  GX_WRITE_RAS_REG(image2);
++  GX_WRITE_RAS_REG(obj->image3);
++
++  if ((obj->flags & 2) == 0) {
++    u32 tlut = 0;
++    SET_REG_FIELD(0, tlut, 10, 0, static_cast<u32>(obj->tlut));
++    SET_REG_FIELD(0, tlut, 8, 24, GXTexTlutIds[id]);
++    GX_WRITE_RAS_REG(tlut);
++  }
++
++  __gx->tImage0[id] = obj->image0;
++  __gx->tMode0[id] = obj->mode0;
++  __gx->dirtyState |= 1;
++  __gx->bpSent = 1;
++
++  emit_loaded_texobj_metadata(*obj, id);
+ }
+ 
+ u32 GXGetTexBufferSize(u16 width, u16 height, u32 fmt, GXBool mips, u8 maxLod) {
+-  aurora_legacy_gx_panic("GXGetTexBufferSize");
++  if (fmt == GX_TF_R8_PC || fmt == GX_TF_RGBA8_PC) {
++    const u32 bytesPerPixel = fmt == GX_TF_R8_PC ? 1u : 4u;
++    const u32 mipCount = mips ? static_cast<u32>(maxLod) + 1u : 1u;
++    u64 byteCount = 0;
++    for (u32 mip = 0; mip < mipCount; ++mip) {
++      byteCount += static_cast<u64>(width) * height * bytesPerPixel;
++      if (width == 1 && height == 1) {
++        break;
++      }
++      width = std::max<u16>(width / 2, 1);
++      height = std::max<u16>(height / 2, 1);
++    }
++    CHECK(byteCount <= UINT32_MAX, "GXGetTexBufferSize: linear PC texture is too large ({} bytes)", byteCount);
++    return static_cast<u32>(byteCount);
++  }
++
++  s32 shiftX = 0;
++  s32 shiftY = 0;
++  switch (fmt) {
++  case GX_TF_I4:
++  case GX_TF_C4:
++  case GX_TF_CMPR:
++  case GX_CTF_R4:
++  case GX_CTF_Z4:
++    shiftX = 3;
++    shiftY = 3;
++    break;
++  case GX_TF_I8:
++  case GX_TF_IA4:
++  case GX_TF_C8:
++  case GX_TF_Z8:
++  case GX_CTF_RA4:
++  case GX_CTF_A8:
++  case GX_CTF_R8:
++  case GX_CTF_G8:
++  case GX_CTF_B8:
++  case GX_CTF_Z8M:
++  case GX_CTF_Z8L:
++    shiftX = 3;
++    shiftY = 2;
++    break;
++  case GX_TF_IA8:
++  case GX_TF_RGB565:
++  case GX_TF_RGB5A3:
++  case GX_TF_RGBA8:
++  case GX_TF_C14X2:
++  case GX_TF_Z16:
++  case GX_TF_Z24X8:
++  case GX_CTF_RA8:
++  case GX_CTF_RG8:
++  case GX_CTF_GB8:
++  case GX_CTF_Z16L:
++    shiftX = 2;
++    shiftY = 2;
++    break;
++  default:
++    break;
++  }
++  u32 bitSize = fmt == GX_TF_RGBA8 || fmt == GX_TF_Z24X8 ? 64 : 32;
++  u32 bufLen = 0;
++  if (mips) {
++    const u32 mipCount = static_cast<u32>(maxLod) + 1;
++    for (u32 mip = 0; mip < mipCount; ++mip) {
++      const u32 tileX = ((width + (1 << shiftX) - 1) >> shiftX);
++      const u32 tileY = ((height + (1 << shiftY) - 1) >> shiftY);
++      bufLen += bitSize * tileX * tileY;
++
++      if (width == 1 && height == 1) {
++        return bufLen;
++      }
++
++      width = (width < 2) ? 1 : width / 2;
++      height = (height < 2) ? 1 : height / 2;
++    }
++  } else {
++    const u32 tileX = ((width + (1 << shiftX) - 1) >> shiftX);
++    const u32 tileY = ((height + (1 << shiftY) - 1) >> shiftY);
++    bufLen = bitSize * tileX * tileY;
++  }
++
++  return bufLen;
+ }
+ 
+ void GXInitTlutObj(GXTlutObj* obj_, const void* data, GXTlutFmt format, u16 entries) {
+-  aurora_legacy_gx_panic("GXInitTlutObj");
++  memset(obj_, 0, sizeof(GXTlutObj));
++  auto* obj = reinterpret_cast<GXTlutObj_*>(obj_);
++  obj->data = data;
++  obj->format = format;
++  obj->numEntries = entries;
++  const auto [tlutObjId, tlutDataVersion] = resolve_tlut_identity(data, format, entries);
++  obj->tlutObjId = tlutObjId;
++  obj->tlutDataVersion = tlutDataVersion;
++
++  SET_REG_FIELD(0, obj->tlut, 2, 10, format);
++  SET_REG_FIELD(0, obj->loadTlut0, 8, 24, 0x64);
++  aurora::gfx::texture_replacement::register_tlut(obj_, data, format, entries);
+ }
+ 
+ void GXInitTlutObjData(GXTlutObj* obj_, const void* data) {
+-  aurora_legacy_gx_panic("GXInitTlutObjData");
++  auto* obj = reinterpret_cast<GXTlutObj_*>(obj_);
++  obj->data = data;
++  obj->tlutDataVersion = next_repointed_tlut_data_version();
+ }
+ 
+ void GXLoadTlut(const GXTlutObj* obj_, u32 idx) {
+-  aurora_legacy_gx_panic("GXLoadTlut");
++  auto* obj = reinterpret_cast<const GXTlutObj_*>(obj_);
++  __GXFlushTextureState();
++  GX_WRITE_RAS_REG(obj->loadTlut0);
++
++  u32 loadTlut1 = 0;
++  SET_REG_FIELD(0, loadTlut1, 10, 0, idx);
++  SET_REG_FIELD(0, loadTlut1, 10, 10, obj->numEntries - 1);
++  SET_REG_FIELD(0, loadTlut1, 8, 24, 0x65);
++  GX_WRITE_RAS_REG(loadTlut1);
++  __GXFlushTextureState();
++
++  aurora::gfx::texture_replacement::load_tlut(obj_, idx);
++  emit_loaded_tlut_metadata(*obj, idx);
+ }
+ 
+ // TODO GXInitTexCacheRegion
+@@ -271,7 +443,7 @@ void GXLoadTlut(const GXTlutObj* obj_, u32 idx) {
+ // TODO GXInvalidateTexRegion
+ 
+ void GXInvalidateTexAll() {
+-  aurora_legacy_gx_panic("GXInvalidateTexAll");
++  GX_WRITE_AURORA(GX_LOAD_AURORA_INVALIDATE_TEX_ALL);
+ }
+ 
+ // TODO GXPreLoadEntireTexture
+@@ -279,18 +451,38 @@ void GXInvalidateTexAll() {
+ // TODO GXSetTlutRegionCallback
+ // TODO GXLoadTexObjPreLoaded
+ void GXSetTexCoordScaleManually(GXTexCoordID coord, GXBool enable, u16 ss, u16 ts) {
+-  aurora_legacy_gx_panic("GXSetTexCoordScaleManually");
++  __gx->tcsManEnab = (__gx->tcsManEnab & ~(1 << coord)) | (enable << coord);
++  if (enable) {
++    SET_REG_FIELD(0, __gx->suTs0[coord], 16, 0, static_cast<u16>(ss - 1));
++    SET_REG_FIELD(0, __gx->suTs1[coord], 16, 0, static_cast<u16>(ts - 1));
++    GX_WRITE_RAS_REG(__gx->suTs0[coord]);
++    GX_WRITE_RAS_REG(__gx->suTs1[coord]);
++    __gx->bpSent = 1;
++  }
+ }
+ 
+ void GXSetTexCoordCylWrap(GXTexCoordID coord, GXBool s_enable, GXBool t_enable) {
+-  aurora_legacy_gx_panic("GXSetTexCoordCylWrap");
++  SET_REG_FIELD(0, __gx->suTs0[coord], 1, 17, s_enable);
++  SET_REG_FIELD(0, __gx->suTs1[coord], 1, 17, t_enable);
++  if (__gx->tcsManEnab & (1 << coord)) {
++    GX_WRITE_RAS_REG(__gx->suTs0[coord]);
++    GX_WRITE_RAS_REG(__gx->suTs1[coord]);
++    __gx->bpSent = 1;
++  }
+ }
+ 
+ void GXSetTexCoordBias(GXTexCoordID coord, GXBool s_enable, GXBool t_enable) {
+-  aurora_legacy_gx_panic("GXSetTexCoordBias");
++  SET_REG_FIELD(0, __gx->suTs0[coord], 1, 16, s_enable);
++  SET_REG_FIELD(0, __gx->suTs1[coord], 1, 16, t_enable);
++  if (__gx->tcsManEnab & (1 << coord)) {
++    GX_WRITE_RAS_REG(__gx->suTs0[coord]);
++    GX_WRITE_RAS_REG(__gx->suTs1[coord]);
++    __gx->bpSent = 1;
++  }
+ }
+ 
+ void __GXFlushTextureState() {
+-  aurora_legacy_gx_panic("__GXFlushTextureState");
++  GX_WRITE_RAS_REG(__gx->bpMask);
++  __gx->bpSent = 1;
+ }
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXTransform.cpp b/aurora-main/lib/dolphin/gx/GXTransform.cpp
+index 9d3ee88..e3fca99 100644
+--- a/aurora-main/lib/dolphin/gx/GXTransform.cpp
++++ b/aurora-main/lib/dolphin/gx/GXTransform.cpp
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ #include "dolphin/mtx/GeoTypes.h"
+@@ -14,40 +13,177 @@ static inline void CacheProjectionVector(const f32* ptr, GXProjectionType type)
+ extern "C" {
+ 
+ void GXSetProjection(const void* mtx_, GXProjectionType type) {
+-  aurora_legacy_gx_panic("GXSetProjection");
++  const auto& mtx = *reinterpret_cast<const aurora::Mat4x4<float>*>(mtx_);
++  const f32 projVec[] = {
++      static_cast<f32>(type == GX_ORTHOGRAPHIC),
++      mtx[0][0],
++      type == GX_ORTHOGRAPHIC ? mtx[0][3] : mtx[0][2],
++      mtx[1][1],
++      type == GX_ORTHOGRAPHIC ? mtx[1][3] : mtx[1][2],
++      mtx[2][2],
++      mtx[2][3],
++  };
++  CacheProjectionVector(projVec, type);
++
++  // XF bulk write: 6 params + projection type at 0x1020-0x1026
++  GX_WRITE_U8(0x10);
++  GX_WRITE_U32(0x00061020);
++  GX_WRITE_XF_REG_F(32, __gx->projMtx[0]);
++  GX_WRITE_XF_REG_F(33, __gx->projMtx[1]);
++  GX_WRITE_XF_REG_F(34, __gx->projMtx[2]);
++  GX_WRITE_XF_REG_F(35, __gx->projMtx[3]);
++  GX_WRITE_XF_REG_F(36, __gx->projMtx[4]);
++  GX_WRITE_XF_REG_F(37, __gx->projMtx[5]);
++  GX_WRITE_XF_REG_2(38, __gx->projType);
++  __gx->bpSent = 0;
+ }
+ 
+ void GXSetProjectionv(const f32* ptr) {
+-  aurora_legacy_gx_panic("GXSetProjectionv");
++  CHECK(ptr != nullptr, "null projection vector");
++
++  const GXProjectionType type = ptr[0] == 0.0f ? GX_PERSPECTIVE : GX_ORTHOGRAPHIC;
++  CacheProjectionVector(ptr, type);
++
++  // XF bulk write: 6 params + projection type at 0x1020-0x1026
++  GX_WRITE_U8(0x10);
++  GX_WRITE_U32(0x00061020);
++  for (int i = 0; i < 6; ++i) {
++    GX_WRITE_F32(__gx->projMtx[i]);
++  }
++  GX_WRITE_U32(__gx->projType);
++  __gx->bpSent = 0;
+ }
+ 
+ void GXLoadPosMtxImm(const void* mtx_, u32 id) {
+-  aurora_legacy_gx_panic("GXLoadPosMtxImm");
++  CHECK(id >= GX_PNMTX0 && id <= GX_PNMTX9, "invalid pn mtx {}", static_cast<int>(id));
++  const auto* mtx = reinterpret_cast<const f32*>(mtx_);
++
++  GX_WRITE_U8(0x10);
++  GX_WRITE_U32((id * 4) | 0xB0000);
++  for (int i = 0; i < 12; i++) {
++    GX_WRITE_F32(mtx[i]);
++  }
+ }
+ 
+ void GXLoadNrmMtxImm(const void* mtx_, u32 id) {
+-  aurora_legacy_gx_panic("GXLoadNrmMtxImm");
++  CHECK(id >= GX_PNMTX0 && id <= GX_PNMTX9, "invalid pn mtx {}", static_cast<int>(id));
++  const auto* mtx = reinterpret_cast<const f32*>(mtx_);
++
++  GX_WRITE_U8(0x10);
++  GX_WRITE_U32((id * 3 + 0x400) | 0x80000);
++  // Write 3x3 from 3x4 matrix (skip translation column)
++  GX_WRITE_F32(mtx[0]);
++  GX_WRITE_F32(mtx[1]);
++  GX_WRITE_F32(mtx[2]);
++  GX_WRITE_F32(mtx[4]);
++  GX_WRITE_F32(mtx[5]);
++  GX_WRITE_F32(mtx[6]);
++  GX_WRITE_F32(mtx[8]);
++  GX_WRITE_F32(mtx[9]);
++  GX_WRITE_F32(mtx[10]);
+ }
+ 
+ void GXSetCurrentMtx(u32 id) {
+-  aurora_legacy_gx_panic("GXSetCurrentMtx");
++  CHECK(id >= GX_PNMTX0 && id <= GX_PNMTX9, "invalid pn mtx {}", id);
++  SET_REG_FIELD(0, __gx->matIdxA, 6, 0, id);
++  __GXSetMatrixIndex(GX_VA_PNMTXIDX);
+ }
+ 
+ void GXLoadTexMtxImm(const void* mtx_, u32 id, GXTexMtxType type) {
+-  aurora_legacy_gx_panic("GXLoadTexMtxImm");
++  CHECK((id >= GX_TEXMTX0 && id <= GX_IDENTITY) || (id >= GX_PTTEXMTX0 && id <= GX_PTIDENTITY), "invalid tex mtx {}",
++        id);
++
++  u32 addr;
++  if (id >= GX_PTTEXMTX0) {
++    addr = (id - GX_PTTEXMTX0) * 4 + 0x500;
++    CHECK(type == GX_MTX3x4, "invalid pt mtx type {}", underlying(type));
++  } else {
++    addr = id * 4;
++  }
++
++  u32 count = (type == GX_MTX2x4) ? 8 : 12;
++  u32 reg = addr | ((count - 1) << 16);
++
++  GX_WRITE_U8(0x10);
++  GX_WRITE_U32(reg);
++
++  const auto* mtx = reinterpret_cast<const f32*>(mtx_);
++  for (u32 i = 0; i < count; i++) {
++    GX_WRITE_F32(mtx[i]);
++  }
+ }
+ 
+ void GXSetViewport(float left, float top, float width, float height, float nearZ, float farZ) {
+-  aurora_legacy_gx_panic("GXSetViewport");
++  GXSetViewportJitter(left, top, width, height, nearZ, farZ, 1);
+ }
+ 
+ void GXSetViewportJitter(float left, float top, float width, float height, float nearZ, float farZ, u32 field) {
+-  aurora_legacy_gx_panic("GXSetViewportJitter");
++  float sx;
++  float sy;
++  float sz;
++  float ox;
++  float oy;
++  float oz;
++  float zmin;
++  float zmax;
++
++  if (field == 0) {
++    top -= 0.5f;
++  }
++
++  sx = width / 2.0f;
++  sy = -height / 2.0f;
++  // GX viewport origins and scissor coordinates share a 342-pixel hardware bias.
++  ox = 342.0f + (left + width / 2.0f);
++  oy = 342.0f + (top + height / 2.0f);
++  zmin = 1.6777215e7f * nearZ;
++  zmax = 1.6777215e7f * farZ;
++  sz = zmax - zmin;
++  oz = zmax;
++
++  __gx->vpLeft = left;
++  __gx->vpTop = top;
++  __gx->vpWd = width;
++  __gx->vpHt = height;
++  __gx->vpNearz = nearZ;
++  __gx->vpFarz = farZ;
++
++  GX_WRITE_U8(0x10);
++  GX_WRITE_U32(0x0005101A);
++  GX_WRITE_XF_REG_F(26, sx);
++  GX_WRITE_XF_REG_F(27, sy);
++  GX_WRITE_XF_REG_F(28, sz);
++  GX_WRITE_XF_REG_F(29, ox);
++  GX_WRITE_XF_REG_F(30, oy);
++  GX_WRITE_XF_REG_F(31, oz);
++  __gx->bpSent = 0;
+ }
+ 
+ void GXProject(f32 x, f32 y, f32 z, const f32 mtx[3][4], const f32* pm, const f32* vp, f32* sx,
+                f32* sy, f32* sz) {
+-  aurora_legacy_gx_panic("GXProject");
++  Vec peye;
++  f32 xc;
++  f32 yc;
++  f32 zc;
++  f32 wc;
++
++  peye.x = mtx[0][3] + ((mtx[0][2] * z) + ((mtx[0][0] * x) + (mtx[0][1] * y)));
++  peye.y = mtx[1][3] + ((mtx[1][2] * z) + ((mtx[1][0] * x) + (mtx[1][1] * y)));
++  peye.z = mtx[2][3] + ((mtx[2][2] * z) + ((mtx[2][0] * x) + (mtx[2][1] * y)));
++  if (pm[0] == 0.0f) {
++    xc = (peye.x * pm[1]) + (peye.z * pm[2]);
++    yc = (peye.y * pm[3]) + (peye.z * pm[4]);
++    zc = pm[6] + (peye.z * pm[5]);
++    wc = 1.0f / -peye.z;
++  } else {
++    xc = pm[2] + (peye.x * pm[1]);
++    yc = pm[4] + (peye.y * pm[3]);
++    zc = pm[6] + (peye.z * pm[5]);
++    wc = 1.0f;
++  }
++  *sx = (vp[2] / 2.0f) + (vp[0] + (wc * (xc * vp[2] / 2.0f)));
++  *sy = (vp[3] / 2.0f) + (vp[1] + (wc * (-yc * vp[3] / 2.0f)));
++  *sz = vp[5] + (wc * (zc * (vp[5] - vp[4])));
+ }
+ 
+ // TODO GXLoadPosMtxIndx
+@@ -55,10 +191,28 @@ void GXProject(f32 x, f32 y, f32 z, const f32 mtx[3][4], const f32* pm, const f3
+ // TODO GXLoadNrmMtxIndx3x3
+ // TODO GXLoadTexMtxIndx
+ void GXSetZScaleOffset(f32 scale, f32 offset) {
+-  aurora_legacy_gx_panic("GXSetZScaleOffset");
++  g_gxState.zScale = scale;
++  g_gxState.zOffset = offset;
++  constexpr f32 z24Scale = 16777215.0f;
++  const f32 sz = z24Scale * offset;
++  const f32 oz = 1.0f + z24Scale * scale;
++
++  GX_WRITE_U8(0x10);
++  GX_WRITE_U32(0x101c);
++  GX_WRITE_F32(sz);
++  GX_WRITE_U8(0x10);
++  GX_WRITE_U32(0x101f);
++  GX_WRITE_F32(oz);
++  __gx->bpSent = 0;
+ }
+ 
+ void GXSetScissorBoxOffset(s32 x_off, s32 y_off) {
+-  aurora_legacy_gx_panic("GXSetScissorBoxOffset");
++  g_gxState.scissorOffsetX = x_off;
++  g_gxState.scissorOffsetY = y_off;
++
++  const u32 reg = 0x59000000u | (((static_cast<u32>(y_off + 0x156) * 0x200u) & 0x000ffc00u)) |
++                  ((static_cast<u32>(x_off + 0x156) >> 1) & 0x000003ffu);
++  GX_WRITE_RAS_REG(reg);
++  __gx->bpSent = 0;
+ }
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXVert.cpp b/aurora-main/lib/dolphin/gx/GXVert.cpp
+index 6cb1df0..9a79dad 100644
+--- a/aurora-main/lib/dolphin/gx/GXVert.cpp
++++ b/aurora-main/lib/dolphin/gx/GXVert.cpp
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #include "gx.hpp"
+ #include "__gx.h"
+ #include "../../gx/fifo.hpp"
+@@ -564,219 +563,224 @@ static void write_index_attr(GXAttr attr, u16 index, bool index16) {
+ extern "C" {
+ 
+ void GXBegin(GXPrimitive primitive, GXVtxFmt vtxFmt, u16 nVerts) {
+-  aurora_legacy_gx_panic("GXBegin");
++  CHECK(!sInBegin, "GXBegin: called without matching GXEnd");
++
++  // Flush dirty state before starting a draw
++  if (__gx->dirtyState != 0) {
++    __GXSetDirtyState();
++  }
++
++  // Flush pending primitives if needed
++  if (*reinterpret_cast<u32*>(&__gx->vNum) != 0) {
++    __GXSendFlushPrim();
++  }
++
++  GX_WRITE_U8(vtxFmt | primitive);
++  GX_WRITE_U16(nVerts);
++
++  // Record state for vertex count validation in GXEnd
++  sBeginNVerts = nVerts;
++  sBeginFifoSize = aurora::gx::fifo::get_buffer_size();
++  sBeginPrimitive = primitive;
++  sBeginVtxFmt = vtxFmt;
++  sInBegin = true;
++  ensure_vtx_cache(vtxFmt);
++  reset_attr_writer();
+ }
+ 
+ void GXEnd() {
+-  aurora_legacy_gx_panic("GXEnd");
++  if (sInBegin) {
++    u32 bytesWritten = aurora::gx::fifo::get_buffer_size() - sBeginFifoSize;
++    if (sBeginNVerts > 0 && bytesWritten > 0) {
++      u32 vtxSize = bytesWritten / sBeginNVerts;
++      u32 remainder = bytesWritten % sBeginNVerts;
++      if (remainder != 0) {
++        Log.warn("GXEnd: vertex data not evenly divisible: {} bytes for {} vertices prim={} fmt={} "
++                 "vcdLo=0x{:08x} vcdHi=0x{:08x} vatA=0x{:08x} vatB=0x{:08x} vatC=0x{:08x}",
++                 bytesWritten, sBeginNVerts, underlying(sBeginPrimitive), underlying(sBeginVtxFmt),
++                 __gx->vcdLo, __gx->vcdHi, __gx->vatA[sBeginVtxFmt], __gx->vatB[sBeginVtxFmt],
++                 __gx->vatC[sBeginVtxFmt]);
++      }
++      u32 actualVerts = (vtxSize > 0) ? bytesWritten / vtxSize : 0;
++      CHECK(actualVerts == sBeginNVerts,
++            "GXEnd: vertex count mismatch: GXBegin declared {} vertices ({}B each, {}B total) "
++            "but {} bytes were written ({} vertices)",
++            sBeginNVerts, vtxSize, sBeginNVerts * vtxSize, bytesWritten, actualVerts);
++    }
++    sInBegin = false;
++    sWriteAttr = GX_VA_NULL;
++    sWriteAttrComps = 0;
++  }
++  if (!aurora::gx::fifo::in_display_list()) {
++    aurora::gx::fifo::drain();
++  }
+ }
+ 
+ void GXPosition3f32(f32 x, f32 y, f32 z) {
+-  aurora_legacy_gx_panic("GXPosition3f32");
++  write_numeric_attr(GX_VA_POS, std::array{scalar_f32(x), scalar_f32(y), scalar_f32(z)});
+ }
+ 
+ void GXPosition3u16(u16 x, u16 y, u16 z) {
+-  aurora_legacy_gx_panic("GXPosition3u16");
++  write_numeric_attr(GX_VA_POS, std::array{scalar_u32(x), scalar_u32(y), scalar_u32(z)});
+ }
+ 
+ void GXPosition3s16(s16 x, s16 y, s16 z) {
+-  aurora_legacy_gx_panic("GXPosition3s16");
++  write_numeric_attr(GX_VA_POS, std::array{scalar_s32(x), scalar_s32(y), scalar_s32(z)});
+ }
+ 
+ void GXPosition3u8(u8 x, u8 y, u8 z) {
+-  aurora_legacy_gx_panic("GXPosition3u8");
++  write_numeric_attr(GX_VA_POS, std::array{scalar_u32(x), scalar_u32(y), scalar_u32(z)});
+ }
+ 
+ void GXPosition3s8(s8 x, s8 y, s8 z) {
+-  aurora_legacy_gx_panic("GXPosition3s8");
++  write_numeric_attr(GX_VA_POS, std::array{scalar_s32(x), scalar_s32(y), scalar_s32(z)});
+ }
+ 
+ void GXPosition2f32(f32 x, f32 y) {
+-  aurora_legacy_gx_panic("GXPosition2f32");
++  write_numeric_attr(GX_VA_POS, std::array{scalar_f32(x), scalar_f32(y)});
+ }
+ 
+ void GXPosition2u16(u16 x, u16 y) {
+-  aurora_legacy_gx_panic("GXPosition2u16");
++  write_numeric_attr(GX_VA_POS, std::array{scalar_u32(x), scalar_u32(y)});
+ }
+ 
+ void GXPosition2s16(s16 x, s16 y) {
+-  aurora_legacy_gx_panic("GXPosition2s16");
++  write_numeric_attr(GX_VA_POS, std::array{scalar_s32(x), scalar_s32(y)});
+ }
+ 
+ void GXPosition2u8(u8 x, u8 y) {
+-  aurora_legacy_gx_panic("GXPosition2u8");
++  write_numeric_attr(GX_VA_POS, std::array{scalar_u32(x), scalar_u32(y)});
+ }
+ 
+ void GXPosition2s8(s8 x, s8 y) {
+-  aurora_legacy_gx_panic("GXPosition2s8");
++  write_numeric_attr(GX_VA_POS, std::array{scalar_s32(x), scalar_s32(y)});
+ }
+ 
+-void GXPosition1x16(u16 idx) {
+-  aurora_legacy_gx_panic("GXPosition1x16");
+-}
++void GXPosition1x16(u16 idx) { write_index_attr(GX_VA_POS, idx, true); }
+ 
+-void GXPosition1x8(u8 idx) {
+-  aurora_legacy_gx_panic("GXPosition1x8");
+-}
++void GXPosition1x8(u8 idx) { write_index_attr(GX_VA_POS, idx, false); }
+ 
+ void GXNormal3f32(f32 x, f32 y, f32 z) {
+-  aurora_legacy_gx_panic("GXNormal3f32");
++  write_numeric_attr(GX_VA_NRM, std::array{scalar_f32(x), scalar_f32(y), scalar_f32(z)});
+ }
+ 
+ void GXNormal3u16(u16 x, u16 y, u16 z) {
+-  aurora_legacy_gx_panic("GXNormal3u16");
++  write_numeric_attr(GX_VA_NRM, std::array{scalar_u32(x), scalar_u32(y), scalar_u32(z)});
+ }
+ 
+ void GXNormal3s16(s16 x, s16 y, s16 z) {
+-  aurora_legacy_gx_panic("GXNormal3s16");
++  write_numeric_attr(GX_VA_NRM, std::array{scalar_s32(x), scalar_s32(y), scalar_s32(z)});
+ }
+ 
+ void GXNormal3u8(u8 x, u8 y, u8 z) {
+-  aurora_legacy_gx_panic("GXNormal3u8");
++  write_numeric_attr(GX_VA_NRM, std::array{scalar_u32(x), scalar_u32(y), scalar_u32(z)});
+ }
+ 
+ void GXNormal3s8(s8 x, s8 y, s8 z) {
+-  aurora_legacy_gx_panic("GXNormal3s8");
++  write_numeric_attr(GX_VA_NRM, std::array{scalar_s32(x), scalar_s32(y), scalar_s32(z)});
+ }
+ 
+-void GXNormal1x16(u16 index) {
+-  aurora_legacy_gx_panic("GXNormal1x16");
+-}
++void GXNormal1x16(u16 index) { write_index_attr(GX_VA_NRM, index, true); }
+ 
+-void GXNormal1x8(u8 index) {
+-  aurora_legacy_gx_panic("GXNormal1x8");
+-}
++void GXNormal1x8(u8 index) { write_index_attr(GX_VA_NRM, index, false); }
+ 
+ void GXColor4f32(f32 r, f32 g, f32 b, f32 a) {
+-  aurora_legacy_gx_panic("GXColor4f32");
++  write_color_attr(clamp_color_float(r), clamp_color_float(g), clamp_color_float(b), clamp_color_float(a));
+ }
+ 
+ void GXColor4u8(u8 r, u8 g, u8 b, u8 a) {
+-  aurora_legacy_gx_panic("GXColor4u8");
++  write_color_attr(r, g, b, a);
+ }
+ 
+ void GXColor3u8(u8 r, u8 g, u8 b) {
+-  aurora_legacy_gx_panic("GXColor3u8");
++  write_color_attr(r, g, b, 0xFF);
+ }
+ 
+ void GXColor1u32(u32 clr) {
+-  aurora_legacy_gx_panic("GXColor1u32");
++  write_color_attr(static_cast<u8>((clr >> 24) & 0xFF), static_cast<u8>((clr >> 16) & 0xFF),
++                   static_cast<u8>((clr >> 8) & 0xFF), static_cast<u8>(clr & 0xFF));
+ }
+ 
+ void GXColor1u16(u16 clr) {
+-  aurora_legacy_gx_panic("GXColor1u16");
++  const u8 r = static_cast<u8>(((clr >> 11) & 0x1F) * 255 / 31);
++  const u8 g = static_cast<u8>(((clr >> 5) & 0x3F) * 255 / 63);
++  const u8 b = static_cast<u8>((clr & 0x1F) * 255 / 31);
++  write_color_attr(r, g, b, 0xFF);
+ }
+ 
+-void GXColor1x16(u16 index) {
+-  aurora_legacy_gx_panic("GXColor1x16");
+-}
++void GXColor1x16(u16 index) { write_index_attr(GX_VA_CLR0, index, true); }
+ 
+-void GXColor1x8(u8 index) {
+-  aurora_legacy_gx_panic("GXColor1x8");
+-}
++void GXColor1x8(u8 index) { write_index_attr(GX_VA_CLR0, index, false); }
+ 
+ void GXTexCoord2f32(f32 s, f32 t) {
+-  aurora_legacy_gx_panic("GXTexCoord2f32");
++  write_tex_attr(std::array{scalar_f32(s), scalar_f32(t)});
+ }
+ 
+ void GXTexCoord2u16(u16 s, u16 t) {
+-  aurora_legacy_gx_panic("GXTexCoord2u16");
++  write_tex_attr(std::array{scalar_u32(s), scalar_u32(t)});
+ }
+ 
+ void GXTexCoord2s16(s16 s, s16 t) {
+-  aurora_legacy_gx_panic("GXTexCoord2s16");
++  write_tex_attr(std::array{scalar_s32(s), scalar_s32(t)});
+ }
+ 
+ void GXTexCoord2u8(u8 s, u8 t) {
+-  aurora_legacy_gx_panic("GXTexCoord2u8");
++  write_tex_attr(std::array{scalar_u32(s), scalar_u32(t)});
+ }
+ 
+ void GXTexCoord2s8(s8 s, s8 t) {
+-  aurora_legacy_gx_panic("GXTexCoord2s8");
++  write_tex_attr(std::array{scalar_s32(s), scalar_s32(t)});
+ }
+ 
+-void GXTexCoord1f32(f32 s) {
+-  aurora_legacy_gx_panic("GXTexCoord1f32");
+-}
++void GXTexCoord1f32(f32 s) { write_tex_attr(std::array{scalar_f32(s)}); }
+ 
+-void GXTexCoord1u16(u16 s) {
+-  aurora_legacy_gx_panic("GXTexCoord1u16");
+-}
++void GXTexCoord1u16(u16 s) { write_tex_attr(std::array{scalar_u32(s)}); }
+ 
+-void GXTexCoord1s16(s16 s) {
+-  aurora_legacy_gx_panic("GXTexCoord1s16");
+-}
++void GXTexCoord1s16(s16 s) { write_tex_attr(std::array{scalar_s32(s)}); }
+ 
+-void GXTexCoord1u8(u8 s) {
+-  aurora_legacy_gx_panic("GXTexCoord1u8");
+-}
++void GXTexCoord1u8(u8 s) { write_tex_attr(std::array{scalar_u32(s)}); }
+ 
+-void GXTexCoord1s8(s8 s) {
+-  aurora_legacy_gx_panic("GXTexCoord1s8");
+-}
++void GXTexCoord1s8(s8 s) { write_tex_attr(std::array{scalar_s32(s)}); }
+ 
+-void GXTexCoord1x16(u16 index) {
+-  aurora_legacy_gx_panic("GXTexCoord1x16");
+-}
++void GXTexCoord1x16(u16 index) { write_index_attr(GX_VA_TEX0, index, true); }
+ 
+-void GXTexCoord1x8(u8 index) {
+-  aurora_legacy_gx_panic("GXTexCoord1x8");
+-}
++void GXTexCoord1x8(u8 index) { write_index_attr(GX_VA_TEX0, index, false); }
+ 
+-void GXMatrixIndex1u8(GXAttr attr, u8 index) {
+-  aurora_legacy_gx_panic("GXMatrixIndex1u8");
+-}
++void GXMatrixIndex1u8(GXAttr attr, u8 index) { write_index_attr(attr, index, false); }
+ 
+-void GXCmd1u8(const u8 x) {
+-  aurora_legacy_gx_panic("GXCmd1u8");
+-}
++void GXCmd1u8(const u8 x) { aurora::gx::fifo::write_u8(x); }
+ 
+-void GXCmd1u16(const u16 x) {
+-  aurora_legacy_gx_panic("GXCmd1u16");
+-}
++void GXCmd1u16(const u16 x) { aurora::gx::fifo::write_u16(x); }
+ 
+-void GXCmd1u32(const u32 x) {
+-  aurora_legacy_gx_panic("GXCmd1u32");
+-}
++void GXCmd1u32(const u32 x) { aurora::gx::fifo::write_u32(x); }
+ 
+-void GXCmd1u64(const u64 x) {
+-  aurora_legacy_gx_panic("GXCmd1u64");
+-}
++void GXCmd1u64(const u64 x) { aurora::gx::fifo::write_u64(x); }
+ 
+-void GXParam1u8(const u8 x) {
+-  aurora_legacy_gx_panic("GXParam1u8");
+-}
++void GXParam1u8(const u8 x) { aurora::gx::fifo::write_u8(x); }
+ 
+-void GXParam1u16(const u16 x) {
+-  aurora_legacy_gx_panic("GXParam1u16");
+-}
++void GXParam1u16(const u16 x) { aurora::gx::fifo::write_u16(x); }
+ 
+-void GXParam1u32(const u32 x) {
+-  aurora_legacy_gx_panic("GXParam1u32");
+-}
++void GXParam1u32(const u32 x) { aurora::gx::fifo::write_u32(x); }
+ 
+-void GXParam1s8(const s8 x) {
+-  aurora_legacy_gx_panic("GXParam1s8");
+-}
++void GXParam1s8(const s8 x) { aurora::gx::fifo::write_u8(static_cast<uint8_t>(x)); }
+ 
+-void GXParam1s16(const s16 x) {
+-  aurora_legacy_gx_panic("GXParam1s16");
+-}
++void GXParam1s16(const s16 x) { aurora::gx::fifo::write_u16(static_cast<uint16_t>(x)); }
+ 
+-void GXParam1s32(const s32 x) {
+-  aurora_legacy_gx_panic("GXParam1s32");
+-}
++void GXParam1s32(const s32 x) { aurora::gx::fifo::write_u32(static_cast<uint32_t>(x)); }
+ 
+-void GXParam1f32(const f32 x) {
+-  aurora_legacy_gx_panic("GXParam1f32");
+-}
++void GXParam1f32(const f32 x) { aurora::gx::fifo::write_f32(x); }
+ 
+ void GXParam3f32(const f32 x, const f32 y, const f32 z) {
+-  aurora_legacy_gx_panic("GXParam3f32");
++  aurora::gx::fifo::write_f32(x);
++  aurora::gx::fifo::write_f32(y);
++  aurora::gx::fifo::write_f32(z);
+ }
+ 
+ void GXParam4f32(const f32 x, const f32 y, const f32 z, const f32 w) {
+-  aurora_legacy_gx_panic("GXParam4f32");
++  aurora::gx::fifo::write_f32(x);
++  aurora::gx::fifo::write_f32(y);
++  aurora::gx::fifo::write_f32(z);
++  aurora::gx::fifo::write_f32(w);
+ }
+ 
+ } // extern "C"
+diff --git a/aurora-main/lib/gx/command_processor.cpp b/aurora-main/lib/gx/command_processor.cpp
+index 9ded0ef..50735d6 100644
+--- a/aurora-main/lib/gx/command_processor.cpp
++++ b/aurora-main/lib/gx/command_processor.cpp
+@@ -541,7 +541,7 @@ static DrawStep handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool big
+ static bool handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian);
+ 
+ uint32_t process(const u8* data, u32 size, bool bigEndian) {
+-  aurora_legacy_gx_panic("aurora::gx::fifo::process");
++
+ 
+   // Everything decoded here mutates renderer state (GX state, the recorded command lists and the mapped staging buffers), so take the renderer GPU mutex once for the whole drain rather than once per draw command.
+   std::lock_guard gpuLock(aurora::renderer_gpu_mutex());
+@@ -2354,7 +2354,7 @@ static bool admit_draw(GXPrimitive prim, GXVtxFmt fmt, u16 count, uint32_t verte
+ 
+ bool submit_raw_draw(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices, uint16_t vtxCount,
+                      uint32_t vertexBytes) {
+-  aurora_legacy_gx_panic("aurora::gx::fifo::submit_raw_draw");
++
+ 
+   if (vertices == nullptr || vtxCount == 0 || vertexBytes == 0) {
+     return false;
+@@ -2416,7 +2416,7 @@ bool submit_raw_draw(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices, ui
+ }
+ 
+ static DrawStep handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndian) {
+-  aurora_legacy_gx_panic("aurora::gx::fifo::handle_draw");
++
+   GXVtxFmt fmt = static_cast<GXVtxFmt>(cmd & CP_VAT_MASK);
+   GXPrimitive prim = primitive_from_draw_cmd(cmd);
+ 
+diff --git a/aurora-main/lib/gx/fifo.cpp b/aurora-main/lib/gx/fifo.cpp
+index 1eda047..22df05f 100644
+--- a/aurora-main/lib/gx/fifo.cpp
++++ b/aurora-main/lib/gx/fifo.cpp
+@@ -23,7 +23,7 @@ uint32_t sDlWritePos = 0;
+ } // namespace detail
+ 
+ void init() {
+-  aurora_legacy_gx_panic("aurora::gx::fifo::init");
++
+   constexpr uint32_t initialCapacity = 64 * 1024;
+   reset_cp_register_cache();
+   free(detail::sBufferData);
+@@ -37,7 +37,7 @@ void init() {
+ }
+ 
+ void write_data_grow(const void* data, uint32_t length) {
+-  aurora_legacy_gx_panic("aurora::gx::fifo::write_data_grow");
++
+   uint32_t needed = detail::sBufferSize + length;
+   uint32_t newCap = std::max(detail::sBufferCapacity * 2, needed);
+   detail::sBufferData = static_cast<uint8_t*>(realloc(detail::sBufferData, newCap));
+@@ -47,7 +47,7 @@ void write_data_grow(const void* data, uint32_t length) {
+ }
+ 
+ void begin_display_list(uint8_t* buf, uint32_t size) {
+-  aurora_legacy_gx_panic("aurora::gx::fifo::begin_display_list");
++
+   detail::sInDisplayList = true;
+   detail::sDlBuffer = buf;
+   detail::sDlSize = size;
+@@ -55,7 +55,7 @@ void begin_display_list(uint8_t* buf, uint32_t size) {
+ }
+ 
+ uint32_t end_display_list() {
+-  aurora_legacy_gx_panic("aurora::gx::fifo::end_display_list");
++
+   detail::sInDisplayList = false;
+   uint32_t bytesWritten = detail::sDlWritePos;
+   uint32_t padded = (bytesWritten + 31) & ~31u;
+@@ -73,7 +73,7 @@ uint32_t end_display_list() {
+ bool in_display_list() { return detail::sInDisplayList; }
+ 
+ void drain() {
+-  aurora_legacy_gx_panic("aurora::gx::fifo::drain");
++
+ 
+   // SEALED, not DONE.
+   (void)aurora::wait_for_frame_worker_sealed();
+diff --git a/aurora-main/lib/gx/fifo.hpp b/aurora-main/lib/gx/fifo.hpp
+index 489482d..1ab6169 100644
+--- a/aurora-main/lib/gx/fifo.hpp
++++ b/aurora-main/lib/gx/fifo.hpp
+@@ -1,7 +1,6 @@
+ #pragma once
+ 
+ #include "../internal.hpp"
+-#include <aurora/legacy_gx.h>
+ 
+ #include <cstring>
+ 
+@@ -23,7 +22,7 @@ void init();
+ void write_data_grow(const void* data, uint32_t length);
+ 
+ inline void write_data(const void* data, const uint32_t length) {
+-  aurora_legacy_gx_panic("aurora::gx::fifo::write_data");
++
+ 
+   if (!detail::sInDisplayList)
+     LIKELY {
+@@ -42,7 +41,7 @@ inline void write_data(const void* data, const uint32_t length) {
+ }
+ 
+ inline void write_u8(const uint8_t val) {
+-  aurora_legacy_gx_panic("aurora::gx::fifo::write_u8");
++
+ 
+   if (!detail::sInDisplayList)
+     LIKELY {
