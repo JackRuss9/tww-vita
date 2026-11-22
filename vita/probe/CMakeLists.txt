@@ -41,13 +41,41 @@ target_include_directories(switchwaker_assets PUBLIC
   "${TWW_SWITCHWAKER_ASSETS}/include"
   "${TWW_AURORA_DIR}/include")
 
+set(sw_game "${TWW_SWITCHWAKER_DIR}/game")
+set(sw_native "${TWW_SWITCHWAKER_DIR}/native")
+set(aurora_os "${TWW_AURORA_DIR}/lib/dolphin/os")
+add_library(switchwaker_boot_system STATIC
+  boot_system.cpp
+  "${aurora_os}/OSInit.cpp"
+  "${aurora_os}/OSArena.cpp"
+  "${aurora_os}/OSAddress.cpp"
+  "${aurora_os}/OSBootInfo.cpp"
+  "${aurora_os}/OSAlloc.cpp"
+  "${sw_game}/src/JSystem/JKernel/JKRHeap.cpp"
+  "${sw_game}/src/JSystem/JKernel/JKRExpHeap.cpp"
+  "${sw_game}/src/JSystem/JKernel/JKRDisposer.cpp"
+  "${sw_game}/src/JSystem/JSupport/JSUList.cpp")
+target_link_libraries(switchwaker_boot_system PRIVATE switchwaker_assets)
+target_compile_features(switchwaker_boot_system PRIVATE cxx_std_20)
+target_compile_definitions(switchwaker_boot_system PRIVATE TWW_VITA_BOOT=1 MTX_USE_PS=1 VERSION=2 NDEBUG=1)
+target_compile_options(switchwaker_boot_system PRIVATE
+  -fno-exceptions -fno-rtti -fsigned-char -fno-strict-aliasing -fcheck-new
+  -Wno-multichar -Wno-write-strings
+  "SHELL:-include '${sw_native}/include/pc/cos_pc_config.h'"
+  "SHELL:-include '${sw_native}/include/sdk/cos_sdk_extras.h'")
+target_include_directories(switchwaker_boot_system PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}" "${sw_native}/include" "${sw_native}/include/sdk"
+  "${TWW_AURORA_DIR}/include" "${sw_game}/include" "${TWW_SWITCHWAKER_ASSETS}"
+  "${sw_native}/include/pc/msl")
+
 add_executable(tww-vita-probe main.c disc.c switchwaker_boot.cpp)
 target_compile_features(tww-vita-probe PRIVATE c_std_11 cxx_std_20)
 target_compile_options(tww-vita-probe PRIVATE -Wall -Wextra -Wformat=2)
-target_link_libraries(tww-vita-probe PRIVATE switchwaker_assets pthread SceCtrl_stub SceDisplay_stub SceIofilemgr_stub)
+target_link_libraries(tww-vita-probe PRIVATE switchwaker_assets switchwaker_boot_system pthread SceCtrl_stub SceDisplay_stub SceIofilemgr_stub)
 
 vita_create_self(tww-vita-probe.self tww-vita-probe)
 vita_create_vpk(tww-vita-probe.vpk TWWP00001 tww-vita-probe.self
-  VERSION 01.07
+  VERSION 01.08
   NAME "TWW Vita Probe"
-  FILE "${TWW_SWITCHWAKER_DIR}/LICENSE" switchwaker-LICENSE.txt)
+  FILE "${TWW_SWITCHWAKER_DIR}/LICENSE" switchwaker-LICENSE.txt
+  FILE "${TWW_AURORA_DIR}/LICENSE" aurora-LICENSE.txt)

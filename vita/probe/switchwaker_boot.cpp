@@ -113,6 +113,7 @@ int boot_switchwaker_assets(SceUID log, const char *path)
     probe_log(log, "boot: entering SwitchWaker pc::loadAssets\n");
     pc::loadAssets();
     probe_log(log, "boot: SwitchWaker asset loader returned\n");
+    std::vector<uint8_t>().swap(dol);
     boot_disc_close(disc);
     disc = nullptr;
     return 0;

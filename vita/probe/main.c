@@ -84,7 +84,7 @@ static int show_result(SceUID log, int boot_result)
 
 void boot_probe_exit(SceUID log, int status)
 {
-    probe_log(log, "boot: SwitchWaker startup assets %s\n", status == 0 ? "pass" : "failed");
+    probe_log(log, "boot: SwitchWaker startup %s\n", status == 0 ? "pass" : "failed");
     int display = show_result(log, status);
     int sampling = sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
     probe_log(log, "pad: analog mode 0x%08x\n", (unsigned int)sampling);
@@ -114,7 +114,10 @@ int main(void)
 {
     sceIoMkdir(DATA_DIR, 0777);
     SceUID log = sceIoOpen(DATA_DIR "/probe.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-    probe_log(log, "TWW Vita hardware probe 8\n");
+    probe_log(log, "TWW Vita hardware probe 9\n");
     probe_log(log, "ABI: %u-bit pointers\n", (unsigned int)(8 * sizeof(void *)));
-    boot_probe_exit(log, boot_switchwaker_assets(log, DISC_PATH));
+    int status = boot_switchwaker_assets(log, DISC_PATH);
+    if (status == 0)
+        status = boot_probe_system(log);
+    boot_probe_exit(log, status);
 }

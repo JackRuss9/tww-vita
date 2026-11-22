@@ -1,0 +1,75 @@
+diff --git a/lib/dolphin/os/OSAddress.cpp b/lib/dolphin/os/OSAddress.cpp
+index 8ca1b4a..f96ed9c 100644
+--- a/lib/dolphin/os/OSAddress.cpp
++++ b/lib/dolphin/os/OSAddress.cpp
+@@ -14,7 +14,7 @@
+ 
+ void* OSPhysicalToCached(u32 paddr) {
+   assert (paddr <= aurora::g_config.mem1Size);
+-  return POINTER_ADD(MEM1Start, paddr);
++  return static_cast<u8*>(MEM1Start) + paddr;
+ }
+ 
+ void* OSPhysicalToUncached(u32 paddr) {
+diff --git a/lib/dolphin/os/OSAlloc.cpp b/lib/dolphin/os/OSAlloc.cpp
+index 790e300..41266a1 100644
+--- a/lib/dolphin/os/OSAlloc.cpp
++++ b/lib/dolphin/os/OSAlloc.cpp
+@@ -3,7 +3,9 @@
+ #include <cstddef>
+ #include <cstdint>
+ 
++#if !defined(TWW_VITA_BOOT)
+ #include "../../logging.hpp"
++#endif
+ 
+ extern "C" volatile OSHeapHandle __OSCurrHeap = -1;
+ 
+@@ -30,7 +32,9 @@ struct HeapDesc {
+   Cell* allocated;
+ };
+ 
++#if !defined(TWW_VITA_BOOT)
+ static aurora::Module AllocLog("aurora::os::alloc");
++#endif
+ 
+ static HeapDesc* sHeapArray = nullptr;
+ static int sNumHeaps = 0;
+@@ -509,6 +513,7 @@ u32 OSReferentSize(void* ptr) {
+   return static_cast<u32>(cell->size - static_cast<s32>(kHeaderSize));
+ }
+ 
++#if !defined(TWW_VITA_BOOT)
+ void OSDumpHeap(OSHeapHandle heap) {
+   AllocLog.info("OSDumpHeap({})", heap);
+   if (!validHeapHandle(heap)) {
+@@ -544,6 +549,8 @@ void OSDumpHeap(OSHeapHandle heap) {
+   }
+ }
+ 
++#endif
++
+ void OSVisitAllocated(void (*visitor)(void*, u32)) {
+   if (visitor == nullptr || sHeapArray == nullptr) {
+     return;
+diff --git a/lib/dolphin/os/internal.hpp b/lib/dolphin/os/internal.hpp
+index b4311ea..5522bf6 100644
+--- a/lib/dolphin/os/internal.hpp
++++ b/lib/dolphin/os/internal.hpp
+@@ -1,9 +1,16 @@
+ #pragma once
+ 
++#if defined(TWW_VITA_BOOT)
++#include <aurora/aurora.h>
++namespace aurora { extern AuroraConfig g_config; }
++#else
+ #include "../../internal.hpp"
++#endif
+ #include <dolphin/types.h>
+ 
++#if !defined(TWW_VITA_BOOT)
+ static aurora::Module Log("aurora::os");
++#endif
+ 
+ constexpr uintptr_t ARENA_START_OFFSET = 0x4000;
+ 

@@ -3,7 +3,8 @@
 The startup probe runs SwitchWaker's `pc::loadAssets()` against the Vita
 CISO reader. It checks the DOL and RELs against the USA revision 0 hashes,
 loads the 163 arrays into memory and fills an array registered by the probe.
-This runs before the game engine's initialization.
+It then calls Aurora's OSInit and exercises the game's root, system, archive
+and game heaps before the game scheduler starts.
 
 ## Build and run the hardware probe
 
@@ -14,14 +15,15 @@ Set `SW` and `AURORA` to their absolute paths and `STUBS` to an absolute
 directory for the generated headers. From the tww-vita repository root:
 
 ```sh
-git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-libc.patch"
+git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-libc.patch" "$PWD/vita/patches/switchwaker-arm32.patch"
+git -C "$AURORA" apply "$PWD/vita/patches/aurora-vita-boot.patch"
 (cd "$SW" && bash native/tools/gen_assets.sh --stubs --version GZLE01 --out "$STUBS")
 cmake -S vita/probe -B build-vita-probe -G Ninja -DCMAKE_BUILD_TYPE=Release -DTWW_SWITCHWAKER_DIR="$SW" -DTWW_AURORA_DIR="$AURORA" -DTWW_SWITCHWAKER_ASSETS="$STUBS" && cmake --build build-vita-probe
 ```
 
 Set `VITASDK` to the SDK installation directory. Install
 `build-vita-probe/tww-vita-probe.vpk` in VitaShell and open **TWW Vita Probe**.
-Expect a green screen if the loader succeeds, or red if it reports an error. Press START
+Expect a green screen if the loader and heap checks succeed, or red if either reports an error. Press START
 while moving both sticks. The app logs the stick readings at the time START is
 pressed, then exits. It also exits on its own after about 30 seconds.
 Collect `ux0:/data/tww/probe.log` before running the probe again.
@@ -31,7 +33,7 @@ The earlier graphics probe embedded the MIT-licensed texture shaders from
 
 Keep your USA revision 0 GameCube CISO at `ux0:/data/tww/WindWaker.ciso`.
 The log names the files read by the loader and reports
-`boot: SwitchWaker startup assets pass` when all checks succeed.
+`boot: SwitchWaker startup pass` when all checks succeed.
 
 ## Integration points
 
