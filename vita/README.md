@@ -1,9 +1,9 @@
 # SwitchWaker on Vita
 
 The first hardware check is a standalone homebrew that tests startup, storage,
-GXM initialization, display output and the controller. It uses a CPU-filled
-framebuffer for the status screen. Game code and GPU draw calls enter at later
-milestones.
+GXM initialization, display output and the controller. GXM draws an RGB
+triangle to an offscreen surface, copies it to the display framebuffer, and
+checks two pixels from both surfaces. The probe runs independently of the game.
 
 ## Build and run the hardware probe
 
@@ -15,10 +15,14 @@ cmake -S vita/probe -B build-vita-probe -G Ninja -DCMAKE_BUILD_TYPE=Release && c
 
 Set `VITASDK` to the SDK installation directory. Install
 `build-vita-probe/tww-vita-probe.vpk` in VitaShell and open **TWW Vita Probe**.
-Expect a solid green screen when GXM initializes and the log opens. Press START
+Expect a red, green and blue triangle on a dark background. A solid red
+screen indicates that a graphics step failed. Press START
 while moving both sticks. The app logs the stick readings at the time START is
 pressed, then exits. It also exits on its own after about 30 seconds.
 Collect `ux0:/data/tww/probe.log` before running the probe again.
+
+The probe embeds the MIT-licensed color shaders from
+[libvita2d](https://github.com/xerpi/libvita2d/tree/a8f15ab09d5233f0a4e4ad0e8f6ade0da888cbed/libvita2d/shader).
 
 For an optional disc read test, keep your GameCube CISO at
 `ux0:/data/tww/WindWaker.ciso`. The probe reads the GameCube header from the
@@ -37,5 +41,5 @@ size for `GZLE01` (USA) or `GZLP01` (Europe).
   Port the GX interface and movie support alongside the renderer. A replacement
   Aurora checkout needs its interfaces and patches reconciled first.
 - Use `sms-vita` as the reference for file paths, Vita input, logging and
-  runtime shader compilation. A representative GX draw and a framebuffer
-  copy are the next graphics checks before trying the opening on Vita.
+  runtime shader compilation. A representative GX draw through Aurora is
+  the next graphics check before trying the opening on Vita.

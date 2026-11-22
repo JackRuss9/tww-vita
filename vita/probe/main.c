@@ -11,17 +11,17 @@
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/threadmgr.h>
 
+#include "gpu.h"
+
 #define DATA_DIR "ux0:data/tww"
 #define DISC_PATH DATA_DIR "/WindWaker.ciso"
 
 enum {
-    SCREEN_WIDTH = 960,
-    SCREEN_HEIGHT = 544,
     VIDEO_MEMORY_SIZE = 2 * 1024 * 1024,
     CISO_HEADER_SIZE = 0x8000,
 };
 
-static void log_line(SceUID log, const char *format, ...)
+void probe_log(SceUID log, const char *format, ...)
 {
     if (log < 0)
         return;
@@ -46,10 +46,10 @@ static void log_line(SceUID log, const char *format, ...)
 
 static void probe_disc(SceUID log)
 {
-    log_line(log, "disc path: %s\n", DISC_PATH);
+    probe_log(log, "disc path: %s\n", DISC_PATH);
     SceUID file = sceIoOpen(DISC_PATH, SCE_O_RDONLY, 0);
     if (file < 0) {
-        log_line(log, "disc: open 0x%08x (optional)\n", (unsigned int)file);
+        probe_log(log, "disc: open 0x%08x (optional)\n", (unsigned int)file);
         return;
     }
 
@@ -58,11 +58,11 @@ static void probe_disc(SceUID log)
     unsigned char ciso[9];
     int read = sceIoRead(file, ciso, sizeof(ciso));
     if (read != sizeof(ciso)) {
-        log_line(log, "disc: CISO header read %d\n", read);
+        probe_log(log, "disc: CISO header read %d\n", read);
         goto close;
     }
     if (memcmp(ciso, "CISO", 4) != 0) {
-        log_line(log, "disc: expected a Dolphin GameCube CISO\n");
+        probe_log(log, "disc: expected a Dolphin GameCube CISO\n");
         goto close;
     }
 
@@ -70,59 +70,62 @@ static void probe_disc(SceUID log)
     uint32_t block_size = (uint32_t)ciso[4] | ((uint32_t)ciso[5] << 8) |
                           ((uint32_t)ciso[6] << 16) | ((uint32_t)ciso[7] << 24);
     if (ciso[8] != 1 || block_size < sizeof(header)) {
-        log_line(log, "disc: invalid CISO block 0 (map=%u, block size=%u)\n",
+        probe_log(log, "disc: invalid CISO block 0 (map=%u, block size=%u)\n",
                  (unsigned int)ciso[8], (unsigned int)block_size);
         goto close;
     }
 
     SceOff size = sceIoLseek(file, 0, SCE_SEEK_END);
     if (size < (SceOff)CISO_HEADER_SIZE + block_size) {
-        log_line(log, "disc: incomplete first CISO block (size or seek result %lld)\n",
+        probe_log(log, "disc: incomplete first CISO block (size or seek result %lld)\n",
                  (long long)size);
         goto close;
     }
     SceOff position = sceIoLseek(file, CISO_HEADER_SIZE, SCE_SEEK_SET);
     if (position != CISO_HEADER_SIZE) {
-        log_line(log, "disc: CISO data seek %lld\n", (long long)position);
+        probe_log(log, "disc: CISO data seek %lld\n", (long long)position);
         goto close;
     }
 
     read = sceIoRead(file, header, sizeof(header));
     if (read != sizeof(header)) {
-        log_line(log, "disc: GameCube header read %d\n", read);
+        probe_log(log, "disc: GameCube header read %d\n", read);
     } else if (memcmp(header + 0x1c, "\xc2\x33\x9f\x3d", 4) != 0) {
-        log_line(log, "disc: GameCube header missing from first CISO block\n");
+        probe_log(log, "disc: GameCube header missing from first CISO block\n");
     } else if (memcmp(header, "GZLE01", 6) == 0 || memcmp(header, "GZLP01", 6) == 0) {
-        log_line(log, "disc: CISO %.6s revision %u file size %lld block size %u\n",
+        probe_log(log, "disc: CISO %.6s revision %u file size %lld block size %u\n",
                  (const char *)header, (unsigned int)header[7], (long long)size,
                  (unsigned int)block_size);
     } else {
-        log_line(log, "disc: unsupported GameCube disc ID\n");
+        probe_log(log, "disc: unsupported GameCube disc ID\n");
     }
 close:
     sceIoClose(file);
 }
 
-static int show_result(SceUID log, uint32_t color)
+static int show_result(SceUID log, int graphics)
 {
     SceUID memory = sceKernelAllocMemBlock("twwProbeFramebuffer",
         SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, VIDEO_MEMORY_SIZE, NULL);
     if (memory < 0) {
-        log_line(log, "display: memory 0x%08x\n", (unsigned int)memory);
+        probe_log(log, "display: memory 0x%08x\n", (unsigned int)memory);
         return memory;
     }
 
     void *base;
     int result = sceKernelGetMemBlockBase(memory, &base);
     if (result < 0) {
-        log_line(log, "display: base 0x%08x\n", (unsigned int)result);
+        probe_log(log, "display: base 0x%08x\n", (unsigned int)result);
         sceKernelFreeMemBlock(memory);
         return result;
     }
 
     uint32_t *pixels = base;
-    for (unsigned int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; ++i)
-        pixels[i] = color;
+    if (graphics < 0 || gpu_probe(log, pixels, VIDEO_MEMORY_SIZE) < 0) {
+        for (unsigned int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; ++i)
+            pixels[i] = 0xff2630a0;
+        probe_log(log, "display: showing red fallback\n");
+    }
 
     SceDisplayFrameBuf frame = {
         .size = sizeof(frame),
@@ -133,7 +136,7 @@ static int show_result(SceUID log, uint32_t color)
         .height = SCREEN_HEIGHT,
     };
     result = sceDisplaySetFrameBuf(&frame, SCE_DISPLAY_SETBUF_NEXTFRAME);
-    log_line(log, "display: set framebuffer 0x%08x\n", (unsigned int)result);
+    probe_log(log, "display: set framebuffer 0x%08x\n", (unsigned int)result);
     if (result < 0)
         sceKernelFreeMemBlock(memory);
     // A displayed block remains owned by the process until exit.
@@ -149,8 +152,8 @@ int main(void)
 {
     sceIoMkdir(DATA_DIR, 0777);
     SceUID log = sceIoOpen(DATA_DIR "/probe.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-    log_line(log, "TWW Vita hardware probe 3\n");
-    log_line(log, "ABI: %u-bit pointers\n", (unsigned int)(8 * sizeof(void *)));
+    probe_log(log, "TWW Vita hardware probe 4\n");
+    probe_log(log, "ABI: %u-bit pointers\n", (unsigned int)(8 * sizeof(void *)));
     probe_disc(log);
 
     const SceGxmInitializeParams gxm = {
@@ -160,24 +163,23 @@ int main(void)
         .displayQueueCallbackDataSize = sizeof(uint32_t),
         .parameterBufferSize = SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE,
     };
-    log_line(log, "gxm: initializing\n");
+    probe_log(log, "gxm: initializing\n");
     int graphics = sceGxmInitialize(&gxm);
-    log_line(log, "gxm: initialize 0x%08x\n", (unsigned int)graphics);
+    probe_log(log, "gxm: initialize 0x%08x\n", (unsigned int)graphics);
 
-    uint32_t color = (graphics >= 0 && log >= 0) ? 0xff358220 : 0xff2630a0;
-    int display = show_result(log, color);
+    int display = show_result(log, graphics);
     int sampling = sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
-    log_line(log, "pad: analog mode 0x%08x\n", (unsigned int)sampling);
+    probe_log(log, "pad: analog mode 0x%08x\n", (unsigned int)sampling);
 
     SceCtrlData pad;
     int samples = sceCtrlPeekBufferPositive(0, &pad, 1);
-    log_line(log, "pad: initial sample %d\n", samples);
-    log_line(log, "ready: press START to exit\n");
+    probe_log(log, "pad: initial sample %d\n", samples);
+    probe_log(log, "ready: press START to exit\n");
 
     for (unsigned int attempt = 0; attempt < 1800; ++attempt) {
         samples = sceCtrlPeekBufferPositive(0, &pad, 1);
         if (samples > 0 && (pad.buttons & SCE_CTRL_START)) {
-            log_line(log, "pad: START detected; sticks %u,%u / %u,%u\n",
+            probe_log(log, "pad: START detected; sticks %u,%u / %u,%u\n",
                      (unsigned int)pad.lx, (unsigned int)pad.ly,
                      (unsigned int)pad.rx, (unsigned int)pad.ry);
             break;
@@ -185,8 +187,8 @@ int main(void)
         sceKernelDelayThread(16667);
     }
     if (graphics >= 0)
-        log_line(log, "gxm: terminate 0x%08x\n", (unsigned int)sceGxmTerminate());
-    log_line(log, "done\n");
+        probe_log(log, "gxm: terminate 0x%08x\n", (unsigned int)sceGxmTerminate());
+    probe_log(log, "done\n");
     if (log >= 0)
         sceIoClose(log);
     return graphics < 0 || display < 0 || sampling < 0 || log < 0;
