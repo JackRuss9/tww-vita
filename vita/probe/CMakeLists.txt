@@ -20,7 +20,7 @@ target_link_libraries(tww-vita-probe PRIVATE SceCtrl_stub SceDisplay_stub SceGxm
 
 vita_create_self(tww-vita-probe.self tww-vita-probe)
 vita_create_vpk(tww-vita-probe.vpk TWWP00001 tww-vita-probe.self
-  VERSION 01.04
+  VERSION 01.05
   NAME "TWW Vita Probe"
   FILE "${CMAKE_CURRENT_SOURCE_DIR}/libvita2d-LICENSE.txt" libvita2d-LICENSE.txt
   FILE "${CMAKE_CURRENT_SOURCE_DIR}/aurora-LICENSE.txt" aurora-LICENSE.txt)

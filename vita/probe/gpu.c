@@ -6,7 +6,7 @@
 #include <psp2/gxm.h>
 #include <psp2/kernel/sysmem.h>
 
-#include "color_shaders.h"
+#include "texture_shaders.h"
 #include "gx_probe.h"
 
 /* Exported by libgxm, but missing from the VitaSDK header. */
@@ -18,6 +18,7 @@ enum {
     FRAGMENT_RING_OFFSET = VERTEX_RING_OFFSET + SCE_GXM_DEFAULT_VERTEX_RING_BUFFER_SIZE,
     PATCHER_OFFSET = FRAGMENT_RING_OFFSET + SCE_GXM_DEFAULT_FRAGMENT_RING_BUFFER_SIZE,
     GEOMETRY_OFFSET = PATCHER_OFFSET + 64 * 1024,
+    TEXTURE_OFFSET = GEOMETRY_OFFSET + 256,
     SCREEN_BYTES = SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(uint32_t),
 };
 
@@ -165,23 +166,24 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
     };
     GPU_STEP("create shader patcher", sceGxmShaderPatcherCreate(&patcher_params, &patcher));
 
-    const SceGxmProgram *vs = (const SceGxmProgram *)color_v_gxp;
-    const SceGxmProgram *fs = (const SceGxmProgram *)color_f_gxp;
+    const SceGxmProgram *vs = (const SceGxmProgram *)texture_v_gxp;
+    const SceGxmProgram *fs = (const SceGxmProgram *)texture_f_gxp;
     GPU_STEP("check vertex shader", sceGxmProgramCheck(vs));
     GPU_STEP("check fragment shader", sceGxmProgramCheck(fs));
     const SceGxmProgramParameter *position = sceGxmProgramFindParameterByName(vs, "aPosition");
-    const SceGxmProgramParameter *color = sceGxmProgramFindParameterByName(vs, "aColor");
+    const SceGxmProgramParameter *uv = sceGxmProgramFindParameterByName(vs, "aTexcoord");
     const SceGxmProgramParameter *matrix = sceGxmProgramFindParameterByName(vs, "wvp");
-    if (!position || !color || !matrix) {
-        probe_log(log, "gpu: vertex shader parameters missing\n");
+    const SceGxmProgramParameter *sampler = sceGxmProgramFindParameterByName(fs, "tex");
+    if (!position || !uv || !matrix || !sampler) {
+        probe_log(log, "gpu: texture shader parameters missing\n");
         result = -1;
         goto cleanup;
     }
     const SceGxmVertexAttribute attributes[] = {
         {.offset = offsetof(GxProbeVertex, x), .format = SCE_GXM_ATTRIBUTE_FORMAT_F32,
          .componentCount = 3, .regIndex = sceGxmProgramParameterGetResourceIndex(position)},
-        {.offset = offsetof(GxProbeVertex, rgba), .format = SCE_GXM_ATTRIBUTE_FORMAT_U8N,
-         .componentCount = 4, .regIndex = sceGxmProgramParameterGetResourceIndex(color)},
+        {.offset = offsetof(GxProbeVertex, s), .format = SCE_GXM_ATTRIBUTE_FORMAT_F32,
+         .componentCount = 2, .regIndex = sceGxmProgramParameterGetResourceIndex(uv)},
     };
     const SceGxmVertexStream stream = {.stride = sizeof(GxProbeVertex), .indexSource = SCE_GXM_INDEX_SOURCE_INDEX_16BIT};
     GPU_STEP("register vertex shader", sceGxmShaderPatcherRegisterProgram(patcher, vs, &vertex_id));
@@ -206,8 +208,20 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
 
     void *gpu_vertices = commands + GEOMETRY_OFFSET;
     void *gpu_indices = commands + GEOMETRY_OFFSET + sizeof(mesh.vertices);
+    _Static_assert(GEOMETRY_OFFSET + sizeof(mesh.vertices) + sizeof(mesh.indices) <= TEXTURE_OFFSET,
+                   "Texture overlaps geometry");
     memcpy(gpu_vertices, mesh.vertices, sizeof(mesh.vertices));
     memcpy(gpu_indices, mesh.indices, sizeof(mesh.indices));
+    uint32_t *texture_data = (uint32_t *)(commands + TEXTURE_OFFSET);
+    gx_probe_texture(texture_data);
+    probe_log(log, "gx: decoded %ux%u tiled RGB565 texture\n", GX_PROBE_TEXTURE_SIZE, GX_PROBE_TEXTURE_SIZE);
+    SceGxmTexture texture;
+    GPU_STEP("initialize linear texture", sceGxmTextureInitLinear(&texture, texture_data,
+        SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, GX_PROBE_TEXTURE_SIZE, GX_PROBE_TEXTURE_SIZE, 0));
+    GPU_STEP("texture clamp S", sceGxmTextureSetUAddrMode(&texture, SCE_GXM_TEXTURE_ADDR_CLAMP));
+    GPU_STEP("texture clamp T", sceGxmTextureSetVAddrMode(&texture, SCE_GXM_TEXTURE_ADDR_CLAMP));
+    GPU_STEP("texture min point", sceGxmTextureSetMinFilter(&texture, SCE_GXM_TEXTURE_FILTER_POINT));
+    GPU_STEP("texture mag point", sceGxmTextureSetMagFilter(&texture, SCE_GXM_TEXTURE_FILTER_POINT));
     memset(offscreen.base, 0, SCREEN_BYTES);
     GPU_STEP("begin scene", sceGxmBeginScene(context, 0, target, NULL, NULL, sync, &surface, &depth));
     scene_open = 1;
@@ -223,7 +237,9 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
     GPU_STEP("reserve matrix uniform", sceGxmReserveVertexDefaultUniformBuffer(context, &uniform));
     GPU_STEP("set matrix uniform", sceGxmSetUniformDataF(uniform, matrix, 0, 16, identity));
     GPU_STEP("set vertex stream", sceGxmSetVertexStream(context, 0, gpu_vertices));
-    GPU_STEP("draw GX quad and triangle", sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES,
+    GPU_STEP("bind GX texture", sceGxmSetFragmentTexture(context,
+        sceGxmProgramParameterGetResourceIndex(sampler), &texture));
+    GPU_STEP("draw textured GX quads", sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES,
         SCE_GXM_INDEX_FORMAT_U16, gpu_indices, mesh.index_count));
     GPU_STEP("end scene", sceGxmEndScene(context, NULL, NULL));
     scene_open = 0;
@@ -237,18 +253,25 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
         display, 0, 0, stride, NULL, 0, NULL));
     GPU_STEP("wait for copy", sceGxmTransferFinish());
 
-    const size_t center = (SCREEN_HEIGHT / 2) * SCREEN_WIDTH + SCREEN_WIDTH / 2;
-    const size_t corner = 16 * SCREEN_WIDTH + 16;
+    const size_t samples[] = {
+        16 * SCREEN_WIDTH + 16,
+        SCREEN_HEIGHT * 3 / 8 * SCREEN_WIDTH + SCREEN_WIDTH * 3 / 8,
+        SCREEN_HEIGHT * 3 / 8 * SCREEN_WIDTH + SCREEN_WIDTH * 5 / 8,
+        SCREEN_HEIGHT * 5 / 8 * SCREEN_WIDTH + SCREEN_WIDTH * 3 / 8,
+        SCREEN_HEIGHT * 5 / 8 * SCREEN_WIDTH + SCREEN_WIDTH * 5 / 8,
+    };
+    const uint32_t expected[] = {0xff000000, 0xff0000ff, 0xff00ff00, 0xffff0000, 0xff00ffff};
     const volatile uint32_t *rendered = offscreen.base;
     const volatile uint32_t *copied = display;
-    uint32_t center_pixel = rendered[center], corner_pixel = rendered[corner];
-    uint32_t copied_center = copied[center], copied_corner = copied[corner];
-    int sample_ok = center_pixel != corner_pixel && corner_pixel == mesh.vertices[0].rgba &&
-                    copied_center == center_pixel && copied_corner == corner_pixel;
-    probe_log(log, "gpu: pixels render %08x/%08x copy %08x/%08x (%s)\n",
-              (unsigned int)center_pixel, (unsigned int)corner_pixel,
-              (unsigned int)copied_center, (unsigned int)copied_corner, sample_ok ? "pass" : "mismatch");
-    // Leave the rendered framebuffer visible even if the two sample pixels fail.
+    int sample_ok = 1;
+    for (size_t i = 0; i < sizeof(samples) / sizeof(samples[0]); ++i) {
+        const uint32_t draw_pixel = rendered[samples[i]];
+        const uint32_t copy_pixel = copied[samples[i]];
+        probe_log(log, "gpu: texture sample %u render %08x copy %08x expected %08x\n",
+            (unsigned int)i, (unsigned int)draw_pixel, (unsigned int)copy_pixel, (unsigned int)expected[i]);
+        sample_ok &= draw_pixel == expected[i] && copy_pixel == draw_pixel;
+    }
+    probe_log(log, "gpu: textured framebuffer %s\n", sample_ok ? "pass" : "mismatch");
 
 cleanup:
     if (scene_open)

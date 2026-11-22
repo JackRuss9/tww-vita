@@ -1,12 +1,12 @@
 # SwitchWaker on Vita
 
 The first hardware check is a standalone homebrew that tests startup, storage,
-GXM initialization, display output and the controller. The probe records a GX
-quad and triangle with the FIFO writer from Aurora `3227d76`, decodes the direct
-position and color commands, and feeds the result to GXM. It copies the
-offscreen render to the display framebuffer and checks two corresponding
-pixels. This probe covers that command subset and runs independently of the
-complete Aurora renderer and game.
+GXM initialization, display output and the controller. The probe records two
+GX quads with direct position and texture coordinates using the FIFO writer
+from Aurora `3227d76`. It converts a generated 4x4-tiled RGB565 texture for
+GXM, renders offscreen, copies to the display framebuffer, and checks five
+pixels on both surfaces. The probe runs independently of the complete Aurora
+renderer and game.
 
 ## Build and run the hardware probe
 
@@ -18,13 +18,13 @@ cmake -S vita/probe -B build-vita-probe -G Ninja -DCMAKE_BUILD_TYPE=Release && c
 
 Set `VITASDK` to the SDK installation directory. Install
 `build-vita-probe/tww-vita-probe.vpk` in VitaShell and open **TWW Vita Probe**.
-Expect a downward-pointing yellow, cyan and magenta triangle on a dark background. A solid red
+Expect a red-and-green top row and a blue-and-yellow bottom row on black. A solid red
 screen indicates that a graphics step failed. Press START
 while moving both sticks. The app logs the stick readings at the time START is
 pressed, then exits. It also exits on its own after about 30 seconds.
 Collect `ux0:/data/tww/probe.log` before running the probe again.
 
-The probe embeds the MIT-licensed color shaders from
+The probe embeds the MIT-licensed texture shaders from
 [libvita2d](https://github.com/xerpi/libvita2d/tree/a8f15ab09d5233f0a4e4ad0e8f6ade0da888cbed/libvita2d/shader).
 
 For an optional disc read test, keep your GameCube CISO at
@@ -45,4 +45,4 @@ size for `GZLE01` (USA) or `GZLP01` (Europe).
   Aurora checkout needs its interfaces and patches reconciled first.
 - Use `sms-vita` as the reference for file paths, Vita input, logging and
   runtime shader compilation. The next graphics check for the complete Aurora
-  backend is textured rendering with a GX material and the matching shader.
+  backend is translating a GX material's TEV state to a matching shader.
