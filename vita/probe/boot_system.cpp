@@ -1,6 +1,7 @@
 #include "disc.h"
 #include "gpu.h"
 #include <aurora/aurora.h>
+#include <dolphin/arq.h>
 #include <dolphin/os.h>
 #include "cos_sdk/hooks.h"
 #include "JSystem/JFramework/JFWSystem.h"
@@ -24,6 +25,7 @@ extern "C" int vita_join_alarm_thread();
 
 namespace {
 constexpr unsigned int ArenaBytes = 128 * 1024 * 1024;
+constexpr unsigned int AramBytes = 16 * 1024 * 1024;
 SceUID boot_log = -1;
 JKRExpHeap *game_heap;
 
@@ -36,6 +38,13 @@ struct SchedulerCheck {
 };
 SchedulerCheck scheduler{};
 int worker_message, alarm_message;
+u32 aram_allocations[4];
+uintptr_t aram_completed;
+
+void aram_done(uintptr_t request)
+{
+    aram_completed = request;
+}
 
 void *scheduler_worker(void *)
 {
@@ -193,6 +202,7 @@ extern "C" int boot_probe_system(SceUID log)
 {
     boot_log = log;
     aurora::g_config.mem1Size = ArenaBytes;
+    aurora::g_config.mem2Size = AramBytes;
     probe_log(log, "boot: entering Aurora OSInit\n");
     OSInit();
     const auto lo = reinterpret_cast<uintptr_t>(OSGetArenaLo());
@@ -234,6 +244,34 @@ extern "C" int boot_probe_system(SceUID log)
     probe_log(log, "boot: JKR allocation and free pass\n");
     game_heap = game;
     return 0;
+}
+
+extern "C" int boot_probe_aram(SceUID log)
+{
+    if (ARInit(aram_allocations, sizeof(aram_allocations) / sizeof(aram_allocations[0])) == 0 ||
+        ARGetSize() != AramBytes)
+        return -1;
+    ARQInit();
+    alignas(32) unsigned char source[256], result[256]{};
+    for (unsigned int i = 0; i < sizeof(source); ++i)
+        source[i] = static_cast<unsigned char>(i ^ 0xa5);
+    const u32 address = ARAlloc(sizeof(source));
+    if (address == 0)
+        return -1;
+    ARQRequest upload{}, download{};
+    system_checkpoint(log, "aram: main RAM to ARAM");
+    ARQPostRequest(&upload, 0, ARQ_TYPE_MRAM_TO_ARAM, ARQ_PRIORITY_HIGH,
+                   reinterpret_cast<uintptr_t>(source), address, sizeof(source), aram_done);
+    const bool sent = aram_completed == reinterpret_cast<uintptr_t>(&upload);
+    system_checkpoint(log, "aram: ARAM to main RAM");
+    ARQPostRequest(&download, 0, ARQ_TYPE_ARAM_TO_MRAM, ARQ_PRIORITY_HIGH,
+                   address, reinterpret_cast<uintptr_t>(result), sizeof(result), aram_done);
+    const bool received = aram_completed == reinterpret_cast<uintptr_t>(&download);
+    u32 freed = 0;
+    const u32 mark = ARFree(&freed);
+    probe_log(log, "aram: capacity %u, offset 0x%08x, returned %u bytes\n", ARGetSize(), address, freed);
+    return sent && received && mark == address && freed == sizeof(source) &&
+        std::memcmp(source, result, sizeof(source)) == 0 ? 0 : -1;
 }
 
 extern "C" int boot_probe_stop_scheduler(SceUID log)

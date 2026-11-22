@@ -1,3 +1,133 @@
+diff --git a/lib/dolphin/AR.cpp b/lib/dolphin/AR.cpp
+index ab9306b..337d5af 100644
+--- a/lib/dolphin/AR.cpp
++++ b/lib/dolphin/AR.cpp
+@@ -1,8 +1,16 @@
+ #include <dolphin/arq.h>
++#ifdef TWW_VITA_BOOT
++#include "os/internal.hpp"
++#include <psp2/kernel/sysmem.h>
++#include <cstring>
++#else
+ #include "../internal.hpp"
++#endif
+ #include "dolphin/os.h"
+ 
++#ifndef TWW_VITA_BOOT
+ static aurora::Module Log("aurora::ar");
++#endif
+ 
+ static u32 AR_StackPointer;
+ static u32* AR_BlockLength;
+@@ -18,29 +26,43 @@ static BOOL AR_init_flag;
+ static u8* sAramBuffer = nullptr;
+ 
+ // Convert an ARAM "address" (offset) to a real host pointer
+-static u8* aramToHost(u32 aramAddr) {
+-  if (!sAramBuffer || aramAddr >= aurora::g_config.mem2Size) {
++static u8* aramToHost(uintptr_t aramAddr, u32 length) {
++  const auto size = aurora::g_config.mem2Size;
++  if (!sAramBuffer || aramAddr > size || length > size - aramAddr) {
+     return nullptr;
+   }
+   return sAramBuffer + aramAddr;
+ }
+ 
+ u32 ARAlloc(u32 length) {
+-  u32 tmp;
+-
++#ifdef TWW_VITA_BOOT
++  if (!AR_init_flag || !length || (length & 0x1F) || !AR_FreeBlocks ||
++      length > ARGetSize() - AR_StackPointer) {
++    return 0;
++  }
++#else
+   ASSERTMSGLINE(430, !(length & 0x1F), "ARAlloc(): length is not multiple of 32bytes!");
+   ASSERTMSGLINE(434, length <= (__AR_Size - __AR_StackPointer), "ARAlloc(): Out of ARAM!");
+   ASSERTMSGLINE(435, __AR_FreeBlocks, "ARAlloc(): No more free blocks!");
++#endif
+ 
+-  tmp = AR_StackPointer;
++  const u32 address = AR_StackPointer;
+   AR_StackPointer += length;
+   *AR_BlockLength = length;
+   AR_BlockLength += 1;
+   AR_FreeBlocks -= 1;
+-  return tmp;
++  return address;
+ }
+ 
+ u32 ARFree(u32* length) {
++#ifdef TWW_VITA_BOOT
++  if (!AR_init_flag || AR_StackPointer == ARAM_STACK_START) {
++    if (length) {
++      *length = 0;
++    }
++    return AR_StackPointer;
++  }
++#endif
+   AR_BlockLength -= 1;
+   if (length) {
+     *length = *AR_BlockLength;
+@@ -54,7 +76,9 @@ BOOL ARCheckInit(void) { return AR_init_flag; }
+ 
+ u32 ARInit(u32* stack_index_addr, u32 num_entries) {
+   if (aurora::g_config.mem2Size == 0) {
++#ifndef TWW_VITA_BOOT
+     Log.warn("ARInit called but no mem2Size specified in AuroraConfig. ARAM will not be available!");
++#endif
+     return 0;
+   }
+ 
+@@ -62,12 +86,31 @@ u32 ARInit(u32* stack_index_addr, u32 num_entries) {
+     return ARAM_STACK_START;
+   }
+ 
++#ifdef TWW_VITA_BOOT
++  if (!stack_index_addr || !num_entries || aurora::g_config.mem2Size <= ARAM_STACK_START) {
++    return 0;
++  }
++  const SceUID block = sceKernelAllocMemBlock("SwitchWaker ARAM", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW,
++                                             aurora::g_config.mem2Size, nullptr);
++  if (block < 0) {
++    return 0;
++  }
++  void* memory = nullptr;
++  if (sceKernelGetMemBlockBase(block, &memory) < 0) {
++    sceKernelFreeMemBlock(block);
++    return 0;
++  }
++  // ARAM offsets and the backing stay valid until the process terminates.
++  sAramBuffer = static_cast<u8*>(memory);
++  std::memset(sAramBuffer, 0, aurora::g_config.mem2Size);
++#else
+   sAramBuffer = (u8*)calloc(1, aurora::g_config.mem2Size);
+   if (sAramBuffer) {
+     Log.debug("Initialized 0x{:X} bytes of ARAM!", aurora::g_config.mem2Size);
+   } else {
+     Log.fatal("Failed to allocate ARAM!");
+   }
++#endif
+ 
+   AR_StackPointer = ARAM_STACK_START;
+   AR_FreeBlocks = num_entries;
+@@ -89,13 +132,13 @@ void ARQPostRequest(ARQRequest* request, u32 owner, u32 type, u32 priority, uint
+   if (type == ARAM_DIR_MRAM_TO_ARAM) {
+     // Main RAM -> ARAM: source is a host pointer (cast to u32), dest is an ARAM offset
+     u8* hostSrc = (u8*)(uintptr_t)source;
+-    u8* aramDst = aramToHost(dest);
++    u8* aramDst = aramToHost(dest, length);
+     if (aramDst && hostSrc) {
+       memcpy(aramDst, hostSrc, length);
+     }
+-  } else {
++  } else if (type == ARAM_DIR_ARAM_TO_MRAM) {
+     // ARAM -> Main RAM: source is an ARAM offset, dest is a host pointer (cast to u32)
+-    u8* aramSrc = aramToHost(source);
++    u8* aramSrc = aramToHost(source, length);
+     u8* hostDst = (u8*)(uintptr_t)dest;
+     if (aramSrc && hostDst) {
+       memcpy(hostDst, aramSrc, length);
 diff --git a/lib/dolphin/os/OSAddress.cpp b/lib/dolphin/os/OSAddress.cpp
 index 8ca1b4a..f96ed9c 100644
 --- a/lib/dolphin/os/OSAddress.cpp

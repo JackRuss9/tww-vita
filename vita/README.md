@@ -10,6 +10,8 @@ and a timer callback, and join the worker. It exercises the game's JKRDvdFile
 with both path and FST entry opens for the title and ocean archives.
 The Vita DVD adapter completes those reads inline and delivers the result
 through JKRDvdFile's existing message queue.
+The ARAM check allocates a 16 MiB native memory block as auxiliary RAM and
+verifies an upload and readback through Aurora's ARQ path.
 It also runs the game's JUTGamePad input reader on the Vita's first pad.
 Cross, Circle, Square and Triangle map to A, B, X and Y respectively.
 Select maps to Z, and the shoulder buttons map to L and R.
@@ -50,6 +52,20 @@ is `check: suite PASS` when all checks succeed. A crash may leave a BEGIN
 without a result. The executable covers the machine initialization for
 heaps, file access and input. The full JFW/GX backend and the game loop still need to
 be linked for the first full boot.
+
+## Cross-compile the game startup modules
+
+Configure the same build with `-DTWW_BUILD_GAME_OBJECTS=ON`. Then run:
+
+```sh
+cmake --build build-vita-probe --target switchwaker_boot_link_check
+```
+
+This compiles the upstream `m_Do`, `framework` and `JSystem-core`
+modules and partially links them as `switchwaker-boot-arm.o`. The
+undefined symbol list includes calls to other game modules and platform
+interfaces such as GX and VI. The full game sources are available as
+the `cos_modules` target. The diagnostic VPK remains a separate target.
 
 ## Integration points
 

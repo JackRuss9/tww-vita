@@ -1,3 +1,32 @@
+diff --git a/game/src/d/d_s_logo.cpp b/game/src/d/d_s_logo.cpp
+index c57c020..4cc0796 100644
+--- a/game/src/d/d_s_logo.cpp
++++ b/game/src/d/d_s_logo.cpp
+@@ -35,6 +35,9 @@
+ #if TARGET_PC
+ #include "pc/game_hooks.h"
+ #endif
++#if defined(TWW_VITA_BOOT)
++#include "pc/pc_harness.h"
++#endif
+ 
+ mDoDvdThd_mountXArchive_c * l_anmCommand;
+ mDoDvdThd_mountXArchive_c * l_fmapCommand;
+@@ -996,7 +999,13 @@ static cPhs_State dScnLogo_Create(scene_class* i_scn) {
+ 
+     dScnLogo_c * i_this = (dScnLogo_c *)i_scn;
+     checkProgSelect(i_this);
+-    return dComLbG_PhaseHandler(&i_this->mPhs, l_method, i_this);
++    const cPhs_State result = dComLbG_PhaseHandler(&i_this->mPhs, l_method, i_this);
++#if defined(TWW_VITA_BOOT)
++    if (result == cPhs_COMPLEATE_e) {
++        pc_milestone("vita-logo-scene-ready");
++    }
++#endif
++    return result;
+ }
+ 
+ static scene_method_class l_dScnLogo_Method = {
 diff --git a/game/src/m_Do/m_Do_ext.cpp b/game/src/m_Do/m_Do_ext.cpp
 index 977859a..5a3e53c 100644
 --- a/game/src/m_Do/m_Do_ext.cpp
@@ -75,6 +104,63 @@ index 119fe7c..f945e8a 100644
  
      u32 transBufferSize = 0x2000; // 8 KiB
      JKRSetAramTransferBuffer(NULL, transBufferSize, JKRGetSystemHeap());
+diff --git a/game/src/m_Do/m_Do_main.cpp b/game/src/m_Do/m_Do_main.cpp
+index b1938b2..4a8ad42 100644
+--- a/game/src/m_Do/m_Do_main.cpp
++++ b/game/src/m_Do/m_Do_main.cpp
+@@ -416,9 +416,20 @@ void debug() {
+ 
+ /* 80006338-80006464       .text main01__Fv */
+ void main01() {
++#if defined(TWW_VITA_BOOT)
++    pc_milestone("vita-main01-entered");
++#endif
+     // Setup heaps, setup exception manager, set RNG seed, setup DVDError Thread, setup Memory card
+     // Thread
++#if defined(TWW_VITA_BOOT)
++    if (!mDoMch_Create()) {
++        OSPanic(__FILE__, __LINE__, "Vita machine initialization failed");
++        return;
++    }
++    pc_milestone("vita-machine-ready");
++#else
+     mDoMch_Create();
++#endif
+ #if TARGET_PC
+     // Milestone M2 (docs/NATIVE_PORT_PHASE4_6.md): every heap made and consistent.
+     pc_heaps_created();
+@@ -426,6 +437,9 @@ void main01() {
+ 
+     // setup FrameBuffer and ZBuffer, init display lists
+     mDoGph_Create();
++#if defined(TWW_VITA_BOOT)
++    pc_milestone("vita-graphics-ready");
++#endif
+ 
+     // Setup control pad
+     mDoCPd_Create();
+@@ -452,6 +466,9 @@ void main01() {
+ 
+     mDoDvdThd_callback_c::create((mDoDvdThd_callback_func)LOAD_COPYDATE, NULL);
+     fapGm_Create();  // init framework
++#if defined(TWW_VITA_BOOT)
++    pc_milestone("vita-scene-manager-ready");
++#endif
+ #if VERSION > VERSION_DEMO
+ #if VERSION <= VERSION_JPN
+     mDisplayHeapSize = 1;
+@@ -502,6 +519,11 @@ void main01() {
+         pc_perf_begin(PC_PERF_GAME);
+         fapGm_Execute();   // handle game execution
+         pc_perf_end(PC_PERF_GAME);
++#if defined(TWW_VITA_BOOT)
++        if (frame == 1) {
++            pc_milestone("vita-first-game-tick");
++        }
++#endif
+ #else
+         mDoCPd_Read();     // read controller input
+         mDoAud_Execute();  // handle audio execution
 diff --git a/native/sdk/src/os/OSAlarm.cpp b/native/sdk/src/os/OSAlarm.cpp
 index fea4ac5..d9c4a7f 100644
 --- a/native/sdk/src/os/OSAlarm.cpp
