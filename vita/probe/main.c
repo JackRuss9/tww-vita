@@ -11,8 +11,8 @@
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/threadmgr.h>
 
-#define DATA_DIR "ux0:data/tww-vita"
-#define DISC_PATH "ux0:data/tww/WindWaker.ciso"
+#define DATA_DIR "ux0:data/tww"
+#define DISC_PATH DATA_DIR "/WindWaker.ciso"
 
 enum {
     SCREEN_WIDTH = 960,
@@ -149,7 +149,7 @@ int main(void)
 {
     sceIoMkdir(DATA_DIR, 0777);
     SceUID log = sceIoOpen(DATA_DIR "/probe.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-    log_line(log, "TWW Vita hardware probe 2\n");
+    log_line(log, "TWW Vita hardware probe 3\n");
     log_line(log, "ABI: %u-bit pointers\n", (unsigned int)(8 * sizeof(void *)));
     probe_disc(log);
 

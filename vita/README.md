@@ -18,7 +18,7 @@ Set `VITASDK` to the SDK installation directory. Install
 Expect a solid green screen when GXM initializes and the log opens. Press START
 while moving both sticks. The app logs the stick readings at the time START is
 pressed, then exits. It also exits on its own after about 30 seconds.
-Collect `ux0:data/tww-vita/probe.log` before running the probe again.
+Collect `ux0:/data/tww/probe.log` before running the probe again.
 
 For an optional disc read test, keep your GameCube CISO at
 `ux0:/data/tww/WindWaker.ciso`. The probe reads the GameCube header from the
