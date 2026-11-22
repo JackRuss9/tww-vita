@@ -12,6 +12,7 @@ typedef struct BootDisc BootDisc;
 BootDisc *boot_disc_open(SceUID log, const char *path);
 void boot_disc_close(BootDisc *disc);
 int boot_disc_read(const BootDisc *disc, uint64_t offset, void *output, size_t bytes);
+uint64_t boot_disc_addressable_bytes(const BootDisc *disc);
 int boot_disc_file(const BootDisc *disc, const char *path, uint32_t *offset, uint32_t *size);
 int boot_disc_file_index(const BootDisc *disc, const char *path);
 int boot_disc_file_at(const BootDisc *disc, int index, uint32_t *offset, uint32_t *size);

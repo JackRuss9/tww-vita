@@ -1,0 +1,184 @@
+diff --git a/aurora-main/cmake/aurora_core.cmake b/aurora-main/cmake/aurora_core.cmake
+index 0f070f1..107ce4b 100644
+--- a/aurora-main/cmake/aurora_core.cmake
++++ b/aurora-main/cmake/aurora_core.cmake
+@@ -38,7 +38,40 @@ if (AURORA_ENABLE_GX)
+ 
+     if(AURORA_GXM)
+       target_compile_definitions(aurora_core PUBLIC AURORA_GXM)
+-      target_compile_options(aurora_core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-gline-tables-only>)
++      option(TWW_GXM_RUNTIME_SHADERS "Build the Vita renderer with runtime shaders for Wind Waker" OFF)
++      if(TWW_GXM_RUNTIME_SHADERS)
++        set(MH3_DEVELOPMENT ON)
++        set(TWW_VITASHARK_PREFIX "" CACHE PATH "Prefix containing VitaShaderRK and SceShaccCgExt")
++        if(TWW_VITASHARK_PREFIX)
++          target_include_directories(aurora_core PRIVATE "${TWW_VITASHARK_PREFIX}/include")
++          target_link_directories(aurora_core PUBLIC "${TWW_VITASHARK_PREFIX}/lib")
++        endif()
++        set(tww_gxm_utility "")
++        file(GLOB tww_gxm_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/lib/gxm/utility/*.cg")
++        foreach(shader IN LISTS tww_gxm_sources)
++          get_filename_component(shader_name "${shader}" NAME_WE)
++          if(NOT shader_name MATCHES "^([0-9a-f]+)-([0-9a-f]+)_([vf])$")
++            message(FATAL_ERROR "Invalid GXM utility shader name: ${shader_name}")
++          endif()
++          if(CMAKE_MATCH_3 STREQUAL "v")
++            set(shader_key "${CMAKE_MATCH_1}")
++            set(shader_stage Vertex)
++          else()
++            set(shader_key "${CMAKE_MATCH_2}")
++            set(shader_stage Fragment)
++          endif()
++          file(READ "${shader}" shader_source)
++          set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${shader}")
++          string(APPEND tww_gxm_utility
++            "{0x${shader_key}ULL, RuntimeShaderStage::${shader_stage}, R\"tww(${shader_source})tww\"},\n")
++        endforeach()
++        file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/tww_gxm_utility.inc"
++          CONTENT "@tww_gxm_utility@" @ONLY)
++        target_include_directories(aurora_core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
++        target_compile_definitions(aurora_core PRIVATE TWW_GXM_RUNTIME_SHADERS=1)
++        target_sources(aurora_core PRIVATE lib/gxm/tww_empty_shader_bank.cpp)
++      endif()
++      target_compile_options(aurora_core PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,Clang>:-gline-tables-only>)
+ 
+       # The executable links the generated shader bank tables and blob
+       # (cmake/GxmShaderBank.cmake, docs/optimizations/rendering/offline-shader-bank.md).
+diff --git a/aurora-main/cmake/aurora_gx.cmake b/aurora-main/cmake/aurora_gx.cmake
+index 268d204..3b672b2 100644
+--- a/aurora-main/cmake/aurora_gx.cmake
++++ b/aurora-main/cmake/aurora_gx.cmake
+@@ -52,5 +52,5 @@ target_link_libraries(aurora_gx PRIVATE sqlite3 PNG::PNG)
+ if(AURORA_GXM)
+   # Source lines for profilers in the native GX and resource-cache code.
+   # These tables stay in the development ELF, outside the installed SELF.
+-  target_compile_options(aurora_gx PRIVATE -gline-tables-only)
++  target_compile_options(aurora_gx PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,Clang>:-gline-tables-only>)
+ endif()
+diff --git a/aurora-main/extern/CMakeLists.txt b/aurora-main/extern/CMakeLists.txt
+index 3bb0d14..9c4db7d 100644
+--- a/aurora-main/extern/CMakeLists.txt
++++ b/aurora-main/extern/CMakeLists.txt
+@@ -46,7 +46,7 @@ else ()
+ endif ()
+ 
+ if(VITA)
+-  target_compile_options(xxhash PRIVATE -gline-tables-only)
++  target_compile_options(xxhash PRIVATE $<$<COMPILE_LANG_AND_ID:C,Clang>:-gline-tables-only>)
+ endif()
+ 
+ if (NOT TARGET fmt)
+@@ -177,7 +177,7 @@ if (AURORA_ENABLE_GX)
+     message(STATUS "aurora: Using existing Freetype")
+   endif ()
+ 
+-  if(VITA)
++  if(VITA AND NOT FT_DISABLE_BZIP2)
+     # FindFreetype does not propagate the VitaSDK archive's bzip2 dependency.
+     find_package(BZip2 REQUIRED)
+     target_link_libraries(Freetype::Freetype INTERFACE BZip2::BZip2)
+@@ -230,7 +230,9 @@ if (AURORA_ENABLE_GX)
+     target_link_libraries(imgui PRIVATE ${AURORA_SDL3_TARGET})
+   endif ()
+ 
+-  if (NOT TARGET sqlite3)
++  if (AURORA_GXM AND NOT TARGET sqlite3)
++    add_library(sqlite3 INTERFACE)
++  elseif (NOT TARGET sqlite3)
+     message(STATUS "aurora: Fetching sqlite3")
+     FetchContent_Declare(sqlite3
+       URL https://sqlite.org/2026/sqlite-amalgamation-3510300.zip
+diff --git a/aurora-main/include/dolphin/gx/GXGeometry.h b/aurora-main/include/dolphin/gx/GXGeometry.h
+index f749789..744b3a3 100644
+--- a/aurora-main/include/dolphin/gx/GXGeometry.h
++++ b/aurora-main/include/dolphin/gx/GXGeometry.h
+@@ -23,9 +23,6 @@ void GXSetPointSize(u8 pointSize, GXTexOffset texOffsets);
+ void GXEnableTexOffsets(GXTexCoordID coord, GXBool line_enable, GXBool point_enable);
+ #ifdef TARGET_PC
+ void GXSetArray(GXAttr attr, const void* data, u32 size, u8 stride, bool le);
+-static inline void GXSetArray(GXAttr attr, const void* data, u32 size, u8 stride) {
+-  aurora_legacy_gx_panic("GXSetArray");
+-}
+ #define GXSETARRAY(attr, data, size, stride, le) GXSetArray((attr), (data), (size), (stride), (le))
+ #else
+ void GXSetArray(GXAttr attr, const void* data, u8 stride);
+diff --git a/aurora-main/lib/gxm/device.cpp b/aurora-main/lib/gxm/device.cpp
+index 2090253..0e6fef5 100644
+--- a/aurora-main/lib/gxm/device.cpp
++++ b/aurora-main/lib/gxm/device.cpp
+@@ -481,6 +481,12 @@ int64_t repeated_vblanks() noexcept {
+   return g_repeatedVblanks.load(std::memory_order_relaxed);
+ }
+ 
++#ifdef TWW_GXM_RUNTIME_SHADERS
++extern "C" uint32_t aurora_vita_presented_frames() {
++  return g_displayPresented.load(std::memory_order_relaxed);
++}
++#endif
++
+ DisplayStatistics display_statistics() noexcept {
+   DisplayStatistics result;
+   result.retired = g_displayCompleted.load(std::memory_order_acquire);
+diff --git a/aurora-main/lib/gxm/runtime_shader.cpp b/aurora-main/lib/gxm/runtime_shader.cpp
+index 3591480..c5e4929 100644
+--- a/aurora-main/lib/gxm/runtime_shader.cpp
++++ b/aurora-main/lib/gxm/runtime_shader.cpp
+@@ -20,7 +20,19 @@
+ 
+ namespace aurora::gxm {
+ namespace {
++#ifdef TWW_GXM_RUNTIME_SHADERS
++constexpr const char* Directory = "ux0:/data/tww/shaders";
++struct UtilityShader {
++  uint64_t key;
++  RuntimeShaderStage stage;
++  const char* source;
++};
++constexpr UtilityShader UtilityShaders[] = {
++#include "tww_gxm_utility.inc"
++};
++#else
+ constexpr const char* Directory = "ux0:/data/mh3-wii/shaders";
++#endif
+ constexpr const char* CacheVersion = "mh3-gxm-cg-v1-O3-fastmath-nofastprecision-fastint";
+ constexpr size_t MaxProgramBytes = 1024 * 1024;
+ constexpr size_t MaxResidentBytes = 16 * 1024 * 1024;
+@@ -215,6 +227,18 @@ const SceGxmProgram* runtime_shader_binary(uint64_t hash, RuntimeShaderStage sta
+   const Key key{hash, stage};
+   auto found = s.entries.find(key);
+ 
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  if (found == s.entries.end() && stage != RuntimeShaderStage::ScalarFragment) {
++    for (const auto& utility : UtilityShaders) {
++      if (utility.key == hash && utility.stage == stage) {
++        remember(s, key, utility.source, "\"Aurora GXM utility\"", true);
++        found = s.entries.find(key);
++        break;
++      }
++    }
++  }
++#endif
++
+   if (stage == RuntimeShaderStage::ScalarFragment && found == s.entries.end()) {
+     const auto fragment = s.entries.find({hash, RuntimeShaderStage::Fragment});
+ 
+diff --git a/aurora-main/lib/gxm/tww_empty_shader_bank.cpp b/aurora-main/lib/gxm/tww_empty_shader_bank.cpp
+new file mode 100644
+index 0000000..386623b
+--- /dev/null
++++ b/aurora-main/lib/gxm/tww_empty_shader_bank.cpp
+@@ -0,0 +1,14 @@
++#include "shader_bank.hpp"
++
++// The first boot compiles GXM programs from source on demand. Keeping the
++// sentinel arrays nonempty also keeps the bank's pointer arithmetic valid.
++namespace aurora::gxm::shader_bank {
++const unsigned char* const Blob = nullptr;
++const uint32_t DictionaryBytes = 0;
++const Program VertexPrograms[1]{};
++const Program FragmentPrograms[1]{};
++const Program FragmentScalarPrograms[1]{};
++const size_t VertexProgramCount = 0;
++const size_t FragmentProgramCount = 0;
++const size_t FragmentScalarProgramCount = 0;
++}

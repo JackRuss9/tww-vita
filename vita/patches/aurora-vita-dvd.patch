@@ -1,0 +1,106 @@
+diff --git a/lib/dolphin/dvd/dvd.cpp b/lib/dolphin/dvd/dvd.cpp
+index 94481a4..1ad8328 100644
+--- a/lib/dolphin/dvd/dvd.cpp
++++ b/lib/dolphin/dvd/dvd.cpp
+@@ -4,8 +4,12 @@
+ #include <algorithm>
+ #include <dolphin/os.h>
+ #include <nod.h>
++#ifndef TWW_VITA_DVD
+ #include <SDL3/SDL_iostream.h>
++#endif
++#ifdef TRACY_ENABLE
+ #include <tracy/Tracy.hpp>
++#endif
+ 
+ #include <atomic>
+ #include <condition_variable>
+@@ -23,8 +27,6 @@
+ 
+ #include "dvd.hpp"
+ 
+-#include "../../internal.hpp"
+-
+ using namespace aurora::dvd::impl;
+ 
+ namespace aurora::dvd::impl {
+@@ -123,6 +125,7 @@ bool isAligned(const void* addr, uintptr_t align) {
+   return (reinterpret_cast<uintptr_t>(addr) & (align - 1)) == 0;
+ }
+ 
++#ifndef TWW_VITA_DVD
+ int64_t sdlStreamReadAt(void* userData, uint64_t offset, void* out, size_t len) {
+   auto* io = static_cast<SDL_IOStream*>(userData);
+   if (io == nullptr || out == nullptr ||
+@@ -163,6 +166,7 @@ void sdlStreamClose(void* userData) {
+   }
+   SDL_CloseIO(io);
+ }
++#endif
+ 
+ bool nameEqualsIgnoreCase(const std::string& lhs, const char* rhs, size_t rhsLen) {
+   return aurora::dvd::impl::nameEqualsIgnoreCase(lhs, std::string_view(rhs, rhsLen));
+@@ -655,6 +659,12 @@ bool aurora_dvd_open(const char* disc_path) {
+   s_worker.stop();
+   clearState();
+ 
++#ifdef TWW_VITA_DVD
++  NodDiscStream stream{};
++  if (!tww_vita_open_dvd_stream(disc_path, &stream)) {
++    return false;
++  }
++#else
+   SDL_IOStream* io = SDL_IOFromFile(disc_path, "rb");
+   if (io == nullptr) {
+     return false;
+@@ -666,6 +676,7 @@ bool aurora_dvd_open(const char* disc_path) {
+       .stream_len = sdlStreamLen,
+       .close = sdlStreamClose,
+   };
++#endif
+   const NodDiscOptions options{
+       .preloader_threads = 1,
+   };
+@@ -694,7 +705,9 @@ bool aurora_dvd_open(const char* disc_path) {
+     s_diskID.streaming = header.audio_streaming;
+     s_diskID.streamingBufSize = header.audio_stream_buf_size;
+ 
++#ifndef TWW_VITA_DVD
+     std::memcpy(aurora::g_gameName, s_diskID.gameName, sizeof(s_diskID.gameName));
++#endif
+   }
+ 
+   if (!rebuildFST()) {
+diff --git a/lib/dolphin/dvd/dvd.hpp b/lib/dolphin/dvd/dvd.hpp
+index 13cb73a..03f15fa 100644
+--- a/lib/dolphin/dvd/dvd.hpp
++++ b/lib/dolphin/dvd/dvd.hpp
+@@ -3,6 +3,8 @@
+ #include <string>
+ #include <memory>
+ #include <mutex>
++#include <cassert>
++#include <vector>
+ 
+ #include <nod.h>
+ 
+@@ -10,11 +12,19 @@
+ #include <aurora/dvd.h>
+ #include <dolphin/dvd.h>
+ 
++#ifdef TWW_VITA_DVD
++#include "vita_dvd_platform.h"
++#else
+ #include "../../internal.hpp"
++#endif
+ 
+ namespace aurora::dvd::impl {
+ 
++#ifdef TWW_VITA_DVD
++inline VitaDvdLog Log;
++#else
+ inline Module Log("aurora::dvd");
++#endif
+ 
+ using FstIndex = s32;
+ constexpr s32 k_invalidFstEntry = -1;

@@ -70,9 +70,14 @@ done:
     return result;
 }
 
+uint64_t boot_disc_addressable_bytes(const BootDisc *disc)
+{
+    return (uint64_t)CISO_MAP_SIZE * disc->block_size;
+}
+
 int boot_disc_read(const BootDisc *disc, uint64_t offset, void *output, size_t bytes)
 {
-    uint64_t limit = (uint64_t)CISO_MAP_SIZE * disc->block_size;
+    uint64_t limit = boot_disc_addressable_bytes(disc);
     if (offset > limit || bytes > limit - offset)
         return -1;
     uint8_t *out = output;

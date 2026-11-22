@@ -71,6 +71,43 @@ undefined symbol list includes calls to other game modules and platform
 interfaces such as GX and VI. The full game sources are available as
 the `cos_modules` target. The diagnostic VPK remains a separate target.
 
+For the complete ARM object set, apply `switchwaker-vita-gcc.patch`
+to SwitchWaker and use the `switchwaker_all_link_check` target. Set
+`TWW_GXM_AURORA_DIR` to the GXM fork when checking that backend. This
+selects its GX texture and palette layouts for the game objects.
+
+## Runtime DVD service
+
+Apply `vita/patches/aurora-vita-dvd.patch` to the pinned Aurora checkout
+and configure with `-DTWW_BUILD_RUNTIME_DVD=ON`. Build the
+`tww_vita_dvd` target. This archive uses Aurora's worker, directory
+traversal, and DVD callbacks over the Vita CISO stream. The diagnostic
+executable uses its own inline adapter. The game executable should link
+the runtime service in its place.
+
+The first game boot can link `tww_vita_no_card` to report empty GameCube
+slots through the normal CARD API. A save backend is needed to write data.
+The `tww_vita_sdk` target compiles the non-audio SwitchWaker SDK for that
+executable.
+
+## GXM renderer integration
+
+Apply `mh3-aurora-vita-gxm.patch` at the root of the Monster Hunter Tri port
+checkout. Use its `aurora-main/` directory for the renderer build and
+`TWW_GXM_AURORA_DIR`. For a GCC Vita build, configure the renderer with
+`-DCMAKE_C_FLAGS=-fno-short-enums -DCMAKE_CXX_FLAGS=-fno-short-enums`.
+Aurora, SDL and the game callers must agree on enum width.
+
+`TWW_GXM_RUNTIME_SHADERS=ON` selects runtime compilation with vitaShaRK.
+`TWW_VITASHARK_PREFIX` points to the dependency prefix with the shader
+compiler libraries and headers. This configuration supplies the Aurora
+utility shaders and caches generated programs in `ux0:/data/tww/shaders`.
+It uses the Vita's shader compiler module at runtime. The diagnostic VPK
+build does not use this renderer.
+
+The `tww_vita_gxm_frames` archive wraps Aurora's game frame lifecycle.
+Its presentation checkpoint uses the successful Vita scanout count.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)

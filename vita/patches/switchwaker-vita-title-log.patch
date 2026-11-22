@@ -1,0 +1,26 @@
+diff --git a/game/src/d/d_s_title.cpp b/game/src/d/d_s_title.cpp
+index ade8353..0a832d3 100644
+--- a/game/src/d/d_s_title.cpp
++++ b/game/src/d/d_s_title.cpp
+@@ -13,6 +13,9 @@
+ #include "f_op/f_op_scene_mng.h"
+ #include "f_pc/f_pc_leaf.h"
+ #include "f_pc/f_pc_manager.h"
++#ifdef TWW_VITA_BOOT
++#include "pc/pc_harness.h"
++#endif
+ #include "d/d_com_inf_game.h"
+ #include "d/d_meter.h"
+ #include "m_Do/m_Do_controller_pad.h"
+@@ -128,6 +131,11 @@ static cPhs_State dScnTitle_Create(scene_class* i_scn) {
+     }
+ #endif
+ 
++#ifdef TWW_VITA_BOOT
++    if (fpcM_GetName(i_this) == fpcNm_TITLE_SCENE_e) {
++        pc_milestone("vita-title-scene-ready");
++    }
++#endif
+     return cPhs_COMPLEATE_e;
+ }
+ 

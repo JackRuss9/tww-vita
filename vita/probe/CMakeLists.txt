@@ -45,6 +45,23 @@ set(sw_game "${TWW_SWITCHWAKER_DIR}/game")
 set(sw_native "${TWW_SWITCHWAKER_DIR}/native")
 set(aurora_os "${TWW_AURORA_DIR}/lib/dolphin/os")
 option(TWW_BUILD_GAME_OBJECTS "Enable ARM compilation of the SwitchWaker game modules" OFF)
+option(TWW_BUILD_RUNTIME_DVD "Build Aurora's runtime DVD service on the Vita CISO reader" OFF)
+set(TWW_GXM_AURORA_DIR "" CACHE PATH "Aurora GXM checkout used to build against its GX ABI")
+
+if(TWW_BUILD_RUNTIME_DVD)
+  set(tww_nod "${TWW_SWITCHWAKER_DIR}/switch/native/nod")
+  add_library(tww_vita_dvd STATIC
+    disc.c vita_dvd_platform.cpp
+    "${tww_nod}/nod_gcn.cpp"
+    "${TWW_AURORA_DIR}/lib/dolphin/dvd/dvd.cpp"
+    "${TWW_AURORA_DIR}/lib/dolphin/dvd/fst.cpp")
+  target_compile_features(tww_vita_dvd PRIVATE c_std_11 cxx_std_20)
+  target_compile_definitions(tww_vita_dvd PRIVATE TWW_VITA_DVD=1 TARGET_PC=1)
+  target_include_directories(tww_vita_dvd PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${tww_nod}" "${TWW_AURORA_DIR}/include" "${sw_native}/include/sdk")
+  target_compile_options(tww_vita_dvd PRIVATE "SHELL:-include '${sw_native}/include/sdk/cos_sdk_extras.h'")
+  target_link_libraries(tww_vita_dvd PUBLIC pthread SceIofilemgr_stub)
+endif()
 
 add_library(tww_game_headers INTERFACE)
 target_compile_features(tww_game_headers INTERFACE c_std_11 cxx_std_20)
@@ -62,7 +79,31 @@ target_include_directories(tww_game_headers INTERFACE
   "${TWW_SWITCHWAKER_ASSETS}/include" "${TWW_SWITCHWAKER_ASSETS}"
   "${sw_native}/include/pc/msl" "${sw_native}/sdk/include")
 
+if(TWW_GXM_AURORA_DIR)
+  # Both sides of GX must share the texture and palette object layouts.
+  set(gxm_abi_headers "${CMAKE_CURRENT_BINARY_DIR}/gxm-abi")
+  configure_file("${TWW_GXM_AURORA_DIR}/include/dolphin/gx/GXStruct.h"
+    "${gxm_abi_headers}/dolphin/gx/GXStruct.h" COPYONLY)
+  target_include_directories(tww_game_headers BEFORE INTERFACE "${gxm_abi_headers}")
+  target_compile_options(tww_game_headers INTERFACE -fno-short-enums)
+  add_library(tww_vita_gxm_frames STATIC vita_gxm_frames.cpp)
+  target_compile_features(tww_vita_gxm_frames PRIVATE cxx_std_20)
+  target_compile_options(tww_vita_gxm_frames PRIVATE -fno-short-enums)
+  target_include_directories(tww_vita_gxm_frames PRIVATE
+    "${TWW_GXM_AURORA_DIR}/include" "${sw_native}/include")
+endif()
+
 if(TWW_BUILD_GAME_OBJECTS)
+  add_library(tww_vita_no_card STATIC vita_no_card.cpp)
+  target_link_libraries(tww_vita_no_card PRIVATE tww_game_headers)
+  file(GLOB_RECURSE runtime_sdk_sources CONFIGURE_DEPENDS
+    "${sw_native}/sdk/src/*.c" "${sw_native}/sdk/src/*.cpp")
+  # The audio translation units are linked with the audio backend selected by the executable.
+  list(FILTER runtime_sdk_sources EXCLUDE REGEX "/sdk/src/audio/")
+  add_library(tww_vita_sdk STATIC ${runtime_sdk_sources})
+  target_link_libraries(tww_vita_sdk PRIVATE tww_game_headers PUBLIC pthread)
+  target_compile_definitions(tww_vita_sdk PRIVATE
+    COS_AURORA_COMMIT_STR="3227d76c60e1e782ca576610bce61c9e7744d8be")
   set(COS_ROOT "${sw_game}")
   add_library(cos_game_headers ALIAS tww_game_headers)
   include("${sw_native}/cmake/deferred.cmake")
@@ -80,6 +121,24 @@ if(TWW_BUILD_GAME_OBJECTS)
     COMMAND "${CMAKE_NM}" -Cu "${CMAKE_CURRENT_BINARY_DIR}/switchwaker-boot-arm.o"
     DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/switchwaker-boot-arm.o"
     VERBATIM)
+
+  set(game_objects)
+  foreach(module IN LISTS COS_MODULES)
+    if(TARGET "${module}")
+      list(APPEND game_objects "$<TARGET_OBJECTS:${module}>")
+    endif()
+  endforeach()
+  set(game_response "${CMAKE_CURRENT_BINARY_DIR}/switchwaker-objects.rsp")
+  set(game_bundle "${CMAKE_CURRENT_BINARY_DIR}/switchwaker-arm.o")
+  file(GENERATE OUTPUT "${game_response}"
+    CONTENT "\"$<JOIN:${game_objects},\"\n\">\"\n")
+  add_custom_command(OUTPUT "${game_bundle}"
+    COMMAND "${CMAKE_LINKER}" -r -o "${game_bundle}" "@${game_response}"
+    DEPENDS cos_modules "${game_response}" ${game_objects}
+    COMMAND_EXPAND_LISTS VERBATIM)
+  add_custom_target(switchwaker_all_link_check
+    COMMAND "${CMAKE_NM}" -Cu "${game_bundle}"
+    DEPENDS "${game_bundle}" VERBATIM)
 endif()
 
 add_library(switchwaker_boot_system STATIC
@@ -107,7 +166,7 @@ add_library(switchwaker_boot_system STATIC
   "${sw_game}/src/JSystem/JKernel/JKRDvdFile.cpp"
   "${sw_game}/src/JSystem/JKernel/JKRDecomp.cpp"
   "${sw_game}/src/JSystem/JUtility/JUTGamePad.cpp"
-  "${sw_game}/src/dolphin/pad/PadClamp.c"
+  "${sw_game}/src/dolphin/pad/Padclamp.c"
   "${sw_game}/src/JSystem/JSupport/JSUList.cpp")
 target_link_libraries(switchwaker_boot_system PRIVATE tww_game_headers)
 target_compile_definitions(switchwaker_boot_system PRIVATE TWW_VITA_EARLY_BOOT=1)

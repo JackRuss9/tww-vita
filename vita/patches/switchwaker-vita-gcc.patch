@@ -1,0 +1,22 @@
+diff --git a/game/src/d/actor/d_a_npc_zl1.cpp b/game/src/d/actor/d_a_npc_zl1.cpp
+index 16570e9..0f8dae6 100644
+--- a/game/src/d/actor/d_a_npc_zl1.cpp
++++ b/game/src/d/actor/d_a_npc_zl1.cpp
+@@ -1064,7 +1064,7 @@ void daNpc_Zl1_c::eventOrder() {
+ 
+ /* 0000213C-00002280       .text checkOrder__11daNpc_Zl1_cFv */
+ void daNpc_Zl1_c::checkOrder() {
+-    static const Vec a_start_pos[] = {-229.76634f, 37.46317f, 305.2134f};
++    static const cXyz a_start_pos(-229.76634f, 37.46317f, 305.2134f);
+     if(eventInfo.checkCommandDemoAccrpt()) {
+         if(dComIfGp_evmng_startCheck(mEventIdx[field_0x7A8]) && field_0x84A >= 3) {
+             switch(field_0x7A8) {
+@@ -1072,7 +1072,7 @@ void daNpc_Zl1_c::checkOrder() {
+                     field_0x7D3 = true;
+                     break;
+                 case 2:
+-                    dComIfGs_setRestartRoom(*static_cast<const cXyz*>(a_start_pos), 0x4000, 0);
++                    dComIfGs_setRestartRoom(a_start_pos, 0x4000, 0);
+                     field_0x7C9 = true;
+                     break;
+                 case 3:
