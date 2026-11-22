@@ -1,3 +1,20 @@
+diff --git a/game/src/JSystem/JFramework/JFWSystem.cpp b/game/src/JSystem/JFramework/JFWSystem.cpp
+index b9480c3..e2bee43 100644
+--- a/game/src/JSystem/JFramework/JFWSystem.cpp
++++ b/game/src/JSystem/JFramework/JFWSystem.cpp
+@@ -32,7 +32,12 @@ s32 JFWSystem::CSetUpParam::streamPriority = 8;
+ s32 JFWSystem::CSetUpParam::decompPriority = 7;
+ s32 JFWSystem::CSetUpParam::aPiecePriority = 6;
+ ResFONT* JFWSystem::CSetUpParam::systemFontRes = (ResFONT*)JUTResFONT_Ascfont_fix12;
++#if defined(TWW_VITA_EARLY_BOOT)
++// mDoMch selects the render mode before the Vita startup checkpoint.
++const GXRenderModeObj* JFWSystem::CSetUpParam::renderMode;
++#else
+ const GXRenderModeObj* JFWSystem::CSetUpParam::renderMode = &GXNtsc480IntDf;
++#endif
+ u32 JFWSystem::CSetUpParam::exConsoleBufferSize = 0x24F8;
+ 
+ JKRExpHeap* JFWSystem::rootHeap = NULL;
 diff --git a/game/src/d/d_s_logo.cpp b/game/src/d/d_s_logo.cpp
 index c57c020..4cc0796 100644
 --- a/game/src/d/d_s_logo.cpp
@@ -52,10 +69,10 @@ index 977859a..5a3e53c 100644
      return archiveHeap;
  }
 diff --git a/game/src/m_Do/m_Do_machine.cpp b/game/src/m_Do/m_Do_machine.cpp
-index 119fe7c..f945e8a 100644
+index 119fe7c..ffe9b35 100644
 --- a/game/src/m_Do/m_Do_machine.cpp
 +++ b/game/src/m_Do/m_Do_machine.cpp
-@@ -497,6 +497,28 @@ GXRenderModeObj g_ntscZeldaProg = {
+@@ -497,8 +497,31 @@ GXRenderModeObj g_ntscZeldaProg = {
  };
  #endif
  
@@ -83,8 +100,48 @@ index 119fe7c..f945e8a 100644
 +
  /* 8000C70C-8000CB48       .text mDoMch_Create__Fv */
  bool mDoMch_Create() {
++#if !defined(TWW_VITA_EARLY_BOOT)
  #if VERSION == VERSION_DEMO
-@@ -598,6 +620,11 @@ bool mDoMch_Create() {
+     if (mDoMain::developmentMode == 0) {
+         OSReportDisable();
+@@ -507,11 +530,13 @@ bool mDoMch_Create() {
+     if (mDoMain::developmentMode == 0 || !(OSGetConsoleType() & 0x10000000)) {
+         OSReportDisable();
+     }
++#endif
+ #endif
+ 
+     JKRHeap::setDefaultDebugFill(mDoMch::mDebugFill);
+     JFWSystem::setMaxStdHeap(1);
+ 
++#if !defined(TWW_VITA_BOOT)
+     // Whole host addresses, as in Dusklight (ref/dusklight/src/m_Do/m_Do_machine.cpp, CC0). Aurora's
+     // MEM1 lies above 4 GiB, so the test below always holds and the arena loses its top 24 MiB,
+     // as on a development console with more memory than a retail one; 232 of the 256 MiB remain.
+@@ -531,6 +556,10 @@ bool mDoMch_Create() {
+     if (mDoMain::memMargin != -1) {
+         arenaSize += mDoMain::memMargin;
+     }
++#else
++    // Vita supplies a bounded arena; leave it intact regardless of its virtual address.
++    u32 arenaSize = (uintptr_t)OSGetArenaHi() - (uintptr_t)OSGetArenaLo() - 0xF0;
++#endif
+ 
+     u32 archiveHeapSize;
+     u32 gameHeapSize;
+@@ -585,6 +614,11 @@ bool mDoMch_Create() {
+ #endif
+ #endif
+     JFWSystem::setRenderMode(mDoMch_render_c::getRenderModeObj());
++#if defined(TWW_VITA_EARLY_BOOT)
++    JFWSystem::firstInit();
++    JKRHeap* system = JFWSystem::getSystemHeap();
++    return system && mDoMch_CreateGameHeaps(commandHeapSize, archiveHeapSize, gameHeapSize, system);
++#else
+     JFWSystem::init();
+ 
+ #if VERSION > VERSION_DEMO
+@@ -598,6 +632,11 @@ bool mDoMch_Create() {
      JKRSetErrorFlag(JKRHeap::getRootHeap(), true);
      JKRSetErrorFlag(JFWSystem::getSystemHeap(), true);
  
@@ -96,7 +153,7 @@ index 119fe7c..f945e8a 100644
      JKRHeap* rootHeap = JKRHeap::getRootHeap();
  #if VERSION == VERSION_JPN
      rootHeap->dump_sort();
-@@ -617,6 +644,7 @@ bool mDoMch_Create() {
+@@ -617,6 +656,7 @@ bool mDoMch_Create() {
      JUT_ASSERT(VERSION_SELECT(871, 996, 1104, 1143), size > 0);
      JKRHeap* zeldaHeap = mDoExt_createZeldaHeap(size, sysHeap);
      JKRSetCurrentHeap(zeldaHeap);
@@ -104,11 +161,19 @@ index 119fe7c..f945e8a 100644
  
      u32 transBufferSize = 0x2000; // 8 KiB
      JKRSetAramTransferBuffer(NULL, transBufferSize, JKRGetSystemHeap());
+@@ -642,6 +682,7 @@ bool mDoMch_Create() {
+     mDoDvdErr_ThdInit();
+     mDoMemCd_ThdInit();
+     return true;
++#endif
+ }
+ 
+ GXRenderModeObj* mDoMch_render_c::mRenderModeObj = &g_ntscZeldaIntDf;
 diff --git a/game/src/m_Do/m_Do_main.cpp b/game/src/m_Do/m_Do_main.cpp
-index b1938b2..4a8ad42 100644
+index b1938b2..7874965 100644
 --- a/game/src/m_Do/m_Do_main.cpp
 +++ b/game/src/m_Do/m_Do_main.cpp
-@@ -416,9 +416,20 @@ void debug() {
+@@ -416,9 +416,28 @@ void debug() {
  
  /* 80006338-80006464       .text main01__Fv */
  void main01() {
@@ -122,14 +187,22 @@ index b1938b2..4a8ad42 100644
 +        OSPanic(__FILE__, __LINE__, "Vita machine initialization failed");
 +        return;
 +    }
++#if defined(TWW_VITA_EARLY_BOOT)
++    pc_milestone("vita-machine-heaps-ready");
++#else
 +    pc_milestone("vita-machine-ready");
++#endif
 +#else
      mDoMch_Create();
 +#endif
++#if defined(TWW_VITA_EARLY_BOOT)
++    pc_milestone("vita-awaiting-gx-backend");
++    return;
++#else
  #if TARGET_PC
      // Milestone M2 (docs/NATIVE_PORT_PHASE4_6.md): every heap made and consistent.
      pc_heaps_created();
-@@ -426,6 +437,9 @@ void main01() {
+@@ -426,6 +445,9 @@ void main01() {
  
      // setup FrameBuffer and ZBuffer, init display lists
      mDoGph_Create();
@@ -139,7 +212,7 @@ index b1938b2..4a8ad42 100644
  
      // Setup control pad
      mDoCPd_Create();
-@@ -452,6 +466,9 @@ void main01() {
+@@ -452,6 +474,9 @@ void main01() {
  
      mDoDvdThd_callback_c::create((mDoDvdThd_callback_func)LOAD_COPYDATE, NULL);
      fapGm_Create();  // init framework
@@ -149,7 +222,7 @@ index b1938b2..4a8ad42 100644
  #if VERSION > VERSION_DEMO
  #if VERSION <= VERSION_JPN
      mDisplayHeapSize = 1;
-@@ -502,6 +519,11 @@ void main01() {
+@@ -502,6 +527,11 @@ void main01() {
          pc_perf_begin(PC_PERF_GAME);
          fapGm_Execute();   // handle game execution
          pc_perf_end(PC_PERF_GAME);
@@ -161,6 +234,37 @@ index b1938b2..4a8ad42 100644
  #else
          mDoCPd_Read();     // read controller input
          mDoAud_Execute();  // handle audio execution
+@@ -540,6 +570,7 @@ void main01() {
+         pc_frame_end();
+ #endif
+     } while (true);
++#endif
+ }
+ 
+ #if VERSION == VERSION_DEMO
+@@ -574,14 +605,15 @@ void parse_args(int argc, const char* argv[]) {
+ #endif
+ 
+ #if VERSION > VERSION_DEMO
+-#if TARGET_PC
++#if TARGET_PC && !defined(TWW_VITA_EARLY_BOOT)
+ // main01 runs on the process main thread, which cos_sdk runs as its default thread (step 6.1).
+ OSThread& mainThread = *pc_main_thread();
+-#else
++#elif !TARGET_PC
+ OSThread mainThread;
+ #endif
+ #endif
+ 
++#if !defined(TWW_VITA_EARLY_BOOT)
+ /* 80006464-800065DC       .text main */
+ #if TARGET_PC
+ // Aurora declares extern "C" int aurora_main(int, char*[]); the signature must match it.
+@@ -678,3 +710,4 @@ int main(int argc, const char* argv[]) {
+     return OSSuspendThread(current_thread);
+ #endif
+ }
++#endif
 diff --git a/native/sdk/src/os/OSAlarm.cpp b/native/sdk/src/os/OSAlarm.cpp
 index fea4ac5..d9c4a7f 100644
 --- a/native/sdk/src/os/OSAlarm.cpp
@@ -300,10 +404,10 @@ index 9721467..f756826 100644
  }
  
 diff --git a/native/src/pc/runtime/pc_assets.cpp b/native/src/pc/runtime/pc_assets.cpp
-index 9749716..6d15ef4 100644
+index 9749716..2941b91 100644
 --- a/native/src/pc/runtime/pc_assets.cpp
 +++ b/native/src/pc/runtime/pc_assets.cpp
-@@ -299,6 +299,58 @@ bool cos_asset_fill(void* array, unsigned int size, unsigned int id) {
+@@ -299,6 +299,68 @@ bool cos_asset_fill(void* array, unsigned int size, unsigned int id) {
  
  namespace pc {
  
@@ -315,6 +419,16 @@ index 9749716..6d15ef4 100644
 +        rd32(archive.data() + 4) > archive.size())
 +        return false;
 +    *expandedSize = static_cast<uint32_t>(archive.size());
++    return true;
++}
++
++bool probeExpandYaz0(const uint8_t* source, size_t size, uint8_t* output, size_t capacity) {
++    if (size < 16 || rd32(source + 4) != capacity || capacity > 4 * 1024 * 1024)
++        return false;
++    cos_sdk::HostVector<uint8_t> reference;
++    if (!yaz0Expand(source, size, reference))
++        return false;
++    memcpy(output, reference.data(), reference.size());
 +    return true;
 +}
 +

@@ -7,6 +7,8 @@
 #include "JSystem/JFramework/JFWSystem.h"
 #include "JSystem/JKernel/JKRExpHeap.h"
 #include "JSystem/JKernel/JKRDvdFile.h"
+#include "JSystem/JKernel/JKRDecomp.h"
+#include "pc/pc_harness.h"
 #include "JSystem/JUtility/JUTAssert.h"
 #include "JSystem/JUtility/JUTConsole.h"
 
@@ -18,7 +20,7 @@
 #include <cstdio>
 #include <cstring>
 
-bool mDoMch_CreateGameHeaps(u32 commandBytes, u32 archiveBytes, u32 gameBytes, JKRHeap *system);
+void main01();
 JKRExpHeap *mDoExt_getGameHeap();
 JKRExpHeap *mDoExt_getZeldaHeap();
 extern "C" int vita_join_alarm_thread();
@@ -75,6 +77,11 @@ void report(const char *format, va_list args)
     std::vsnprintf(message, sizeof(message), format, args);
     probe_log(boot_log, "%s", message);
 }
+}
+
+extern "C" void pc_milestone(const char *name)
+{
+    system_checkpoint(boot_log, name);
 }
 
 extern "C" void probe_scheduler_diagnostic(const char *message, bool fatal)
@@ -213,25 +220,16 @@ extern "C" int boot_probe_system(SceUID log)
     probe_log(log, "boot: OS arena ready (%u bytes)\n", static_cast<unsigned int>(hi - lo));
     probe_log(log, "boot: OS clock %lld ticks\n", static_cast<long long>(OSGetTime()));
 
-    constexpr unsigned int SystemBytes = 32 * 1024 * 1024;
-    constexpr unsigned int CommandBytes = 0x1000 * 2;
-    constexpr unsigned int ArchiveBytes = 0xa51400 * 2;
-    constexpr unsigned int GameBytes = 0x2ce800 * 20;
-    JFWSystem::setMaxStdHeap(1);
-    JFWSystem::setSysHeapSize(SystemBytes);
-    system_checkpoint(log, "boot: entering JFWSystem::firstInit");
-    JFWSystem::firstInit();
+    system_checkpoint(log, "boot: calling SwitchWaker main01");
+    main01();
     JKRExpHeap *root = JFWSystem::rootHeap;
     JKRExpHeap *system = JFWSystem::getSystemHeap();
-    if (!root || !system || !root->check() || !system->check())
-        return -1;
-    system_checkpoint(log, "boot: entering mDoMch_CreateGameHeaps");
-    if (!mDoMch_CreateGameHeaps(CommandBytes, ArchiveBytes, GameBytes, system) ||
-        !root->check() || !system->check() || !mDoExt_getZeldaHeap()->check())
-        return -1;
     JKRExpHeap *game = mDoExt_getGameHeap();
+    JKRExpHeap *zelda = mDoExt_getZeldaHeap();
+    if (!root || !system || !game || !zelda || !root->check() || !system->check() || !zelda->check())
+        return -1;
     probe_log(log, "boot: mDoMch game heaps ready, root free %u, system free %u, Zelda free %u\n",
-        root->getTotalFreeSize(), system->getTotalFreeSize(), mDoExt_getZeldaHeap()->getTotalFreeSize());
+        root->getTotalFreeSize(), system->getTotalFreeSize(), zelda->getTotalFreeSize());
 
     const u32 free_before = game->getTotalFreeSize();
     void *sample = game->alloc(4096, 32);
@@ -286,6 +284,38 @@ extern "C" int boot_probe_stop_scheduler(SceUID log)
     return error;
 }
 
+static bool check_archive_decode(SceUID log, JKRDvdFile &file)
+{
+    const s32 size = file.getFileSize();
+    if (size < 16 || size > 2 * 1024 * 1024)
+        return false;
+    const s32 read_size = (size + 31) & ~31;
+    auto *source = static_cast<u8 *>(game_heap->alloc(read_size, 32));
+    if (!source)
+        return false;
+    bool valid = false;
+    if (file.readData(source, read_size, 0) == read_size && std::memcmp(source, "Yaz0", 4) == 0) {
+        const u32 output_size = JKRDecompExpandSize(source);
+        if (output_size >= 0x40 && output_size <= 4 * 1024 * 1024) {
+            auto *decoded = static_cast<u8 *>(game_heap->alloc(2 * output_size, 32));
+            if (decoded) {
+                u8 *reference = decoded + output_size;
+                if (boot_expand_reference(source, size, reference, output_size) == 0) {
+                    system_checkpoint(log, "game DVD: entering JKRDecomp::decodeSZS");
+                    JKRDecomp::decodeSZS(source, decoded, output_size, 0);
+                    valid = std::memcmp(reference, "RARC", 4) == 0 &&
+                        std::memcmp(decoded, reference, output_size) == 0;
+                    probe_log(log, "game DVD: JKR expanded %u bytes, reference match %d\n",
+                        output_size, static_cast<int>(valid));
+                }
+                game_heap->free(decoded);
+            }
+        }
+    }
+    game_heap->free(source);
+    return valid;
+}
+
 extern "C" int boot_probe_game_dvd(SceUID log)
 {
     constexpr const char *resources[] = {
@@ -309,6 +339,8 @@ extern "C" int boot_probe_game_dvd(SceUID log)
             entry, by_index.isAvailable() ? by_index.getFileSize() : -1, second, first,
             static_cast<unsigned int>(match));
         ok &= match;
+        if (match && std::memcmp(indexed, "Yaz0", 4) == 0)
+            ok &= check_archive_decode(log, by_index);
     }
     return ok ? 0 : -1;
 }

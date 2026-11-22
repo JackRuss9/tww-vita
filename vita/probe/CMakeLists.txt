@@ -98,16 +98,19 @@ add_library(switchwaker_boot_system STATIC
   "${sw_native}/sdk/src/os/OSAlarm.cpp"
   "${sw_native}/sdk/src/os/OSContext.cpp"
   "${sw_game}/src/m_Do/m_Do_machine.cpp"
+  "${sw_game}/src/m_Do/m_Do_main.cpp"
   "${sw_game}/src/m_Do/m_Do_ext.cpp"
   "${sw_game}/src/JSystem/JFramework/JFWSystem.cpp"
   "${sw_game}/src/JSystem/JKernel/JKRHeap.cpp"
   "${sw_game}/src/JSystem/JKernel/JKRExpHeap.cpp"
   "${sw_game}/src/JSystem/JKernel/JKRDisposer.cpp"
   "${sw_game}/src/JSystem/JKernel/JKRDvdFile.cpp"
+  "${sw_game}/src/JSystem/JKernel/JKRDecomp.cpp"
   "${sw_game}/src/JSystem/JUtility/JUTGamePad.cpp"
   "${sw_game}/src/dolphin/pad/PadClamp.c"
   "${sw_game}/src/JSystem/JSupport/JSUList.cpp")
 target_link_libraries(switchwaker_boot_system PRIVATE tww_game_headers)
+target_compile_definitions(switchwaker_boot_system PRIVATE TWW_VITA_EARLY_BOOT=1)
 
 add_executable(tww-vita-probe main.c disc.c bti.c switchwaker_boot.cpp gpu.c gx_probe.cpp)
 target_compile_features(tww-vita-probe PRIVATE c_std_11 cxx_std_20)
@@ -117,7 +120,7 @@ target_link_libraries(tww-vita-probe PRIVATE switchwaker_assets switchwaker_boot
 
 vita_create_self(tww-vita-probe.self tww-vita-probe)
 vita_create_vpk(tww-vita-probe.vpk TWWP00001 tww-vita-probe.self
-  VERSION 01.14
+  VERSION 01.15
   NAME "TWW Vita Probe"
   FILE "${TWW_SWITCHWAKER_DIR}/LICENSE" switchwaker-LICENSE.txt
   FILE "${TWW_AURORA_DIR}/LICENSE" aurora-LICENSE.txt

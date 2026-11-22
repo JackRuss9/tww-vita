@@ -24,6 +24,7 @@ int boot_probe_system(SceUID log);
 int boot_probe_aram(SceUID log);
 int boot_probe_scheduler(SceUID log);
 int boot_probe_game_dvd(SceUID log);
+int boot_expand_reference(const uint8_t *source, size_t size, uint8_t *output, size_t capacity);
 int boot_gamepad_init(SceUID log);
 int boot_gamepad_poll(SceUID log);
 int boot_mount_game_dvd(SceUID log, const char *path);

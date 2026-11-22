@@ -204,7 +204,7 @@ int main(void)
 {
     sceIoMkdir(DATA_DIR, 0777);
     SceUID log = sceIoOpen(DATA_DIR "/probe.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-    probe_log(log, "TWW Vita hardware probe 15 (ARAM and JFW early init)\n");
+    probe_log(log, "TWW Vita hardware probe 16 (SwitchWaker main01 CPU startup)\n");
     probe_log(log, "ABI: %u-bit pointers\n", (unsigned int)(8 * sizeof(void *)));
 
     checkpoint(log, "disc mount", "BEGIN");

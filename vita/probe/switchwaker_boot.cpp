@@ -132,6 +132,7 @@ extern "C" const u8 *DVDGetDOLLocation(s32 *out_size)
 namespace pc {
 Config gConfig;
 bool probeStageArchive(const char *path, uint32_t *expandedSize);
+bool probeExpandYaz0(const uint8_t *source, size_t size, uint8_t *output, size_t capacity);
 bool probeTitleTexture(cos_sdk::HostVector<uint8_t>& texture);
 
 void writef(int, const char *format, ...)
@@ -202,6 +203,11 @@ int boot_switchwaker_archives(SceUID log, const char *path)
     boot_disc_close(disc);
     disc = nullptr;
     return fail ? -1 : 0;
+}
+
+int boot_expand_reference(const uint8_t *source, size_t size, uint8_t *output, size_t capacity)
+{
+    return pc::probeExpandYaz0(source, size, output, capacity) ? 0 : -1;
 }
 
 int boot_read_title(SceUID log, const char *path, ProbeImage *image)

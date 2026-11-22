@@ -3,13 +3,17 @@
 The startup probe runs SwitchWaker's `pc::loadAssets()` against the Vita
 CISO reader. It checks the DOL and RELs against the USA revision 0 hashes,
 loads the 163 arrays into memory and fills an array registered by the probe.
-It calls Aurora's OSInit, JFWSystem::firstInit and SwitchWaker's machine initialization routine
-for the command, archive, game and Zelda heaps. It uses SwitchWaker's OS SDK to run a worker thread
+After Aurora's OSInit it enters SwitchWaker's `main01()`. The early Vita
+build uses that function's `mDoMch_Create()` path to configure JFW and
+initialize the command, archive, game and Zelda heaps. It records
+`vita-awaiting-gx-backend` and returns before graphics initialization.
+It uses SwitchWaker's OS SDK to run a worker thread
 that allocates from the shared JKR heap, post messages from the worker
 and a timer callback, and join the worker. It exercises the game's JKRDvdFile
 with both path and FST entry opens for the title and ocean archives.
 The Vita DVD adapter completes those reads inline and delivers the result
-through JKRDvdFile's existing message queue.
+through JKRDvdFile's existing message queue. For compressed archives it
+compares the full output of JKRDecomp with the reference asset loader.
 The ARAM check allocates a 16 MiB native memory block as auxiliary RAM and
 verifies an upload and readback through Aurora's ARQ path.
 It also runs the game's JUTGamePad input reader on the Vita's first pad.
