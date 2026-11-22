@@ -91,6 +91,12 @@ if(TWW_GXM_AURORA_DIR)
   target_compile_options(tww_vita_gxm_frames PRIVATE -fno-short-enums)
   target_include_directories(tww_vita_gxm_frames PRIVATE
     "${TWW_GXM_AURORA_DIR}/include" "${sw_native}/include")
+  if(TWW_BUILD_RUNTIME_DVD)
+    add_library(tww_vita_game_entry STATIC vita_game_entry.cpp)
+    target_link_libraries(tww_vita_game_entry PRIVATE tww_game_headers switchwaker_assets tww_vita_dvd)
+    target_include_directories(tww_vita_game_entry PRIVATE
+      "${sw_native}/src/pc" "${tww_nod}")
+  endif()
 endif()
 
 if(TWW_BUILD_GAME_OBJECTS)
@@ -101,9 +107,27 @@ if(TWW_BUILD_GAME_OBJECTS)
   # The audio translation units are linked with the audio backend selected by the executable.
   list(FILTER runtime_sdk_sources EXCLUDE REGEX "/sdk/src/audio/")
   add_library(tww_vita_sdk STATIC ${runtime_sdk_sources})
+  target_sources(tww_vita_sdk PRIVATE
+    vita_pad.cpp
+    "${aurora_os}/OSCache.cpp"
+    "${sw_game}/src/dolphin/pad/Padclamp.c"
+    "${sw_game}/src/dolphin/gf/GFGeometry.cpp"
+    "${sw_game}/src/dolphin/gf/GFLight.cpp"
+    "${sw_game}/src/dolphin/gf/GFPixel.cpp"
+    "${sw_game}/src/dolphin/gf/GFTev.cpp"
+    "${sw_game}/src/dolphin/gf/GFTransform.cpp"
+    "${sw_native}/src/helpers/offset_ptr.cpp"
+    "${sw_native}/src/pc/game_hooks/pc_j3d_hooks.cpp"
+    "${sw_native}/src/pc/game_hooks/pc_j3d_transform.cpp"
+    "${sw_native}/src/pc/game_hooks/pc_jkr_heap.cpp"
+    "${sw_native}/src/pc/game_hooks/pc_jkr_hooks.cpp")
   target_link_libraries(tww_vita_sdk PRIVATE tww_game_headers PUBLIC pthread)
   target_compile_definitions(tww_vita_sdk PRIVATE
+    TWW_VITA_RUNTIME_SDK=1
     COS_AURORA_COMMIT_STR="3227d76c60e1e782ca576610bce61c9e7744d8be")
+  if(TWW_GXM_AURORA_DIR)
+    target_compile_definitions(tww_vita_sdk PRIVATE TWW_VITA_GXM=1)
+  endif()
   set(COS_ROOT "${sw_game}")
   add_library(cos_game_headers ALIAS tww_game_headers)
   include("${sw_native}/cmake/deferred.cmake")

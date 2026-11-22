@@ -1,0 +1,20 @@
+diff --git a/native/sdk/src/gx/GXExtras.cpp b/native/sdk/src/gx/GXExtras.cpp
+index b3e55ec..a7e2950 100644
+--- a/native/sdk/src/gx/GXExtras.cpp
++++ b/native/sdk/src/gx/GXExtras.cpp
+@@ -193,6 +193,7 @@ void GXSetMisc(GXMiscToken token, u32 val) {
+     }
+ }
+ 
++#ifndef TWW_VITA_GXM
+ void GXSetCopyClamp(GXFBClamp clamp) {
+     // Which EFB edges the copy's vertical filter clamps at. Aurora applies no copy filter
+     // (GXSetCopyFilter is empty), so there is nothing for the clamp to change.
+@@ -226,6 +227,7 @@ f32 GXGetYScaleFactor(u16 efbHeight, u16 xfbHeight) {
+     }
+     return scale2;
+ }
++#endif
+ 
+ // ---- Frame abort and the GX thread --------------------------------------------------------------
+ 

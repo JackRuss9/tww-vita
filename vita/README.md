@@ -107,6 +107,11 @@ build does not use this renderer.
 
 The `tww_vita_gxm_frames` archive wraps Aurora's game frame lifecycle.
 Its presentation checkpoint uses the successful Vita scanout count.
+With both runtime DVD and GXM enabled, `tww_vita_game_entry`
+provides the Vita entry, mounts `WindWaker.ciso`, and hands off to
+SwitchWaker's `aurora_main`. Its boot checkpoints go to
+`ux0:/data/tww/boot.log`. The complete game link and hardware launch
+are pending.
 
 ## Integration points
 

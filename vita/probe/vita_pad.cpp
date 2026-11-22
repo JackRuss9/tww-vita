@@ -74,7 +74,9 @@ extern "C" void PADSetAnalogMode(u32) {}
 extern "C" void PADControlMotor(u32, u32) {}
 extern "C" BOOL PADReset(u32) { return TRUE; }
 extern "C" BOOL PADRecalibrate(u32) { return TRUE; }
+#ifndef TWW_VITA_RUNTIME_SDK
 extern "C" BOOL OSGetResetSwitchState() { return FALSE; }
+#endif
 
 extern "C" void pc_vibration_guard(int) {}
 
