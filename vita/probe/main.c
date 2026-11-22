@@ -9,6 +9,7 @@
 #include <psp2/gxm.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
+#include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/threadmgr.h>
 
@@ -184,7 +185,7 @@ void boot_probe_exit(SceUID log, int status)
     checkpoint(log, "suite", status == 0 && display >= 0 ? "PASS" : "FAIL");
     probe_log(log, "ready: press START to exit\n");
 
-    for (unsigned int attempt = 0; attempt < 1800; ++attempt) {
+    for (;;) {
         samples = sceCtrlPeekBufferPositive(0, &pad, 1);
         if (samples > 0 && (pad.buttons & SCE_CTRL_START)) {
             probe_log(log, "pad: START detected; sticks %u,%u / %u,%u\n",
@@ -194,9 +195,14 @@ void boot_probe_exit(SceUID log, int status)
         }
         sceKernelDelayThread(16667);
     }
-    probe_log(log, "done\n");
+    checkpoint(log, "SDK shutdown", "BEGIN");
+    int shutdown = boot_probe_stop_scheduler(log);
+    checkpoint(log, "SDK shutdown", shutdown == 0 ? "PASS" : "FAIL");
+    checkpoint(log, "process exit", "BEGIN");
     if (log >= 0)
         sceIoClose(log);
+    if (shutdown != 0)
+        sceKernelExitProcess(1);
     exit(status != 0 || display < 0 || sampling < 0 || log < 0);
 }
 
@@ -204,7 +210,7 @@ int main(void)
 {
     sceIoMkdir(DATA_DIR, 0777);
     SceUID log = sceIoOpen(DATA_DIR "/probe.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-    probe_log(log, "TWW Vita hardware probe 12 (scheduler)\n");
+    probe_log(log, "TWW Vita hardware probe 13 (game heaps, game DVD and SDK shutdown)\n");
     probe_log(log, "ABI: %u-bit pointers\n", (unsigned int)(8 * sizeof(void *)));
 
     checkpoint(log, "disc mount", "BEGIN");
@@ -243,6 +249,7 @@ int main(void)
 
     checkpoint(log, "Aurora OS and JKR heaps", "BEGIN");
     int result = boot_probe_system(log);
+    const int system_ok = result == 0;
     checkpoint(log, "Aurora OS and JKR heaps", result == 0 ? "PASS" : "FAIL");
     failed |= result != 0;
     if (result == 0) {
@@ -252,6 +259,14 @@ int main(void)
         failed |= result != 0;
     } else {
         checkpoint(log, "SwitchWaker scheduler", "SKIP (heaps unavailable)");
+    }
+    if (system_ok && disc_ok) {
+        checkpoint(log, "SwitchWaker JKRDvdFile", "BEGIN");
+        result = boot_probe_game_dvd(log, DISC_PATH);
+        checkpoint(log, "SwitchWaker JKRDvdFile", result == 0 ? "PASS" : "FAIL");
+        failed |= result != 0;
+    } else {
+        checkpoint(log, "SwitchWaker JKRDvdFile", "SKIP (heaps or disc unavailable)");
     }
 
     checkpoint(log, "GXM texture and framebuffer", "BEGIN");

@@ -4,8 +4,10 @@
 #include "pc_internal.h"
 #include "cos_sdk/host_alloc.h"
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 #include <limits>
 #include <vector>
 
@@ -25,18 +27,29 @@ void log_format(const char *prefix, const char *format, va_list args)
 }
 }
 
-// The upstream asset loader uses this synchronous subset of the DVD API.
-extern "C" BOOL DVDOpen(const char *path, DVDFileInfo *file)
+extern "C" s32 DVDConvertPathToEntrynum(const char *path)
+{
+    return disc && path ? boot_disc_file_index(disc, path) : -1;
+}
+
+extern "C" BOOL DVDFastOpen(s32 entry, DVDFileInfo *file)
 {
     uint32_t offset, length;
-    if (boot_disc_file(disc, path, &offset, &length) < 0) {
-        probe_log(log_fd, "dvd: could not find %s\n", path);
+    if (!disc || !file || boot_disc_file_at(disc, entry, &offset, &length) < 0)
         return 0;
-    }
     *file = {};
     file->startAddr = offset;
     file->length = length;
-    probe_log(log_fd, "dvd: reading %s (%u bytes)\n", path, static_cast<unsigned int>(length));
+    return 1;
+}
+
+extern "C" BOOL DVDOpen(const char *path, DVDFileInfo *file)
+{
+    if (!DVDFastOpen(DVDConvertPathToEntrynum(path), file)) {
+        probe_log(log_fd, "dvd: could not find %s\n", path ? path : "(null)");
+        return 0;
+    }
+    probe_log(log_fd, "dvd: reading %s (%u bytes)\n", path, static_cast<unsigned int>(file->length));
     return 1;
 }
 
@@ -47,10 +60,49 @@ extern "C" BOOL DVDClose(DVDFileInfo *)
 
 extern "C" s32 DVDReadPrio(DVDFileInfo *file, void *output, s32 length, s32 offset, s32)
 {
-    if (offset < 0 || length < 0 || uint64_t(offset) + uint64_t(length) > file->length)
+    if (!disc || !file || offset < 0 || length < 0 || (length && !output) ||
+        uint64_t(offset) + uint64_t(length) > file->length)
         return -1;
     return boot_disc_read(disc, uint64_t(file->startAddr) + uint64_t(offset), output, size_t(length)) == 0
         ? length : -1;
+}
+
+extern "C" s32 DVDGetCommandBlockStatus(const DVDCommandBlock *block)
+{
+    return block ? block->state : DVD_STATE_END;
+}
+
+extern "C" BOOL DVDReadAsyncPrio(DVDFileInfo *file, void *output, s32 length, s32 offset,
+                                 DVDCallback callback, s32 priority)
+{
+    if (!disc || !file || !output || length < 0 || offset < 0 ||
+        uint64_t(offset) > file->length ||
+        uint64_t(offset) + uint64_t(length) >= uint64_t(file->length) + 32)
+        return FALSE;
+    const u32 remaining = file->length - static_cast<u32>(offset);
+    const s32 available = static_cast<s32>(std::min(remaining, static_cast<u32>(length)));
+    const s32 read = DVDReadPrio(file, output, available, offset, priority);
+    if (read >= 0 && available < length)
+        std::memset(static_cast<uint8_t *>(output) + available, 0, length - available);
+    file->cb.transferredSize = read < 0 ? 0 : static_cast<u32>(length);
+    file->cb.state = read < 0 ? DVD_STATE_FATAL_ERROR : DVD_STATE_END;
+    // The bootstrap completes inline. JKRDvdFile queues the callback result before waiting.
+    if (callback)
+        callback(read < 0 ? read : length, file);
+    return TRUE;
+}
+
+int boot_mount_game_dvd(SceUID log, const char *path)
+{
+    log_fd = log;
+    disc = boot_disc_open(log, path);
+    return disc ? 0 : -1;
+}
+
+void boot_unmount_game_dvd()
+{
+    boot_disc_close(disc);
+    disc = nullptr;
 }
 
 extern "C" const u8 *DVDGetDOLLocation(s32 *out_size)

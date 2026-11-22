@@ -2,7 +2,9 @@
 #include "gpu.h"
 #include <aurora/aurora.h>
 #include <dolphin/os.h>
+#include "cos_sdk/hooks.h"
 #include "JSystem/JKernel/JKRExpHeap.h"
+#include "JSystem/JKernel/JKRDvdFile.h"
 #include "JSystem/JUtility/JUTAssert.h"
 #include "JSystem/JUtility/JUTConsole.h"
 
@@ -13,6 +15,11 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+
+bool mDoMch_CreateGameHeaps(u32 commandBytes, u32 archiveBytes, u32 gameBytes, JKRHeap *system);
+JKRExpHeap *mDoExt_getGameHeap();
+JKRExpHeap *mDoExt_getZeldaHeap();
+extern "C" int vita_join_alarm_thread();
 
 namespace {
 constexpr unsigned int ArenaBytes = 128 * 1024 * 1024;
@@ -38,6 +45,13 @@ void *scheduler_worker(void *)
     game_heap->free(block);
     OSSendMessage(&scheduler.queue, &worker_message, OS_MESSAGE_NOBLOCK);
     return &worker_message;
+}
+
+void system_checkpoint(SceUID log, const char *message)
+{
+    probe_log(log, "%s\n", message);
+    if (log >= 0)
+        sceIoSyncByFd(log, 0);
 }
 
 void scheduler_alarm(OSAlarm *, OSContext *)
@@ -195,14 +209,17 @@ extern "C" int boot_probe_system(SceUID log)
     probe_log(log, "boot: JKR root heap ready\n");
 
     constexpr unsigned int SystemBytes = 32 * 1024 * 1024;
+    constexpr unsigned int CommandBytes = 0x1000 * 2;
     constexpr unsigned int ArchiveBytes = 0xa51400 * 2;
     constexpr unsigned int GameBytes = 0x2ce800 * 20;
     JKRExpHeap *system = JKRExpHeap::create(SystemBytes, root, false);
-    JKRExpHeap *archive = JKRExpHeap::create(ArchiveBytes, root, false);
-    JKRExpHeap *game = JKRExpHeap::create(GameBytes, root, false);
-    if (!system || !archive || !game || !root->check())
+    system_checkpoint(log, "boot: entering mDoMch_CreateGameHeaps");
+    if (!system || !mDoMch_CreateGameHeaps(CommandBytes, ArchiveBytes, GameBytes, system) ||
+        !root->check() || !system->check() || !mDoExt_getZeldaHeap()->check())
         return -1;
-    probe_log(log, "boot: JKR system/archive/game heaps ready\n");
+    JKRExpHeap *game = mDoExt_getGameHeap();
+    probe_log(log, "boot: mDoMch game heaps ready, root free %u, system free %u, Zelda free %u\n",
+        root->getTotalFreeSize(), system->getTotalFreeSize(), mDoExt_getZeldaHeap()->getTotalFreeSize());
 
     const u32 free_before = game->getTotalFreeSize();
     void *sample = game->alloc(4096, 32);
@@ -217,8 +234,51 @@ extern "C" int boot_probe_system(SceUID log)
     return 0;
 }
 
+extern "C" int boot_probe_stop_scheduler(SceUID log)
+{
+    if (!game_heap)
+        return 0;
+    system_checkpoint(log, "shutdown: requesting SDK shutdown");
+    COSSdkRequestShutdown();
+    system_checkpoint(log, "shutdown: joining alarm timer");
+    const int error = vita_join_alarm_thread();
+    probe_log(log, "shutdown: alarm timer join result %d\n", error);
+    return error;
+}
+
+extern "C" int boot_probe_game_dvd(SceUID log, const char *path)
+{
+    if (boot_mount_game_dvd(log, path) != 0)
+        return -1;
+    constexpr const char *resources[] = {
+        "/res/Stage/sea_T/Stage.arc",
+        "/res/Stage/sea/LODALL.arc",
+    };
+    bool ok = DVDConvertPathToEntrynum("/__tww_missing__") < 0;
+    for (const char *resource : resources) {
+        system_checkpoint(log, resource);
+        const s32 entry = DVDConvertPathToEntrynum(resource);
+        JKRDvdFile by_index(entry);
+        JKRDvdFile by_path(resource);
+        alignas(32) unsigned char indexed[32], named[32];
+        const s32 first = by_index.isAvailable() ? by_index.readData(indexed, sizeof(indexed), 0) : -1;
+        const s32 second = by_path.isAvailable() ? by_path.readData(named, sizeof(named), 0) : -1;
+        const bool match = first == 32 && second == 32 &&
+            (std::memcmp(indexed, "Yaz0", 4) == 0 || std::memcmp(indexed, "RARC", 4) == 0) &&
+            std::memcmp(indexed, named, sizeof(indexed)) == 0 &&
+            by_index.getFileSize() == by_path.getFileSize();
+        probe_log(log, "game DVD: entry %d, size %d, path read %d, indexed read %d, match %u\n",
+            entry, by_index.isAvailable() ? by_index.getFileSize() : -1, second, first,
+            static_cast<unsigned int>(match));
+        ok &= match;
+    }
+    boot_unmount_game_dvd();
+    return ok ? 0 : -1;
+}
+
 extern "C" int boot_probe_scheduler(SceUID log)
 {
+    system_checkpoint(log, "scheduler: adopting main thread");
     if (!OSGetCurrentThread()) {
         probe_log(log, "scheduler: could not adopt main thread\n");
         return -1;
@@ -226,13 +286,14 @@ extern "C" int boot_probe_scheduler(SceUID log)
     OSInitMessageQueue(&scheduler.queue, scheduler.messages, 2);
     OSCreateAlarm(&scheduler.alarm);
     const u32 free_before = game_heap->getTotalFreeSize();
+    system_checkpoint(log, "scheduler: creating worker");
     if (!OSCreateThread(&scheduler.thread, scheduler_worker, nullptr,
                         scheduler.stack + sizeof(scheduler.stack), sizeof(scheduler.stack), 16, 0)) {
         probe_log(log, "scheduler: OSCreateThread failed\n");
         return -1;
     }
 
-    probe_log(log, "scheduler: resuming worker and arming 20 ms alarm\n");
+    system_checkpoint(log, "scheduler: resuming worker and arming 20 ms alarm");
     OSResumeThread(&scheduler.thread);
     OSSetAlarm(&scheduler.alarm, OSMillisecondsToTicks(20), scheduler_alarm);
     bool worker = false, alarm = false;

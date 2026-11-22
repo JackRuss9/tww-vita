@@ -57,16 +57,19 @@ add_library(switchwaker_boot_system STATIC
   "${sw_native}/sdk/src/os/OSMessage.cpp"
   "${sw_native}/sdk/src/os/OSAlarm.cpp"
   "${sw_native}/sdk/src/os/OSContext.cpp"
+  "${sw_game}/src/m_Do/m_Do_machine.cpp"
+  "${sw_game}/src/m_Do/m_Do_ext.cpp"
   "${sw_game}/src/JSystem/JKernel/JKRHeap.cpp"
   "${sw_game}/src/JSystem/JKernel/JKRExpHeap.cpp"
   "${sw_game}/src/JSystem/JKernel/JKRDisposer.cpp"
+  "${sw_game}/src/JSystem/JKernel/JKRDvdFile.cpp"
   "${sw_game}/src/JSystem/JSupport/JSUList.cpp")
 target_link_libraries(switchwaker_boot_system PRIVATE switchwaker_assets)
 target_compile_features(switchwaker_boot_system PRIVATE cxx_std_20)
 target_compile_definitions(switchwaker_boot_system PRIVATE TWW_VITA_BOOT=1 MTX_USE_PS=1 VERSION=2 NDEBUG=1)
 target_compile_options(switchwaker_boot_system PRIVATE
   -fno-exceptions -fno-rtti -fsigned-char -fno-strict-aliasing -fcheck-new
-  -Wno-multichar -Wno-write-strings
+  -Wno-multichar -Wno-write-strings -ffunction-sections -fdata-sections
   "SHELL:-include '${sw_native}/include/pc/cos_pc_config.h'"
   "SHELL:-include '${sw_native}/include/sdk/cos_sdk_extras.h'")
 target_include_directories(switchwaker_boot_system PRIVATE
@@ -77,11 +80,12 @@ target_include_directories(switchwaker_boot_system PRIVATE
 add_executable(tww-vita-probe main.c disc.c bti.c switchwaker_boot.cpp gpu.c gx_probe.cpp)
 target_compile_features(tww-vita-probe PRIVATE c_std_11 cxx_std_20)
 target_compile_options(tww-vita-probe PRIVATE -Wall -Wextra -Wformat=2)
+target_link_options(tww-vita-probe PRIVATE -Wl,--gc-sections)
 target_link_libraries(tww-vita-probe PRIVATE switchwaker_assets switchwaker_boot_system pthread SceCtrl_stub SceDisplay_stub SceGxm_stub SceIofilemgr_stub)
 
 vita_create_self(tww-vita-probe.self tww-vita-probe)
 vita_create_vpk(tww-vita-probe.vpk TWWP00001 tww-vita-probe.self
-  VERSION 01.11
+  VERSION 01.12
   NAME "TWW Vita Probe"
   FILE "${TWW_SWITCHWAKER_DIR}/LICENSE" switchwaker-LICENSE.txt
   FILE "${TWW_AURORA_DIR}/LICENSE" aurora-LICENSE.txt

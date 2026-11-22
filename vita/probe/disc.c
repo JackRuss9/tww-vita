@@ -27,16 +27,14 @@ static uint32_t be32(const uint8_t *b)
 
 static int read_at(SceUID fd, uint64_t offset, void *output, size_t bytes)
 {
-    SceOff position = sceIoLseek(fd, (SceOff)offset, SCE_SEEK_SET);
-    if (position < 0 || (uint64_t)position != offset)
-        return -1;
     uint8_t *out = output;
     while (bytes > 0) {
         size_t request = bytes < 128 * 1024 ? bytes : 128 * 1024;
-        int got = sceIoRead(fd, out, request);
+        int got = sceIoPread(fd, out, request, (SceOff)offset);
         if (got <= 0)
             return -1;
         out += got;
+        offset += (size_t)got;
         bytes -= (size_t)got;
     }
     return 0;
@@ -136,17 +134,30 @@ static const uint8_t *fst_find(const Fst *fst, const char *path)
     return NULL;
 }
 
-int boot_disc_file(const BootDisc *disc, const char *path, uint32_t *offset, uint32_t *size)
+int boot_disc_file_index(const BootDisc *disc, const char *path)
 {
     if (*path == '/')
         ++path;
     const Fst fst = {disc->table, disc->table_size, disc->table_entries};
     const uint8_t *entry = fst_find(&fst, path);
-    if (!entry)
+    return entry ? (int)((entry - fst.bytes) / FST_ENTRY_SIZE) : -1;
+}
+
+int boot_disc_file_at(const BootDisc *disc, int index, uint32_t *offset, uint32_t *size)
+{
+    if (index <= 0 || (uint32_t)index >= disc->table_entries)
+        return -1;
+    const uint8_t *entry = disc->table + (size_t)index * FST_ENTRY_SIZE;
+    if (entry[0] != 0)
         return -1;
     *offset = be32(entry + 4);
     *size = be32(entry + 8);
     return 0;
+}
+
+int boot_disc_file(const BootDisc *disc, const char *path, uint32_t *offset, uint32_t *size)
+{
+    return boot_disc_file_at(disc, boot_disc_file_index(disc, path), offset, size);
 }
 
 int boot_read_banner(SceUID log, const char *path, uint32_t *pixels)
