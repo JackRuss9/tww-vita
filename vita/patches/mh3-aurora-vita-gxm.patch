@@ -102,6 +102,99 @@ index f749789..744b3a3 100644
  #define GXSETARRAY(attr, data, size, stride, le) GXSetArray((attr), (data), (size), (stride), (le))
  #else
  void GXSetArray(GXAttr attr, const void* data, u8 stride);
+diff --git a/aurora-main/lib/dolphin/AR.cpp b/aurora-main/lib/dolphin/AR.cpp
+index 245bb74..439ebab 100644
+--- a/aurora-main/lib/dolphin/AR.cpp
++++ b/aurora-main/lib/dolphin/AR.cpp
+@@ -1,6 +1,9 @@
+ #include <dolphin/ar.h>
+ #include "../internal.hpp"
+ #include "dolphin/os.h"
++#ifdef __vita__
++#include <psp2/kernel/sysmem.h>
++#endif
+ 
+ static aurora::Module Log("aurora::ar");
+ 
+@@ -65,7 +68,25 @@ u32 ARInit(u32* stack_index_addr, u32 num_entries) {
+     return ARAM_STACK_START;
+   }
+ 
++#ifdef __vita__
++  const u32 size = aurora::g_config.mem2Size;
++  const SceUID block = sceKernelAllocMemBlock("SwitchWaker ARAM", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW,
++                                              (size + 4095) & ~4095u, nullptr);
++  if (block < 0) {
++    Log.fatal("ARAM allocation failed: 0x{:08x} ({} bytes)", static_cast<u32>(block), size);
++  }
++  void* base = nullptr;
++  const int result = sceKernelGetMemBlockBase(block, &base);
++  if (result < 0 || base == nullptr) {
++    sceKernelFreeMemBlock(block);
++    Log.fatal("ARAM base failed: 0x{:08x}", static_cast<u32>(result));
++  }
++  sAramBuffer = static_cast<u8*>(base);
++  memset(sAramBuffer, 0, size);
++  Log.info("ARAM ready ({} bytes)", size);
++#else
+   sAramBuffer = (u8*)calloc(1, aurora::g_config.mem2Size);
++#endif
+ 
+   if (sAramBuffer) {
+     Log.debug("Initialized 0x{:X} bytes of ARAM!", aurora::g_config.mem2Size);
+diff --git a/aurora-main/lib/dolphin/os/OSAddress.cpp b/aurora-main/lib/dolphin/os/OSAddress.cpp
+index 8ca1b4a..f96ed9c 100644
+--- a/aurora-main/lib/dolphin/os/OSAddress.cpp
++++ b/aurora-main/lib/dolphin/os/OSAddress.cpp
+@@ -14,7 +14,7 @@
+ 
+ void* OSPhysicalToCached(u32 paddr) {
+   assert (paddr <= aurora::g_config.mem1Size);
+-  return POINTER_ADD(MEM1Start, paddr);
++  return static_cast<u8*>(MEM1Start) + paddr;
+ }
+ 
+ void* OSPhysicalToUncached(u32 paddr) {
+diff --git a/aurora-main/lib/dolphin/os/OSMemory.cpp b/aurora-main/lib/dolphin/os/OSMemory.cpp
+index 7614b90..9f7c947 100644
+--- a/aurora-main/lib/dolphin/os/OSMemory.cpp
++++ b/aurora-main/lib/dolphin/os/OSMemory.cpp
+@@ -7,6 +7,9 @@
+ #include "fmt/base.h"
+ 
+ #include <cassert>
++#ifdef __vita__
++#include <psp2/kernel/sysmem.h>
++#endif
+ 
+ #include "internal.hpp"
+ #include <dolphin/os.h>
+@@ -92,7 +95,24 @@ static void GuardGCMemory() {
+ static void GuardGCMemory() { }
+ #endif
+ 
+-#if _WIN64 && !NDEBUG
++#if defined(__vita__)
++static void* AllocMEM1(u32 size) {
++  const SceUID block = sceKernelAllocMemBlock("SwitchWaker MEM1", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW,
++                                              (size + 4095) & ~4095u, nullptr);
++  if (block < 0) {
++    Log.fatal("MEM1 allocation failed: 0x{:08x} ({} bytes)", static_cast<u32>(block), size);
++  }
++  void* base = nullptr;
++  const int result = sceKernelGetMemBlockBase(block, &base);
++  if (result < 0 || base == nullptr) {
++    sceKernelFreeMemBlock(block);
++    Log.fatal("MEM1 base failed: 0x{:08x}", static_cast<u32>(result));
++  }
++  memset(base, 0, size);
++  Log.info("MEM1 ready ({} bytes)", size);
++  return base;
++}
++#elif _WIN64 && !NDEBUG
+ static void* AllocMEM1(u32 size) {
+   // Allocate an entire 32-bit's worth of memory and allocate the real MEM1 in that.
+   // This way, if a 64-bit pointer gets truncated to 32-bit, it will still fall in our guard pages.
 diff --git a/aurora-main/lib/gxm/device.cpp b/aurora-main/lib/gxm/device.cpp
 index 2090253..0e6fef5 100644
 --- a/aurora-main/lib/gxm/device.cpp

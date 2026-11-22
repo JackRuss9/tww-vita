@@ -47,6 +47,8 @@ set(aurora_os "${TWW_AURORA_DIR}/lib/dolphin/os")
 option(TWW_BUILD_GAME_OBJECTS "Enable ARM compilation of the SwitchWaker game modules" OFF)
 option(TWW_BUILD_RUNTIME_DVD "Build Aurora's runtime DVD service on the Vita CISO reader" OFF)
 set(TWW_GXM_AURORA_DIR "" CACHE PATH "Aurora GXM checkout used to build against its GX ABI")
+set(TWW_GXM_BUILD_DIR "" CACHE PATH "Built static GXM Aurora and dependency archives")
+set(TWW_VITASHARK_PREFIX "" CACHE PATH "VitaShaRK dependency prefix (optional if in VitaSDK)")
 
 if(TWW_BUILD_RUNTIME_DVD)
   set(tww_nod "${TWW_SWITCHWAKER_DIR}/switch/native/nod")
@@ -104,11 +106,11 @@ if(TWW_BUILD_GAME_OBJECTS)
   target_link_libraries(tww_vita_no_card PRIVATE tww_game_headers)
   file(GLOB_RECURSE runtime_sdk_sources CONFIGURE_DEPENDS
     "${sw_native}/sdk/src/*.c" "${sw_native}/sdk/src/*.cpp")
-  # The audio translation units are linked with the audio backend selected by the executable.
+  # This boot build uses the muted Vita audio adapter.
   list(FILTER runtime_sdk_sources EXCLUDE REGEX "/sdk/src/audio/")
   add_library(tww_vita_sdk STATIC ${runtime_sdk_sources})
   target_sources(tww_vita_sdk PRIVATE
-    vita_pad.cpp
+    vita_pad.cpp vita_runtime_hooks.cpp vita_muted_audio.cpp
     "${aurora_os}/OSCache.cpp"
     "${sw_game}/src/dolphin/pad/Padclamp.c"
     "${sw_game}/src/dolphin/gf/GFGeometry.cpp"
@@ -120,7 +122,16 @@ if(TWW_BUILD_GAME_OBJECTS)
     "${sw_native}/src/pc/game_hooks/pc_j3d_hooks.cpp"
     "${sw_native}/src/pc/game_hooks/pc_j3d_transform.cpp"
     "${sw_native}/src/pc/game_hooks/pc_jkr_heap.cpp"
-    "${sw_native}/src/pc/game_hooks/pc_jkr_hooks.cpp")
+    "${sw_native}/src/pc/game_hooks/pc_jkr_hooks.cpp"
+    "${sw_native}/src/pc/game_hooks/pc_audio_hooks.cpp"
+    "${sw_native}/src/pc/game_hooks/pc_c_bg_s.cpp"
+    "${sw_native}/src/pc/game_hooks/pc_jfw_display.cpp"
+    "${sw_native}/src/pc/game_hooks/pc_meter_hooks.cpp"
+    "${sw_native}/src/pc/game_hooks/pc_m_do_lib.cpp"
+    "${sw_native}/src/pc/features/pc_aspect.cpp"
+    "${sw_native}/src/pc/features/pc_controls.cpp"
+    "${sw_native}/src/pc/features/pc_qol.cpp")
+  target_include_directories(tww_vita_sdk PRIVATE "${sw_native}/src/pc")
   target_link_libraries(tww_vita_sdk PRIVATE tww_game_headers PUBLIC pthread)
   target_compile_definitions(tww_vita_sdk PRIVATE
     TWW_VITA_RUNTIME_SDK=1
@@ -201,10 +212,72 @@ target_compile_options(tww-vita-probe PRIVATE -Wall -Wextra -Wformat=2)
 target_link_options(tww-vita-probe PRIVATE -Wl,--gc-sections)
 target_link_libraries(tww-vita-probe PRIVATE switchwaker_assets switchwaker_boot_system pthread SceCtrl_stub SceDisplay_stub SceGxm_stub SceIofilemgr_stub)
 
-vita_create_self(tww-vita-probe.self tww-vita-probe)
-vita_create_vpk(tww-vita-probe.vpk TWWP00001 tww-vita-probe.self
-  VERSION 01.15
-  NAME "TWW Vita Probe"
+# VitaSDK's packaging macros mutate their flags in the caller's scope.
+function(tww_package_vpk executable version title)
+  set(options UNSAFE)
+  set(multiValueArgs FILE)
+  cmake_parse_arguments(pack "${options}" "" "${multiValueArgs}" ${ARGN})
+  if(pack_UNSAFE)
+    set(self_options UNSAFE)
+  endif()
+  vita_create_self("${executable}.self" "${executable}" ${self_options})
+  vita_create_vpk("${executable}.vpk" TWWP00001 "${executable}.self"
+    VERSION "${version}" NAME "${title}" FILE ${pack_FILE})
+endfunction()
+
+tww_package_vpk(tww-vita-probe 01.15 "TWW Vita Probe"
   FILE "${TWW_SWITCHWAKER_DIR}/LICENSE" switchwaker-LICENSE.txt
   FILE "${TWW_AURORA_DIR}/LICENSE" aurora-LICENSE.txt
   FILE "${CMAKE_CURRENT_SOURCE_DIR}/libvita2d-LICENSE.txt" libvita2d-LICENSE.txt)
+
+if(TWW_GXM_BUILD_DIR)
+  if(NOT TWW_BUILD_GAME_OBJECTS OR NOT TARGET tww_vita_game_entry)
+    message(FATAL_ERROR "The game VPK needs game objects, GXM headers and runtime DVD")
+  endif()
+
+  set(renderer_archives
+    libaurora_gx.a libaurora_gd.a libaurora_mtx.a libaurora_os.a
+    libaurora_vi.a libaurora_core.a libaurora_ms.a
+    extern/libimgui.a
+    _deps/fmt-build/libfmt.a _deps/freetype-build/libfreetype.a
+    _deps/png-build/liblibpng16_static.a _deps/sdl-build/libSDL3.a
+    _deps/xxhash-build/libxxhash.a _deps/zlib-build/libz.a
+    _deps/zstd-build/lib/libzstd.a)
+  list(TRANSFORM renderer_archives PREPEND "${TWW_GXM_BUILD_DIR}/")
+  foreach(archive IN LISTS renderer_archives)
+    if(NOT EXISTS "${archive}")
+      message(FATAL_ERROR "Build the GXM renderer archives first. Missing ${archive}")
+    endif()
+  endforeach()
+
+  set_source_files_properties("${game_bundle}" PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
+  add_executable(switchwaker-vita "${game_bundle}")
+  set_target_properties(switchwaker-vita PROPERTIES LINKER_LANGUAGE CXX)
+  # vita-elf-create adds SCE import metadata between the executable and data segments.
+  target_link_options(switchwaker-vita PRIVATE "-Wl,--defsym=__sce_headroom=0x4000")
+  # libstdc++ references these weakly. An archive does not load a member for
+  # a weak reference, so force the Vita pthread implementation into the SELF.
+  set(vita_pthread_symbols
+    pthread_cancel pthread_once pthread_cond_wait pthread_cond_timedwait
+    pthread_cond_signal pthread_cond_broadcast pthread_cond_destroy)
+  list(TRANSFORM vita_pthread_symbols PREPEND "-Wl,--undefined=")
+  target_link_options(switchwaker-vita PRIVATE ${vita_pthread_symbols})
+  if(TWW_VITASHARK_PREFIX)
+    target_link_directories(switchwaker-vita PRIVATE "${TWW_VITASHARK_PREFIX}/lib")
+  endif()
+  target_link_libraries(switchwaker-vita PRIVATE
+    -Wl,--start-group
+    tww_vita_game_entry switchwaker_assets tww_vita_gxm_frames tww_vita_dvd
+    tww_vita_sdk tww_vita_no_card ${renderer_archives}
+    vitashark SceShaccCgExt SceShaccCg_stub_weak taihen_stub pthread
+    SceGxm_stub SceDisplay_stub SceCtrl_stub SceAppMgr_stub SceAppUtil_stub
+    SceAudio_stub SceAudioIn_stub SceSysmodule_stub SceIofilemgr_stub
+    SceCommonDialog_stub SceTouch_stub SceHid_stub SceMotion_stub ScePower_stub
+    SceProcessmgr_stub SceCamera_stub SceKernelModulemgr_stub
+    -Wl,--end-group)
+
+  tww_package_vpk(switchwaker-vita 01.16 "SwitchWaker Vita" UNSAFE
+    FILE "${TWW_SWITCHWAKER_DIR}/LICENSE" switchwaker-LICENSE.txt
+    FILE "${TWW_GXM_AURORA_DIR}/LICENSE" aurora-LICENSE.txt
+    FILE "${TWW_GXM_AURORA_DIR}/../LICENSE" mh3-wii-LICENSE.txt)
+endif()

@@ -1,6 +1,6 @@
 # SwitchWaker on Vita
 
-The startup probe runs SwitchWaker's `pc::loadAssets()` against the Vita
+The 01.15 startup probe runs SwitchWaker's `pc::loadAssets()` against the Vita
 CISO reader. It checks the DOL and RELs against the USA revision 0 hashes,
 loads the 163 arrays into memory and fills an array registered by the probe.
 After Aurora's OSInit it enters SwitchWaker's `main01()`. The early Vita
@@ -53,9 +53,7 @@ The graphics test embeds the MIT-licensed texture shaders from
 Keep your USA revision 0 GameCube CISO at `ux0:/data/tww/WindWaker.ciso`.
 The log identifies each check with BEGIN, PASS, FAIL or SKIP. The summary
 is `check: suite PASS` when all checks succeed. A crash may leave a BEGIN
-without a result. The executable covers the machine initialization for
-heaps, file access and input. The full JFW/GX backend and the game loop still need to
-be linked for the first full boot.
+without a result. The probe covers the machine initialization for heaps, file access and input.
 
 ## Cross-compile the game startup modules
 
@@ -87,8 +85,7 @@ the runtime service in its place.
 
 The first game boot can link `tww_vita_no_card` to report empty GameCube
 slots through the normal CARD API. A save backend is needed to write data.
-The `tww_vita_sdk` target compiles the non-audio SwitchWaker SDK for that
-executable.
+The `tww_vita_sdk` target compiles the SwitchWaker SDK with a muted audio adapter.
 
 ## GXM renderer integration
 
@@ -105,13 +102,37 @@ utility shaders and caches generated programs in `ux0:/data/tww/shaders`.
 It uses the Vita's shader compiler module at runtime. The diagnostic VPK
 build does not use this renderer.
 
-The `tww_vita_gxm_frames` archive wraps Aurora's game frame lifecycle.
-Its presentation checkpoint uses the successful Vita scanout count.
-With both runtime DVD and GXM enabled, `tww_vita_game_entry`
-provides the Vita entry, mounts `WindWaker.ciso`, and hands off to
-SwitchWaker's `aurora_main`. Its boot checkpoints go to
-`ux0:/data/tww/boot.log`. The complete game link and hardware launch
-are pending.
+## Build the game VPK
+
+With the probe's three SwitchWaker patches already applied, apply the remaining
+Vita patches. Set `GXM` to the absolute path of the patched Monster Hunter Tri
+checkout's `aurora-main` directory and `SHARK` to a prefix with VitaShaRK,
+SceShaccCgExt and taiHEN stubs. Use a VitaSDK with GNU ld support for
+`__sce_headroom`, such as the October 2026 VitaSDK.
+
+```sh
+git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-gcc.patch" "$PWD/vita/patches/switchwaker-vita-gx-ownership.patch" "$PWD/vita/patches/switchwaker-vita-title-log.patch"
+git -C "$AURORA" apply "$PWD/vita/patches/aurora-vita-dvd.patch"
+git -C "$GXM/.." apply "$PWD/vita/patches/mh3-aurora-vita-gxm.patch"
+cmake -S "$GXM" -B build-vita-gxm -G Ninja -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-fno-short-enums -DCMAKE_CXX_FLAGS=-fno-short-enums -DBUILD_SHARED_LIBS=OFF -DAURORA_ENABLE_CARD=OFF -DAURORA_ENABLE_DVD=OFF -DAURORA_SDL3_PROVIDER=vendor -DAURORA_SDL3_LINKAGE=static -DTWW_GXM_RUNTIME_SHADERS=ON -DTWW_VITASHARK_PREFIX="$SHARK"
+cmake --build build-vita-gxm --target aurora_gx aurora_gd aurora_os aurora_mtx aurora_vi aurora_ms
+cmake -S vita/probe -B build-vita-game -G Ninja -DCMAKE_BUILD_TYPE=Release -DTWW_SWITCHWAKER_DIR="$SW" -DTWW_AURORA_DIR="$AURORA" -DTWW_SWITCHWAKER_ASSETS="$STUBS" -DTWW_BUILD_GAME_OBJECTS=ON -DTWW_BUILD_RUNTIME_DVD=ON -DTWW_GXM_AURORA_DIR="$GXM" -DTWW_GXM_BUILD_DIR="$PWD/build-vita-gxm" -DTWW_VITASHARK_PREFIX="$SHARK"
+cmake --build build-vita-game --target switchwaker-vita.vpk
+```
+
+Install `build-vita-game/switchwaker-vita.vpk` with VitaShell. It uses the
+probe's title ID, so it updates that LiveArea bubble. Keep the original
+USA revision 0 CISO at `ux0:/data/tww/WindWaker.ciso` and have
+`libshacccg.suprx` available for shader compilation. The VPK reads the game's
+resources from the CISO.
+
+The Vita executable starts SwitchWaker's `aurora_main` with runtime DVD and
+GXM. It writes `ux0:/data/tww/boot.log` and flushes the boot checkpoints.
+The log records GXM initialization, the first presented frame, the logo and
+opening scenes, the title draw and the file-select screen if reached.
+The 01.16 build runs muted and reports empty memory-card slots. The GXM
+readback path for the Picto Box still needs implementation.
+The first physical Vita run is needed to validate how far the game boots.
 
 ## Integration points
 
@@ -127,8 +148,8 @@ are pending.
 - Evaluate [Grarak's Aurora GXM backend at `93f167c`](https://github.com/Grarak/mh3-wii/tree/93f167caadb46a7bd83351d65068b43ca0949f6e/aurora-main).
   Its Vita build uses GXM, with a shader bank generated for Monster Hunter Tri.
   SwitchWaker uses Aurora at `3227d76` with its own patch series.
-  Port the GX interface and movie support alongside the renderer. A replacement
-  Aurora checkout needs its interfaces and patches reconciled first.
+  The first boot uses the GXM fork for graphics and the pinned SwitchWaker
+  Aurora for DVD.
 - Use `sms-vita` as the reference for file paths, Vita input, logging and
   runtime shader compilation. Use the native game build to identify the next
   graphics compatibility work as it reaches the actual boot path.

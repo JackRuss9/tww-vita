@@ -3,6 +3,7 @@
 #include "pc_internal.h"
 #include "cos_sdk/hooks.h"
 #include "m_Do/m_Do_audio.h"
+#include "JSystem/JKernel/JKRHeap.h"
 
 #include <aurora/dvd.h>
 #include <dolphin/os.h>
@@ -14,6 +15,12 @@
 #include <cstdio>
 #include <cstdlib>
 
+extern "C" {
+unsigned int _newlib_heap_size_user = 96 * 1024 * 1024;
+unsigned int _pthread_stack_default_user = 1024 * 1024;
+unsigned int _sceUserMainThreadStackSize = 2 * 1024 * 1024;
+}
+
 extern "C" int aurora_main(int argc, char **argv);
 extern "C" int tww_vita_gxm_init(SceUID log, int argc, char **argv);
 
@@ -21,6 +28,13 @@ namespace {
 constexpr char DataDir[] = "ux0:data/tww";
 constexpr char DiscPath[] = "ux0:data/tww/WindWaker.ciso";
 SceUID game_log = -1;
+
+void *thread_launch(OSThread *) { return JKRHeap::getCurrentHeap(); }
+
+void thread_start(OSThread *, void *heap)
+{
+    JKRHeap::sCurrentHeap = static_cast<JKRHeap *>(heap);
+}
 
 void logv(SceUID log, const char *format, va_list arguments)
 {
@@ -101,6 +115,8 @@ extern "C" void pc_aurora_init(int argc, char **argv)
     pc_milestone("vita-loading-disc-assets");
     pc::loadAssets();
     OSInit();
+    COSSdkSetThreadLaunchHook(thread_launch);
+    COSSdkSetThreadStartHook(thread_start);
     mDoAud_zelAudio_c::onInitFlag();
     pc_milestone("vita-platform-ready");
 }
