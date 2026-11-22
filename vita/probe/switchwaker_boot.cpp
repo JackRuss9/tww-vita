@@ -58,6 +58,12 @@ extern "C" BOOL DVDClose(DVDFileInfo *)
     return 1;
 }
 
+extern "C" void DVDInit()
+{
+    // Vita mounts the game image explicitly before JFW calls DVDInit.
+    probe_log(log_fd, "dvd: JFW initialization, disc %s\n", disc ? "mounted" : "unavailable");
+}
+
 extern "C" s32 DVDReadPrio(DVDFileInfo *file, void *output, s32 length, s32 offset, s32)
 {
     if (!disc || !file || offset < 0 || length < 0 || (length && !output) ||

@@ -172,25 +172,19 @@ static int show_result(SceUID log, int boot_result)
 
 void boot_probe_exit(SceUID log, int status)
 {
-    int sampling = sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
-    probe_log(log, "pad: analog mode 0x%08x\n", (unsigned int)sampling);
-
-    SceCtrlData pad;
-    int samples = sceCtrlPeekBufferPositive(0, &pad, 1);
-    probe_log(log, "pad: initial sample %d\n", samples);
-    checkpoint(log, "controller", sampling >= 0 && samples > 0 ? "PASS" : "FAIL");
-    status |= sampling < 0 || samples <= 0 || log < 0;
+    checkpoint(log, "JUTGamePad controller", "BEGIN");
+    const int sampling = boot_gamepad_init(log);
+    checkpoint(log, "JUTGamePad controller", sampling == 0 ? "PASS" : "FAIL");
+    status |= sampling != 0 || log < 0;
     int display = show_result(log, status);
     checkpoint(log, "display", display >= 0 ? "PASS" : "FAIL");
     checkpoint(log, "suite", status == 0 && display >= 0 ? "PASS" : "FAIL");
     probe_log(log, "ready: press START to exit\n");
 
     for (;;) {
-        samples = sceCtrlPeekBufferPositive(0, &pad, 1);
-        if (samples > 0 && (pad.buttons & SCE_CTRL_START)) {
-            probe_log(log, "pad: START detected; sticks %u,%u / %u,%u\n",
-                     (unsigned int)pad.lx, (unsigned int)pad.ly,
-                     (unsigned int)pad.rx, (unsigned int)pad.ry);
+        SceCtrlData pad;
+        if (sampling == 0 ? boot_gamepad_poll(log) :
+            sceCtrlPeekBufferPositive(0, &pad, 1) > 0 && (pad.buttons & SCE_CTRL_START)) {
             break;
         }
         sceKernelDelayThread(16667);
@@ -203,14 +197,14 @@ void boot_probe_exit(SceUID log, int status)
         sceIoClose(log);
     if (shutdown != 0)
         sceKernelExitProcess(1);
-    exit(status != 0 || display < 0 || sampling < 0 || log < 0);
+    exit(status != 0 || display < 0 || log < 0);
 }
 
 int main(void)
 {
     sceIoMkdir(DATA_DIR, 0777);
     SceUID log = sceIoOpen(DATA_DIR "/probe.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-    probe_log(log, "TWW Vita hardware probe 13 (game heaps, game DVD and SDK shutdown)\n");
+    probe_log(log, "TWW Vita hardware probe 14 (JFW early init and JUTGamePad)\n");
     probe_log(log, "ABI: %u-bit pointers\n", (unsigned int)(8 * sizeof(void *)));
 
     checkpoint(log, "disc mount", "BEGIN");
@@ -248,6 +242,7 @@ int main(void)
     }
 
     checkpoint(log, "Aurora OS and JKR heaps", "BEGIN");
+    const int dvd_mounted = disc_ok && boot_mount_game_dvd(log, DISC_PATH) == 0;
     int result = boot_probe_system(log);
     const int system_ok = result == 0;
     checkpoint(log, "Aurora OS and JKR heaps", result == 0 ? "PASS" : "FAIL");
@@ -260,14 +255,17 @@ int main(void)
     } else {
         checkpoint(log, "SwitchWaker scheduler", "SKIP (heaps unavailable)");
     }
-    if (system_ok && disc_ok) {
+    if (system_ok && dvd_mounted) {
         checkpoint(log, "SwitchWaker JKRDvdFile", "BEGIN");
-        result = boot_probe_game_dvd(log, DISC_PATH);
+        result = boot_probe_game_dvd(log);
         checkpoint(log, "SwitchWaker JKRDvdFile", result == 0 ? "PASS" : "FAIL");
         failed |= result != 0;
     } else {
         checkpoint(log, "SwitchWaker JKRDvdFile", "SKIP (heaps or disc unavailable)");
+        failed = 1;
     }
+    if (dvd_mounted)
+        boot_unmount_game_dvd();
 
     checkpoint(log, "GXM texture and framebuffer", "BEGIN");
     result = check_graphics(log);

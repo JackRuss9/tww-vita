@@ -3,6 +3,7 @@
 #include <aurora/aurora.h>
 #include <dolphin/os.h>
 #include "cos_sdk/hooks.h"
+#include "JSystem/JFramework/JFWSystem.h"
 #include "JSystem/JKernel/JKRExpHeap.h"
 #include "JSystem/JKernel/JKRDvdFile.h"
 #include "JSystem/JUtility/JUTAssert.h"
@@ -202,19 +203,20 @@ extern "C" int boot_probe_system(SceUID log)
     probe_log(log, "boot: OS arena ready (%u bytes)\n", static_cast<unsigned int>(hi - lo));
     probe_log(log, "boot: OS clock %lld ticks\n", static_cast<long long>(OSGetTime()));
 
-    probe_log(log, "boot: entering JKRExpHeap::createRoot\n");
-    JKRExpHeap *root = JKRExpHeap::createRoot(1, false);
-    if (!root || !root->check())
-        return -1;
-    probe_log(log, "boot: JKR root heap ready\n");
-
     constexpr unsigned int SystemBytes = 32 * 1024 * 1024;
     constexpr unsigned int CommandBytes = 0x1000 * 2;
     constexpr unsigned int ArchiveBytes = 0xa51400 * 2;
     constexpr unsigned int GameBytes = 0x2ce800 * 20;
-    JKRExpHeap *system = JKRExpHeap::create(SystemBytes, root, false);
+    JFWSystem::setMaxStdHeap(1);
+    JFWSystem::setSysHeapSize(SystemBytes);
+    system_checkpoint(log, "boot: entering JFWSystem::firstInit");
+    JFWSystem::firstInit();
+    JKRExpHeap *root = JFWSystem::rootHeap;
+    JKRExpHeap *system = JFWSystem::getSystemHeap();
+    if (!root || !system || !root->check() || !system->check())
+        return -1;
     system_checkpoint(log, "boot: entering mDoMch_CreateGameHeaps");
-    if (!system || !mDoMch_CreateGameHeaps(CommandBytes, ArchiveBytes, GameBytes, system) ||
+    if (!mDoMch_CreateGameHeaps(CommandBytes, ArchiveBytes, GameBytes, system) ||
         !root->check() || !system->check() || !mDoExt_getZeldaHeap()->check())
         return -1;
     JKRExpHeap *game = mDoExt_getGameHeap();
@@ -246,10 +248,8 @@ extern "C" int boot_probe_stop_scheduler(SceUID log)
     return error;
 }
 
-extern "C" int boot_probe_game_dvd(SceUID log, const char *path)
+extern "C" int boot_probe_game_dvd(SceUID log)
 {
-    if (boot_mount_game_dvd(log, path) != 0)
-        return -1;
     constexpr const char *resources[] = {
         "/res/Stage/sea_T/Stage.arc",
         "/res/Stage/sea/LODALL.arc",
@@ -272,7 +272,6 @@ extern "C" int boot_probe_game_dvd(SceUID log, const char *path)
             static_cast<unsigned int>(match));
         ok &= match;
     }
-    boot_unmount_game_dvd();
     return ok ? 0 : -1;
 }
 

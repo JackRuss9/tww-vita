@@ -3,13 +3,16 @@
 The startup probe runs SwitchWaker's `pc::loadAssets()` against the Vita
 CISO reader. It checks the DOL and RELs against the USA revision 0 hashes,
 loads the 163 arrays into memory and fills an array registered by the probe.
-It calls Aurora's OSInit and SwitchWaker's machine initialization routine
+It calls Aurora's OSInit, JFWSystem::firstInit and SwitchWaker's machine initialization routine
 for the command, archive, game and Zelda heaps. It uses SwitchWaker's OS SDK to run a worker thread
 that allocates from the shared JKR heap, post messages from the worker
 and a timer callback, and join the worker. It exercises the game's JKRDvdFile
 with both path and FST entry opens for the title and ocean archives.
 The Vita DVD adapter completes those reads inline and delivers the result
 through JKRDvdFile's existing message queue.
+It also runs the game's JUTGamePad input reader on the Vita's first pad.
+Cross, Circle, Square and Triangle map to A, B, X and Y respectively.
+Select maps to Z, and the shoulder buttons map to L and R.
 The suite also expands the title and ocean RARC archives through the upstream
 loader, checks a GXM texture render and framebuffer copy, and displays the
 logo texture from the title actor's archive through GXM. If that texture
@@ -33,9 +36,9 @@ cmake -S vita/probe -B build-vita-probe -G Ninja -DCMAKE_BUILD_TYPE=Release -DTW
 Set `VITASDK` to the SDK installation directory. Install
 `build-vita-probe/tww-vita-probe.vpk` in VitaShell and open **TWW Vita Probe**.
 Expect the title logo on black with a green status strip, or a red strip
-if a check reports an error. Press START
-while moving both sticks. The app logs the stick readings at the time START is
-pressed, joins the OS alarm thread, then exits.
+if a check reports an error. Move both sticks and try the buttons before
+pressing START. The app logs the observed stick ranges and button mask,
+joins the OS alarm thread, then exits.
 Collect `ux0:/data/tww/probe.log` before running the probe again.
 
 The graphics test embeds the MIT-licensed texture shaders from
@@ -45,7 +48,7 @@ Keep your USA revision 0 GameCube CISO at `ux0:/data/tww/WindWaker.ciso`.
 The log identifies each check with BEGIN, PASS, FAIL or SKIP. The summary
 is `check: suite PASS` when all checks succeed. A crash may leave a BEGIN
 without a result. The executable covers the machine initialization for
-heaps and file access. The JFW/GX backend and the game loop still need to
+heaps, file access and input. The full JFW/GX backend and the game loop still need to
 be linked for the first full boot.
 
 ## Integration points
