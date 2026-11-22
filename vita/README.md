@@ -4,7 +4,9 @@ The startup probe runs SwitchWaker's `pc::loadAssets()` against the Vita
 CISO reader. It checks the DOL and RELs against the USA revision 0 hashes,
 loads the 163 arrays into memory and fills an array registered by the probe.
 It then calls Aurora's OSInit and exercises the game's root, system, archive
-and game heaps before the game scheduler starts.
+and game heaps. It then uses SwitchWaker's OS SDK to run a worker thread
+that allocates from the shared JKR heap, post messages from the worker
+and a timer callback, and join the worker.
 The suite also expands the title and ocean RARC archives through the upstream
 loader, checks a GXM texture render and framebuffer copy, and displays the
 logo texture from the title actor's archive through GXM. If that texture

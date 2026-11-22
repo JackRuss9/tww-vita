@@ -8,6 +8,8 @@
 
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/sysmem.h>
+#include <psp2/kernel/threadmgr.h>
+#include <psp2/io/fcntl.h>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -15,6 +17,33 @@
 namespace {
 constexpr unsigned int ArenaBytes = 128 * 1024 * 1024;
 SceUID boot_log = -1;
+JKRExpHeap *game_heap;
+
+struct SchedulerCheck {
+    OSThread thread;
+    alignas(32) unsigned char stack[32 * 1024];
+    OSMessageQueue queue;
+    OSMessage messages[2];
+    OSAlarm alarm;
+};
+SchedulerCheck scheduler{};
+int worker_message, alarm_message;
+
+void *scheduler_worker(void *)
+{
+    void *block = game_heap->alloc(4096, 32);
+    if (!block)
+        return nullptr;
+    std::memset(block, 0xa5, 4096);
+    game_heap->free(block);
+    OSSendMessage(&scheduler.queue, &worker_message, OS_MESSAGE_NOBLOCK);
+    return &worker_message;
+}
+
+void scheduler_alarm(OSAlarm *, OSContext *)
+{
+    OSSendMessage(&scheduler.queue, &alarm_message, OS_MESSAGE_NOBLOCK);
+}
 
 void report(const char *format, va_list args)
 {
@@ -22,6 +51,13 @@ void report(const char *format, va_list args)
     std::vsnprintf(message, sizeof(message), format, args);
     probe_log(boot_log, "%s", message);
 }
+}
+
+extern "C" void probe_scheduler_diagnostic(const char *message, bool fatal)
+{
+    probe_log(boot_log, "scheduler%s: %s\n", fatal ? " fatal" : "", message);
+    if (fatal && boot_log >= 0)
+        sceIoSyncByFd(boot_log, 0);
 }
 
 namespace aurora {
@@ -67,11 +103,6 @@ OSTime OSGetTime()
     return static_cast<OSTime>(usec * (OS_TIMER_CLOCK / 100000) / 10);
 }
 
-// This probe runs JKR on one thread, before the game scheduler starts.
-void OSInitMutex(OSMutex *mutex) { *mutex = {}; }
-void OSLockMutex(OSMutex *mutex) { ++mutex->count; }
-void OSUnlockMutex(OSMutex *mutex) { --mutex->count; }
-
 void OSReport(const char *format, ...)
 {
     va_list args;
@@ -88,6 +119,7 @@ void OSPanic(const char *file, int line, const char *format, ...)
     report(format, args);
     va_end(args);
     probe_log(boot_log, "check: Aurora OS and JKR heaps FAIL (OS panic)\n");
+    probe_log(boot_log, "check: SwitchWaker scheduler SKIP (OS panic)\n");
     probe_log(boot_log, "check: GXM texture and framebuffer SKIP (OS panic)\n");
     boot_probe_exit(boot_log, -1);
 }
@@ -181,5 +213,46 @@ extern "C" int boot_probe_system(SceUID log)
     if (game->getTotalFreeSize() != free_before || !game->check())
         return -1;
     probe_log(log, "boot: JKR allocation and free pass\n");
+    game_heap = game;
     return 0;
+}
+
+extern "C" int boot_probe_scheduler(SceUID log)
+{
+    if (!OSGetCurrentThread()) {
+        probe_log(log, "scheduler: could not adopt main thread\n");
+        return -1;
+    }
+    OSInitMessageQueue(&scheduler.queue, scheduler.messages, 2);
+    OSCreateAlarm(&scheduler.alarm);
+    const u32 free_before = game_heap->getTotalFreeSize();
+    if (!OSCreateThread(&scheduler.thread, scheduler_worker, nullptr,
+                        scheduler.stack + sizeof(scheduler.stack), sizeof(scheduler.stack), 16, 0)) {
+        probe_log(log, "scheduler: OSCreateThread failed\n");
+        return -1;
+    }
+
+    probe_log(log, "scheduler: resuming worker and arming 20 ms alarm\n");
+    OSResumeThread(&scheduler.thread);
+    OSSetAlarm(&scheduler.alarm, OSMillisecondsToTicks(20), scheduler_alarm);
+    bool worker = false, alarm = false;
+    for (unsigned int i = 0; i < 1000; ++i) {
+        OSMessage message;
+        while (OSReceiveMessage(&scheduler.queue, &message, OS_MESSAGE_NOBLOCK)) {
+            worker |= message == &worker_message;
+            alarm |= message == &alarm_message;
+        }
+        if (worker && alarm && OSIsThreadTerminated(&scheduler.thread))
+            break;
+        sceKernelDelayThread(2000);
+    }
+    OSCancelAlarm(&scheduler.alarm);
+    const bool terminated = OSIsThreadTerminated(&scheduler.thread);
+    void *result = nullptr;
+    const bool joined = terminated && OSJoinThread(&scheduler.thread, &result);
+    const bool heap_ok = joined && game_heap->getTotalFreeSize() == free_before && game_heap->check();
+    probe_log(log, "scheduler: worker message %u, alarm message %u, joined %u, shared heap %u\n",
+        static_cast<unsigned int>(worker), static_cast<unsigned int>(alarm),
+        static_cast<unsigned int>(joined && result == &worker_message), static_cast<unsigned int>(heap_ok));
+    return worker && alarm && result == &worker_message && heap_ok ? 0 : -1;
 }

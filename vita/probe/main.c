@@ -204,7 +204,7 @@ int main(void)
 {
     sceIoMkdir(DATA_DIR, 0777);
     SceUID log = sceIoOpen(DATA_DIR "/probe.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-    probe_log(log, "TWW Vita hardware probe 11 (title texture)\n");
+    probe_log(log, "TWW Vita hardware probe 12 (scheduler)\n");
     probe_log(log, "ABI: %u-bit pointers\n", (unsigned int)(8 * sizeof(void *)));
 
     checkpoint(log, "disc mount", "BEGIN");
@@ -245,6 +245,14 @@ int main(void)
     int result = boot_probe_system(log);
     checkpoint(log, "Aurora OS and JKR heaps", result == 0 ? "PASS" : "FAIL");
     failed |= result != 0;
+    if (result == 0) {
+        checkpoint(log, "SwitchWaker scheduler", "BEGIN");
+        result = boot_probe_scheduler(log);
+        checkpoint(log, "SwitchWaker scheduler", result == 0 ? "PASS" : "FAIL");
+        failed |= result != 0;
+    } else {
+        checkpoint(log, "SwitchWaker scheduler", "SKIP (heaps unavailable)");
+    }
 
     checkpoint(log, "GXM texture and framebuffer", "BEGIN");
     result = check_graphics(log);

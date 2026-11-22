@@ -1,3 +1,61 @@
+diff --git a/native/sdk/src/os/OSThread.cpp b/native/sdk/src/os/OSThread.cpp
+index 9721467..f756826 100644
+--- a/native/sdk/src/os/OSThread.cpp
++++ b/native/sdk/src/os/OSThread.cpp
+@@ -35,6 +35,10 @@
+ #include <cstring>
+ #include <thread>
+ 
++#if defined(TWW_VITA_BOOT)
++extern "C" void probe_scheduler_diagnostic(const char* message, bool fatal);
++#endif
++
+ // __OSActiveThreadQueue: the SDK's list of active threads (linked through OSThread::linkActive),
+ // at 0x800000DC on the console. Exported with C linkage under its SDK name because game code walks
+ // it (m_Do_printf.cpp's OSGetActiveThreadID), always with interrupts disabled, i.e. holding Lock().
+@@ -357,6 +361,7 @@ void ExitCurrentLocked() {
+     tInterruptsDisabled = false;
+     Lock().unlock();
+     pthread_exit(nullptr);
++    std::abort(); // Some libc headers omit the noreturn attribute on pthread_exit.
+ }
+ 
+ void QueueRemove(OSThreadQueue* queue, OSThread* thread) {
+@@ -437,20 +442,34 @@ void WakeupLocked(OSThreadQueue* queue) {
+ void Log(const char* fmt, ...) {
+     std::va_list args;
+     va_start(args, fmt);
++#if defined(TWW_VITA_BOOT)
++    char message[256];
++    std::vsnprintf(message, sizeof(message), fmt, args);
++    va_end(args);
++    probe_scheduler_diagnostic(message, false);
++#else
+     std::fputs("[cos_sdk] ", stderr);
+     std::vfprintf(stderr, fmt, args);
+     std::fputc('\n', stderr);
+     va_end(args);
++#endif
+ }
+ 
+ void Fatal(const char* fmt, ...) {
+     std::va_list args;
+     va_start(args, fmt);
++#if defined(TWW_VITA_BOOT)
++    char message[256];
++    std::vsnprintf(message, sizeof(message), fmt, args);
++    va_end(args);
++    probe_scheduler_diagnostic(message, true);
++#else
+     std::fputs("[cos_sdk] FATAL: ", stderr);
+     std::vfprintf(stderr, fmt, args);
+     std::fputc('\n', stderr);
+     va_end(args);
+     std::fflush(stderr);
++#endif
+     std::abort();
+ }
+ 
 diff --git a/native/src/pc/runtime/pc_assets.cpp b/native/src/pc/runtime/pc_assets.cpp
 index 9749716..6d15ef4 100644
 --- a/native/src/pc/runtime/pc_assets.cpp

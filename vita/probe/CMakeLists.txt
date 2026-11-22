@@ -51,6 +51,12 @@ add_library(switchwaker_boot_system STATIC
   "${aurora_os}/OSAddress.cpp"
   "${aurora_os}/OSBootInfo.cpp"
   "${aurora_os}/OSAlloc.cpp"
+  "${sw_native}/sdk/src/os/OSThread.cpp"
+  "${sw_native}/sdk/src/os/OSInterrupt.cpp"
+  "${sw_native}/sdk/src/os/OSMutex.cpp"
+  "${sw_native}/sdk/src/os/OSMessage.cpp"
+  "${sw_native}/sdk/src/os/OSAlarm.cpp"
+  "${sw_native}/sdk/src/os/OSContext.cpp"
   "${sw_game}/src/JSystem/JKernel/JKRHeap.cpp"
   "${sw_game}/src/JSystem/JKernel/JKRExpHeap.cpp"
   "${sw_game}/src/JSystem/JKernel/JKRDisposer.cpp"
@@ -75,7 +81,7 @@ target_link_libraries(tww-vita-probe PRIVATE switchwaker_assets switchwaker_boot
 
 vita_create_self(tww-vita-probe.self tww-vita-probe)
 vita_create_vpk(tww-vita-probe.vpk TWWP00001 tww-vita-probe.self
-  VERSION 01.10
+  VERSION 01.11
   NAME "TWW Vita Probe"
   FILE "${TWW_SWITCHWAKER_DIR}/LICENSE" switchwaker-LICENSE.txt
   FILE "${TWW_AURORA_DIR}/LICENSE" aurora-LICENSE.txt
