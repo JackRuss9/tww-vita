@@ -132,7 +132,21 @@ The log records GXM initialization, the first presented frame, the logo and
 opening scenes, the title draw and the file-select screen if reached.
 The 01.16 build runs muted and reports empty memory-card slots. The GXM
 readback path for the Picto Box still needs implementation.
-The first physical Vita run is needed to validate how far the game boots.
+On real hardware, 01.16 initialized GXM, compiled the initial utility
+shaders, loaded the 163 disc asset arrays and entered `main01`. The crash
+dump records `Aurora GX PANIC: GXSetDrawDoneCallback` during JFW startup,
+before the first game frame. The `shaders` directory is the runtime
+compiler cache.
+
+The Monster Hunter Tri revision used for 01.16 intentionally aborts on
+the public GX/FIFO interface. SwitchWaker uses that interface for callback
+registration, draw commands, display lists and embedded framebuffer
+copies. The parent of the EFB copy removal,
+[Grarak/mh3-wii `37c57f5`](https://github.com/Grarak/mh3-wii/tree/37c57f5a32556e089d513aee8f3766a86bf6c8a6/aurora-main),
+contains GXM and the public GX/FIFO implementations, including the
+callback and both copy calls. It is a candidate for the next renderer
+build and still needs the Wind Waker shader compiler integration and
+hardware validation.
 
 ## Integration points
 

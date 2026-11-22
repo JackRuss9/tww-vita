@@ -3,6 +3,7 @@
 
 #include <aurora/aurora.h>
 #include <aurora/fatal.hpp>
+#include <aurora/legacy_gx.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/kernel/threadmgr.h>
 
@@ -16,6 +17,14 @@ void aurora_fatal(const char *message)
 {
     probe_log(boot_log, "aurora fatal: %s\n", message);
     pc_exit(1);
+}
+
+void aurora_gx_panic(const char *entry)
+{
+    probe_log(boot_log, "aurora GX panic: %s\n", entry);
+    if (boot_log >= 0)
+        sceIoSyncByFd(boot_log, 0);
+    // Return so Aurora still aborts and the Vita records a crash dump.
 }
 
 void check_presentation()
@@ -39,6 +48,7 @@ extern "C" int tww_vita_gxm_init(SceUID log, int argc, char **argv)
     boot_log = log;
     first_present_logged = false;
     aurora::fatal_handler = aurora_fatal;
+    aurora_set_legacy_gx_panic_handler(aurora_gx_panic);
     AuroraConfig config{};
     config.appName = "SwitchWaker";
     config.userPath = "ux0:/data/tww/";
