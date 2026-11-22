@@ -149,6 +149,47 @@ int boot_disc_file(const BootDisc *disc, const char *path, uint32_t *offset, uin
     return 0;
 }
 
+int boot_read_banner(SceUID log, const char *path, uint32_t *pixels)
+{
+    BootDisc *disc = boot_disc_open(log, path);
+    if (!disc)
+        return -1;
+    uint8_t banner[0x20 + BOOT_BANNER_WIDTH * BOOT_BANNER_HEIGHT * 2];
+    uint32_t offset, size;
+    int ok = boot_disc_file(disc, "/opening.bnr", &offset, &size) == 0 &&
+        size >= sizeof(banner) && boot_disc_read(disc, offset, banner, sizeof(banner)) == 0 &&
+        (memcmp(banner, "BNR1", 4) == 0 || memcmp(banner, "BNR2", 4) == 0);
+    boot_disc_close(disc);
+    if (!ok) {
+        probe_log(log, "disc: opening.bnr missing or has an invalid header\n");
+        return -1;
+    }
+    probe_log(log, "disc: opening.bnr %.4s (%u bytes)\n", (const char *)banner, (unsigned int)size);
+
+    // GameCube banners use RGB5A3 texels in 4x4 tiles.
+    const uint8_t *src = banner + 0x20;
+    for (unsigned int y = 0; y < BOOT_BANNER_HEIGHT; ++y) {
+        for (unsigned int x = 0; x < BOOT_BANNER_WIDTH; ++x) {
+            unsigned int tile = (y / 4) * (BOOT_BANNER_WIDTH / 4) + x / 4;
+            unsigned int i = (tile * 16 + (y % 4) * 4 + x % 4) * 2;
+            unsigned int value = (src[i] << 8) | src[i + 1];
+            unsigned int r, g, b;
+            if (value & 0x8000) {
+                r = ((value >> 10) & 31) * 255 / 31;
+                g = ((value >> 5) & 31) * 255 / 31;
+                b = (value & 31) * 255 / 31;
+            } else {
+                unsigned int alpha = (value >> 12) & 7;
+                r = ((value >> 8) & 15) * 17 * alpha / 7;
+                g = ((value >> 4) & 15) * 17 * alpha / 7;
+                b = (value & 15) * 17 * alpha / 7;
+            }
+            pixels[y * BOOT_BANNER_WIDTH + x] = 0xff000000u | b << 16 | g << 8 | r;
+        }
+    }
+    return 0;
+}
+
 void boot_disc_dol(const BootDisc *disc, uint32_t *offset, uint32_t *size)
 {
     *offset = disc->dol_offset;

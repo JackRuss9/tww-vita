@@ -6,6 +6,7 @@
 
 #include <psp2/ctrl.h>
 #include <psp2/display.h>
+#include <psp2/gxm.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/sysmem.h>
@@ -20,6 +21,9 @@
 enum {
     VIDEO_MEMORY_SIZE = 2 * 1024 * 1024,
 };
+
+static uint32_t banner[BOOT_BANNER_WIDTH * BOOT_BANNER_HEIGHT];
+static int banner_ready;
 
 void probe_log(SceUID log, const char *format, ...)
 {
@@ -44,6 +48,49 @@ void probe_log(SceUID log, const char *format, ...)
     }
 }
 
+static void checkpoint(SceUID log, const char *name, const char *result)
+{
+    probe_log(log, "check: %s %s\n", name, result);
+    if (log >= 0)
+        sceIoSyncByFd(log, 0);
+}
+
+static void display_queue_callback(const void *data)
+{
+    (void)data;
+}
+
+static int check_graphics(SceUID log)
+{
+    const SceGxmInitializeParams config = {
+        .flags = SCE_GXM_INITIALIZE_FLAG_DEFAULT,
+        .displayQueueMaxPendingCount = 2,
+        .displayQueueCallback = display_queue_callback,
+        .displayQueueCallbackDataSize = sizeof(uint32_t),
+        .parameterBufferSize = SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE,
+    };
+    int result = sceGxmInitialize(&config);
+    probe_log(log, "gpu: initialization 0x%08x\n", (unsigned int)result);
+    if (result < 0)
+        return -1;
+
+    SceUID memory = sceKernelAllocMemBlock("twwSuiteGxmOutput",
+        SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, VIDEO_MEMORY_SIZE, NULL);
+    if (memory >= 0) {
+        void *base;
+        result = sceKernelGetMemBlockBase(memory, &base);
+        if (result >= 0)
+            result = gpu_probe(log, base, VIDEO_MEMORY_SIZE);
+        sceKernelFreeMemBlock(memory);
+    } else {
+        result = memory;
+    }
+    int shutdown = sceGxmTerminate();
+    probe_log(log, "gpu: render/copy 0x%08x, termination 0x%08x\n",
+              (unsigned int)result, (unsigned int)shutdown);
+    return result < 0 || shutdown < 0 ? -1 : 0;
+}
+
 static int show_result(SceUID log, int boot_result)
 {
     SceUID memory = sceKernelAllocMemBlock("twwProbeFramebuffer",
@@ -65,6 +112,14 @@ static int show_result(SceUID log, int boot_result)
     const uint32_t color = boot_result == 0 ? 0xff358220 : 0xff2630a0;
     for (unsigned int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; ++i)
         pixels[i] = color;
+    if (banner_ready) {
+        enum { SCALE = 5, LEFT = (SCREEN_WIDTH - BOOT_BANNER_WIDTH * SCALE) / 2,
+               TOP = (SCREEN_HEIGHT - BOOT_BANNER_HEIGHT * SCALE) / 2 };
+        for (unsigned int y = 0; y < BOOT_BANNER_HEIGHT * SCALE; ++y)
+            for (unsigned int x = 0; x < BOOT_BANNER_WIDTH * SCALE; ++x)
+                pixels[(TOP + y) * SCREEN_WIDTH + LEFT + x] =
+                    banner[(y / SCALE) * BOOT_BANNER_WIDTH + x / SCALE];
+    }
 
     SceDisplayFrameBuf frame = {
         .size = sizeof(frame),
@@ -84,14 +139,17 @@ static int show_result(SceUID log, int boot_result)
 
 void boot_probe_exit(SceUID log, int status)
 {
-    probe_log(log, "boot: SwitchWaker startup %s\n", status == 0 ? "pass" : "failed");
-    int display = show_result(log, status);
     int sampling = sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
     probe_log(log, "pad: analog mode 0x%08x\n", (unsigned int)sampling);
 
     SceCtrlData pad;
     int samples = sceCtrlPeekBufferPositive(0, &pad, 1);
     probe_log(log, "pad: initial sample %d\n", samples);
+    checkpoint(log, "controller", sampling >= 0 && samples > 0 ? "PASS" : "FAIL");
+    status |= sampling < 0 || samples <= 0 || log < 0;
+    int display = show_result(log, status);
+    checkpoint(log, "display", display >= 0 ? "PASS" : "FAIL");
+    checkpoint(log, "suite", status == 0 && display >= 0 ? "PASS" : "FAIL");
     probe_log(log, "ready: press START to exit\n");
 
     for (unsigned int attempt = 0; attempt < 1800; ++attempt) {
@@ -114,10 +172,45 @@ int main(void)
 {
     sceIoMkdir(DATA_DIR, 0777);
     SceUID log = sceIoOpen(DATA_DIR "/probe.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-    probe_log(log, "TWW Vita hardware probe 9\n");
+    probe_log(log, "TWW Vita hardware probe 10 (startup suite)\n");
     probe_log(log, "ABI: %u-bit pointers\n", (unsigned int)(8 * sizeof(void *)));
-    int status = boot_switchwaker_assets(log, DISC_PATH);
-    if (status == 0)
-        status = boot_probe_system(log);
-    boot_probe_exit(log, status);
+
+    checkpoint(log, "disc mount", "BEGIN");
+    BootDisc *disc = boot_disc_open(log, DISC_PATH);
+    int disc_ok = disc != NULL;
+    if (disc)
+        boot_disc_close(disc);
+    checkpoint(log, "disc mount", disc_ok ? "PASS" : "FAIL");
+
+    int failed = !disc_ok;
+    if (disc_ok) {
+        checkpoint(log, "SwitchWaker assets", "BEGIN");
+        int result = boot_switchwaker_assets(log, DISC_PATH);
+        checkpoint(log, "SwitchWaker assets", result == 0 ? "PASS" : "FAIL");
+        failed |= result != 0;
+
+        checkpoint(log, "title and ocean archives", "BEGIN");
+        result = boot_switchwaker_archives(log, DISC_PATH);
+        checkpoint(log, "title and ocean archives", result == 0 ? "PASS" : "FAIL");
+        failed |= result != 0;
+
+        checkpoint(log, "disc banner", "BEGIN");
+        banner_ready = boot_read_banner(log, DISC_PATH, banner) == 0;
+        checkpoint(log, "disc banner", banner_ready ? "PASS" : "FAIL");
+        failed |= !banner_ready;
+    } else {
+        checkpoint(log, "SwitchWaker assets", "SKIP (disc mount failed)");
+        checkpoint(log, "title and ocean archives", "SKIP (disc mount failed)");
+        checkpoint(log, "disc banner", "SKIP (disc mount failed)");
+    }
+
+    checkpoint(log, "Aurora OS and JKR heaps", "BEGIN");
+    int result = boot_probe_system(log);
+    checkpoint(log, "Aurora OS and JKR heaps", result == 0 ? "PASS" : "FAIL");
+    failed |= result != 0;
+
+    checkpoint(log, "GXM texture and framebuffer", "BEGIN");
+    result = check_graphics(log);
+    checkpoint(log, "GXM texture and framebuffer", result == 0 ? "PASS" : "FAIL");
+    boot_probe_exit(log, failed || result != 0);
 }

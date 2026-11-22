@@ -5,6 +5,9 @@ CISO reader. It checks the DOL and RELs against the USA revision 0 hashes,
 loads the 163 arrays into memory and fills an array registered by the probe.
 It then calls Aurora's OSInit and exercises the game's root, system, archive
 and game heaps before the game scheduler starts.
+The suite also expands the title and ocean RARC archives through the upstream
+loader, checks a GXM texture render and framebuffer copy, and displays the
+disc banner decoded from `opening.bnr`.
 
 ## Build and run the hardware probe
 
@@ -15,7 +18,7 @@ Set `SW` and `AURORA` to their absolute paths and `STUBS` to an absolute
 directory for the generated headers. From the tww-vita repository root:
 
 ```sh
-git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-libc.patch" "$PWD/vita/patches/switchwaker-arm32.patch"
+git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-libc.patch" "$PWD/vita/patches/switchwaker-arm32.patch" "$PWD/vita/patches/switchwaker-vita-suite.patch"
 git -C "$AURORA" apply "$PWD/vita/patches/aurora-vita-boot.patch"
 (cd "$SW" && bash native/tools/gen_assets.sh --stubs --version GZLE01 --out "$STUBS")
 cmake -S vita/probe -B build-vita-probe -G Ninja -DCMAKE_BUILD_TYPE=Release -DTWW_SWITCHWAKER_DIR="$SW" -DTWW_AURORA_DIR="$AURORA" -DTWW_SWITCHWAKER_ASSETS="$STUBS" && cmake --build build-vita-probe
@@ -23,17 +26,19 @@ cmake -S vita/probe -B build-vita-probe -G Ninja -DCMAKE_BUILD_TYPE=Release -DTW
 
 Set `VITASDK` to the SDK installation directory. Install
 `build-vita-probe/tww-vita-probe.vpk` in VitaShell and open **TWW Vita Probe**.
-Expect a green screen if the loader and heap checks succeed, or red if either reports an error. Press START
+Expect the disc banner over a green background if the checks succeed, or red
+if a check reports an error. Press START
 while moving both sticks. The app logs the stick readings at the time START is
 pressed, then exits. It also exits on its own after about 30 seconds.
 Collect `ux0:/data/tww/probe.log` before running the probe again.
 
-The earlier graphics probe embedded the MIT-licensed texture shaders from
+The graphics test embeds the MIT-licensed texture shaders from
 [libvita2d](https://github.com/xerpi/libvita2d/tree/a8f15ab09d5233f0a4e4ad0e8f6ade0da888cbed/libvita2d/shader).
 
 Keep your USA revision 0 GameCube CISO at `ux0:/data/tww/WindWaker.ciso`.
-The log names the files read by the loader and reports
-`boot: SwitchWaker startup pass` when all checks succeed.
+The log identifies each check with BEGIN, PASS, FAIL or SKIP. The summary
+is `check: suite PASS` when all checks succeed. A crash may leave a BEGIN
+without a result. The game scheduler and full renderer are future integration steps.
 
 ## Integration points
 

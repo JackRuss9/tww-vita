@@ -272,6 +272,7 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
         sample_ok &= draw_pixel == expected[i] && copy_pixel == draw_pixel;
     }
     probe_log(log, "gpu: textured framebuffer %s\n", sample_ok ? "pass" : "mismatch");
+    result = sample_ok ? 0 : -1;
 
 cleanup:
     if (scene_open)

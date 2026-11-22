@@ -1,0 +1,23 @@
+diff --git a/native/src/pc/runtime/pc_assets.cpp b/native/src/pc/runtime/pc_assets.cpp
+index 9749716..3265802 100644
+--- a/native/src/pc/runtime/pc_assets.cpp
++++ b/native/src/pc/runtime/pc_assets.cpp
+@@ -299,6 +299,18 @@ bool cos_asset_fill(void* array, unsigned int size, unsigned int id) {
+ 
+ namespace pc {
+ 
++#if defined(TWW_VITA_BOOT)
++bool probeStageArchive(const char* path, uint32_t* expandedSize) {
++    cos_sdk::HostVector<uint8_t> archive;
++    if (!readDiscFile(path, archive) || archive.size() < 0x40 ||
++        memcmp(archive.data(), "RARC", 4) != 0 ||
++        rd32(archive.data() + 4) > archive.size())
++        return false;
++    *expandedSize = static_cast<uint32_t>(archive.size());
++    return true;
++}
++#endif
++
+ void loadAssets() {
+     State& st = state();
+     s32 dolLen = 0;

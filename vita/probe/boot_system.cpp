@@ -87,6 +87,8 @@ void OSPanic(const char *file, int line, const char *format, ...)
     va_start(args, format);
     report(format, args);
     va_end(args);
+    probe_log(boot_log, "check: Aurora OS and JKR heaps FAIL (OS panic)\n");
+    probe_log(boot_log, "check: GXM texture and framebuffer SKIP (OS panic)\n");
     boot_probe_exit(boot_log, -1);
 }
 

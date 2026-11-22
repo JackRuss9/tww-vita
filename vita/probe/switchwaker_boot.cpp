@@ -14,6 +14,7 @@ namespace {
 SceUID log_fd = -1;
 BootDisc *disc;
 std::vector<uint8_t> dol;
+struct AssetExit { int code; };
 
 void log_format(const char *prefix, const char *format, va_list args)
 {
@@ -71,6 +72,7 @@ extern "C" const u8 *DVDGetDOLLocation(s32 *out_size)
 
 namespace pc {
 Config gConfig;
+bool probeStageArchive(const char *path, uint32_t *expandedSize);
 
 void writef(int, const char *format, ...)
 {
@@ -97,9 +99,7 @@ void discMessage(const char *format, ...)
 
 extern "C" [[noreturn]] void pc_exit(int code)
 {
-    boot_disc_close(disc);
-    boot_probe_exit(log_fd, code);
-    __builtin_unreachable();
+    throw AssetExit{code};
 }
 
 int boot_switchwaker_assets(SceUID log, const char *path)
@@ -111,10 +111,35 @@ int boot_switchwaker_assets(SceUID log, const char *path)
     probe_log(log, "boot: registering an asset array\n");
 #include "assets/black_tex.h"
     probe_log(log, "boot: entering SwitchWaker pc::loadAssets\n");
-    pc::loadAssets();
-    probe_log(log, "boot: SwitchWaker asset loader returned\n");
+    int status = 0;
+    try {
+        pc::loadAssets();
+        probe_log(log, "boot: SwitchWaker asset loader returned\n");
+    } catch (const AssetExit &failure) {
+        status = failure.code == 0 ? -1 : failure.code;
+        probe_log(log, "boot: asset loader exited with %d\n", failure.code);
+    }
     std::vector<uint8_t>().swap(dol);
     boot_disc_close(disc);
     disc = nullptr;
-    return 0;
+    return status;
+}
+
+int boot_switchwaker_archives(SceUID log, const char *path)
+{
+    log_fd = log;
+    disc = boot_disc_open(log, path);
+    if (!disc)
+        return -1;
+    int fail = 0;
+    for (const char *archive : {"/res/Stage/sea_T/Stage.arc", "/res/Stage/sea/LODALL.arc"}) {
+        uint32_t size = 0;
+        const bool ok = pc::probeStageArchive(archive, &size);
+        probe_log(log, "check: %s %s (RARC: %u bytes)\n", archive, ok ? "PASS" : "FAIL",
+                  static_cast<unsigned int>(size));
+        fail |= !ok;
+    }
+    boot_disc_close(disc);
+    disc = nullptr;
+    return fail ? -1 : 0;
 }

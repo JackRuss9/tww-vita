@@ -32,7 +32,7 @@ endif()
 
 add_library(switchwaker_assets STATIC "${TWW_SWITCHWAKER_DIR}/native/src/pc/runtime/pc_assets.cpp")
 target_compile_features(switchwaker_assets PRIVATE cxx_std_20)
-target_compile_definitions(switchwaker_assets PUBLIC TARGET_PC=1 PRIVATE COS_RUNTIME_ASSETS=1)
+target_compile_definitions(switchwaker_assets PUBLIC TARGET_PC=1 PRIVATE COS_RUNTIME_ASSETS=1 TWW_VITA_BOOT=1)
 target_compile_options(switchwaker_assets PRIVATE -include dolphin/types.h)
 target_include_directories(switchwaker_assets PUBLIC
   "${TWW_SWITCHWAKER_DIR}/native/src/pc"
@@ -68,14 +68,15 @@ target_include_directories(switchwaker_boot_system PRIVATE
   "${TWW_AURORA_DIR}/include" "${sw_game}/include" "${TWW_SWITCHWAKER_ASSETS}"
   "${sw_native}/include/pc/msl")
 
-add_executable(tww-vita-probe main.c disc.c switchwaker_boot.cpp)
+add_executable(tww-vita-probe main.c disc.c switchwaker_boot.cpp gpu.c gx_probe.cpp)
 target_compile_features(tww-vita-probe PRIVATE c_std_11 cxx_std_20)
 target_compile_options(tww-vita-probe PRIVATE -Wall -Wextra -Wformat=2)
-target_link_libraries(tww-vita-probe PRIVATE switchwaker_assets switchwaker_boot_system pthread SceCtrl_stub SceDisplay_stub SceIofilemgr_stub)
+target_link_libraries(tww-vita-probe PRIVATE switchwaker_assets switchwaker_boot_system pthread SceCtrl_stub SceDisplay_stub SceGxm_stub SceIofilemgr_stub)
 
 vita_create_self(tww-vita-probe.self tww-vita-probe)
 vita_create_vpk(tww-vita-probe.vpk TWWP00001 tww-vita-probe.self
-  VERSION 01.08
+  VERSION 01.09
   NAME "TWW Vita Probe"
   FILE "${TWW_SWITCHWAKER_DIR}/LICENSE" switchwaker-LICENSE.txt
-  FILE "${TWW_AURORA_DIR}/LICENSE" aurora-LICENSE.txt)
+  FILE "${TWW_AURORA_DIR}/LICENSE" aurora-LICENSE.txt
+  FILE "${CMAKE_CURRENT_SOURCE_DIR}/libvita2d-LICENSE.txt" libvita2d-LICENSE.txt)

@@ -15,6 +15,9 @@ int boot_disc_read(const BootDisc *disc, uint64_t offset, void *output, size_t b
 int boot_disc_file(const BootDisc *disc, const char *path, uint32_t *offset, uint32_t *size);
 void boot_disc_dol(const BootDisc *disc, uint32_t *offset, uint32_t *size);
 int boot_switchwaker_assets(SceUID log, const char *path);
+int boot_switchwaker_archives(SceUID log, const char *path);
+enum { BOOT_BANNER_WIDTH = 96, BOOT_BANNER_HEIGHT = 32 };
+int boot_read_banner(SceUID log, const char *path, uint32_t *pixels);
 int boot_probe_system(SceUID log);
 void boot_probe_exit(SceUID log, int status) __attribute__((noreturn));
 #ifdef __cplusplus
