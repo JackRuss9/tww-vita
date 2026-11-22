@@ -20,9 +20,10 @@ while moving both sticks. The app logs the stick readings at the time START is
 pressed, then exits. It also exits on its own after about 30 seconds.
 Collect `ux0:data/tww-vita/probe.log` before running the probe again.
 
-For an optional disc read test, put your own uncompressed ISO at
-`ux0:data/tww-vita/disc.iso`. The probe reads the first 32 bytes and logs the ID,
-revision and file size for `GZLE01` (USA) or `GZLP01` (Europe).
+For an optional disc read test, keep your GameCube CISO at
+`ux0:/data/tww/WindWaker.ciso`. The probe reads the GameCube header from the
+first stored CISO block and logs the disc ID, revision, file size and block
+size for `GZLE01` (USA) or `GZLP01` (Europe).
 
 ## Integration points
 

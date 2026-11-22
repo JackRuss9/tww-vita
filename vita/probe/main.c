@@ -12,12 +12,13 @@
 #include <psp2/kernel/threadmgr.h>
 
 #define DATA_DIR "ux0:data/tww-vita"
-#define DISC_PATH DATA_DIR "/disc.iso"
+#define DISC_PATH "ux0:data/tww/WindWaker.ciso"
 
 enum {
     SCREEN_WIDTH = 960,
     SCREEN_HEIGHT = 544,
     VIDEO_MEMORY_SIZE = 2 * 1024 * 1024,
+    CISO_HEADER_SIZE = 0x8000,
 };
 
 static void log_line(SceUID log, const char *format, ...)
@@ -45,25 +46,60 @@ static void log_line(SceUID log, const char *format, ...)
 
 static void probe_disc(SceUID log)
 {
+    log_line(log, "disc path: %s\n", DISC_PATH);
     SceUID file = sceIoOpen(DISC_PATH, SCE_O_RDONLY, 0);
     if (file < 0) {
         log_line(log, "disc: open 0x%08x (optional)\n", (unsigned int)file);
         return;
     }
 
+    // Dolphin CISO stores the block size as LE32, then one byte per block.
+    // When block zero is present, its contents start after the fixed header.
+    unsigned char ciso[9];
+    int read = sceIoRead(file, ciso, sizeof(ciso));
+    if (read != sizeof(ciso)) {
+        log_line(log, "disc: CISO header read %d\n", read);
+        goto close;
+    }
+    if (memcmp(ciso, "CISO", 4) != 0) {
+        log_line(log, "disc: expected a Dolphin GameCube CISO\n");
+        goto close;
+    }
+
     unsigned char header[0x20];
-    int read = sceIoRead(file, header, sizeof(header));
+    uint32_t block_size = (uint32_t)ciso[4] | ((uint32_t)ciso[5] << 8) |
+                          ((uint32_t)ciso[6] << 16) | ((uint32_t)ciso[7] << 24);
+    if (ciso[8] != 1 || block_size < sizeof(header)) {
+        log_line(log, "disc: invalid CISO block 0 (map=%u, block size=%u)\n",
+                 (unsigned int)ciso[8], (unsigned int)block_size);
+        goto close;
+    }
+
     SceOff size = sceIoLseek(file, 0, SCE_SEEK_END);
+    if (size < (SceOff)CISO_HEADER_SIZE + block_size) {
+        log_line(log, "disc: incomplete first CISO block (size or seek result %lld)\n",
+                 (long long)size);
+        goto close;
+    }
+    SceOff position = sceIoLseek(file, CISO_HEADER_SIZE, SCE_SEEK_SET);
+    if (position != CISO_HEADER_SIZE) {
+        log_line(log, "disc: CISO data seek %lld\n", (long long)position);
+        goto close;
+    }
+
+    read = sceIoRead(file, header, sizeof(header));
     if (read != sizeof(header)) {
-        log_line(log, "disc: header read %d\n", read);
+        log_line(log, "disc: GameCube header read %d\n", read);
     } else if (memcmp(header + 0x1c, "\xc2\x33\x9f\x3d", 4) != 0) {
-        log_line(log, "disc: expected a raw GameCube ISO\n");
+        log_line(log, "disc: GameCube header missing from first CISO block\n");
     } else if (memcmp(header, "GZLE01", 6) == 0 || memcmp(header, "GZLP01", 6) == 0) {
-        log_line(log, "disc: %.6s revision %u size %lld\n", (const char *)header,
-                 (unsigned int)header[7], (long long)size);
+        log_line(log, "disc: CISO %.6s revision %u file size %lld block size %u\n",
+                 (const char *)header, (unsigned int)header[7], (long long)size,
+                 (unsigned int)block_size);
     } else {
         log_line(log, "disc: unsupported GameCube disc ID\n");
     }
+close:
     sceIoClose(file);
 }
 
@@ -113,7 +149,7 @@ int main(void)
 {
     sceIoMkdir(DATA_DIR, 0777);
     SceUID log = sceIoOpen(DATA_DIR "/probe.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-    log_line(log, "TWW Vita hardware probe 1\n");
+    log_line(log, "TWW Vita hardware probe 2\n");
     log_line(log, "ABI: %u-bit pointers\n", (unsigned int)(8 * sizeof(void *)));
     probe_disc(log);
 

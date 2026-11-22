@@ -20,5 +20,5 @@ target_link_libraries(tww-vita-probe PRIVATE SceCtrl_stub SceDisplay_stub SceGxm
 
 vita_create_self(tww-vita-probe.self tww-vita-probe)
 vita_create_vpk(tww-vita-probe.vpk TWWP00001 tww-vita-probe.self
-  VERSION 01.00
+  VERSION 01.01
   NAME "TWW Vita Probe")
