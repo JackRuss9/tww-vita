@@ -24,6 +24,9 @@ enum {
 
 static uint32_t banner[BOOT_BANNER_WIDTH * BOOT_BANNER_HEIGHT];
 static int banner_ready;
+static ProbeImage title;
+static SceUID title_memory = -1;
+static uint32_t *title_frame;
 
 void probe_log(SceUID log, const char *format, ...)
 {
@@ -71,8 +74,11 @@ static int check_graphics(SceUID log)
     };
     int result = sceGxmInitialize(&config);
     probe_log(log, "gpu: initialization 0x%08x\n", (unsigned int)result);
-    if (result < 0)
+    if (result < 0) {
+        checkpoint(log, "GXM texture and framebuffer", "FAIL (GXM initialization)");
+        checkpoint(log, "title texture render", "SKIP (GXM initialization failed)");
         return -1;
+    }
 
     SceUID memory = sceKernelAllocMemBlock("twwSuiteGxmOutput",
         SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, VIDEO_MEMORY_SIZE, NULL);
@@ -85,10 +91,32 @@ static int check_graphics(SceUID log)
     } else {
         result = memory;
     }
+    checkpoint(log, "GXM texture and framebuffer", result >= 0 ? "PASS" : "FAIL");
+
+    int title_result = 0;
+    if (title.pixels) {
+        checkpoint(log, "title texture render", "BEGIN");
+        title_memory = sceKernelAllocMemBlock("twwTitleGxmOutput",
+            SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, VIDEO_MEMORY_SIZE, NULL);
+        title_result = title_memory;
+        if (title_memory >= 0) {
+            void *base = NULL;
+            title_result = sceKernelGetMemBlockBase(title_memory, &base);
+            if (title_result >= 0)
+                title_result = gpu_title(log, base, VIDEO_MEMORY_SIZE, &title);
+            if (title_result >= 0)
+                title_frame = base;
+            else
+                sceKernelFreeMemBlock(title_memory);
+        }
+        checkpoint(log, "title texture render", title_result >= 0 ? "PASS" : "FAIL");
+    } else {
+        checkpoint(log, "title texture render", "SKIP (title texture unavailable)");
+    }
     int shutdown = sceGxmTerminate();
     probe_log(log, "gpu: render/copy 0x%08x, termination 0x%08x\n",
               (unsigned int)result, (unsigned int)shutdown);
-    return result < 0 || shutdown < 0 ? -1 : 0;
+    return result < 0 || title_result < 0 || shutdown < 0 ? -1 : 0;
 }
 
 static int show_result(SceUID log, int boot_result)
@@ -112,7 +140,11 @@ static int show_result(SceUID log, int boot_result)
     const uint32_t color = boot_result == 0 ? 0xff358220 : 0xff2630a0;
     for (unsigned int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; ++i)
         pixels[i] = color;
-    if (banner_ready) {
+    if (title_frame) {
+        memcpy(pixels + 8 * SCREEN_WIDTH, title_frame + 8 * SCREEN_WIDTH,
+               (SCREEN_HEIGHT - 16) * SCREEN_WIDTH * sizeof(*pixels));
+        sceKernelFreeMemBlock(title_memory);
+    } else if (banner_ready) {
         enum { SCALE = 5, LEFT = (SCREEN_WIDTH - BOOT_BANNER_WIDTH * SCALE) / 2,
                TOP = (SCREEN_HEIGHT - BOOT_BANNER_HEIGHT * SCALE) / 2 };
         for (unsigned int y = 0; y < BOOT_BANNER_HEIGHT * SCALE; ++y)
@@ -172,7 +204,7 @@ int main(void)
 {
     sceIoMkdir(DATA_DIR, 0777);
     SceUID log = sceIoOpen(DATA_DIR "/probe.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-    probe_log(log, "TWW Vita hardware probe 10 (startup suite)\n");
+    probe_log(log, "TWW Vita hardware probe 11 (title texture)\n");
     probe_log(log, "ABI: %u-bit pointers\n", (unsigned int)(8 * sizeof(void *)));
 
     checkpoint(log, "disc mount", "BEGIN");
@@ -198,10 +230,15 @@ int main(void)
         banner_ready = boot_read_banner(log, DISC_PATH, banner) == 0;
         checkpoint(log, "disc banner", banner_ready ? "PASS" : "FAIL");
         failed |= !banner_ready;
+        checkpoint(log, "title texture load", "BEGIN");
+        result = boot_read_title(log, DISC_PATH, &title);
+        checkpoint(log, "title texture load", result == 0 ? "PASS" : "FAIL");
+        failed |= result != 0;
     } else {
         checkpoint(log, "SwitchWaker assets", "SKIP (disc mount failed)");
         checkpoint(log, "title and ocean archives", "SKIP (disc mount failed)");
         checkpoint(log, "disc banner", "SKIP (disc mount failed)");
+        checkpoint(log, "title texture load", "SKIP (disc mount failed)");
     }
 
     checkpoint(log, "Aurora OS and JKR heaps", "BEGIN");
@@ -211,6 +248,7 @@ int main(void)
 
     checkpoint(log, "GXM texture and framebuffer", "BEGIN");
     result = check_graphics(log);
-    checkpoint(log, "GXM texture and framebuffer", result == 0 ? "PASS" : "FAIL");
+    checkpoint(log, "GXM suite", result == 0 ? "PASS" : "FAIL");
+    free(title.pixels);
     boot_probe_exit(log, failed || result != 0);
 }

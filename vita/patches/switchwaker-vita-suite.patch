@@ -1,8 +1,8 @@
 diff --git a/native/src/pc/runtime/pc_assets.cpp b/native/src/pc/runtime/pc_assets.cpp
-index 9749716..3265802 100644
+index 9749716..6d15ef4 100644
 --- a/native/src/pc/runtime/pc_assets.cpp
 +++ b/native/src/pc/runtime/pc_assets.cpp
-@@ -299,6 +299,18 @@ bool cos_asset_fill(void* array, unsigned int size, unsigned int id) {
+@@ -299,6 +299,58 @@ bool cos_asset_fill(void* array, unsigned int size, unsigned int id) {
  
  namespace pc {
  
@@ -15,6 +15,46 @@ index 9749716..3265802 100644
 +        return false;
 +    *expandedSize = static_cast<uint32_t>(archive.size());
 +    return true;
++}
++
++bool probeTitleTexture(cos_sdk::HostVector<uint8_t>& texture) {
++    cos_sdk::HostVector<uint8_t> archive;
++    if (!readDiscFile("/res/Object/TlogoE.arc", archive))
++        return false;
++    for (const char* path : {"timg/logo_zelda_main.bti", "TIMG/logo_zelda_main.bti", "logo_zelda_main.bti"}) {
++        if (rarcFind(archive, path, texture))
++            return true;
++    }
++    if (archive.size() < 0x40 || memcmp(archive.data(), "RARC", 4) != 0)
++        return false;
++    const uint8_t* b = archive.data();
++    const uint64_t header = rd32(b + 8);
++    if (header + 0x20 > archive.size())
++        return false;
++    const uint64_t data = header + rd32(b + 12), entries = header + rd32(b + header + 12);
++    const uint64_t strings = header + rd32(b + header + 0x14);
++    const uint32_t count = rd32(b + header + 8);
++    if (data > archive.size() || strings >= archive.size() ||
++        entries + uint64_t(count) * 0x14 > archive.size())
++        return false;
++    constexpr char name[] = "logo_zelda_main.bti";
++    for (uint32_t i = 0; i < count; ++i) {
++        const uint8_t* e = b + entries + uint64_t(i) * 0x14;
++        const uint32_t flags = rd32(e + 4);
++        const uint64_t label = strings + (flags & 0x00ffffff);
++        if (!(flags & 0x01000000) || label + sizeof(name) > archive.size() ||
++            memcmp(b + label, name, sizeof(name)) != 0)
++            continue;
++        const uint64_t start = data + rd32(e + 8);
++        const uint32_t size = rd32(e + 12);
++        if (start + size > archive.size())
++            return false;
++        if (size >= 4 && memcmp(b + start, "Yaz0", 4) == 0)
++            return yaz0Expand(b + start, size, texture);
++        texture.assign(b + start, b + start + size);
++        return true;
++    }
++    return false;
 +}
 +#endif
 +

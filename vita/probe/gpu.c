@@ -101,7 +101,7 @@ static const float identity[] = {
     } \
 } while (0)
 
-int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
+static int render_probe(SceUID log, uint32_t *display, size_t display_size, const ProbeImage *image)
 {
     GxProbeMesh mesh;
     if (gx_probe_mesh(&mesh) < 0) {
@@ -110,6 +110,21 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
     }
     probe_log(log, "gx: Aurora FIFO decoded %u bytes, %u vertices, %u indices\n",
               (unsigned int)mesh.fifo_bytes, (unsigned int)mesh.vertex_count, (unsigned int)mesh.index_count);
+    if (image) {
+        float width = 0.86f, height = width * SCREEN_WIDTH * image->height / (SCREEN_HEIGHT * image->width);
+        if (height > 0.80f) {
+            width *= 0.80f / height;
+            height = 0.80f;
+        }
+        mesh.vertices[4].x = mesh.vertices[7].x = -width;
+        mesh.vertices[5].x = mesh.vertices[6].x = width;
+        mesh.vertices[4].y = mesh.vertices[5].y = height;
+        mesh.vertices[6].y = mesh.vertices[7].y = -height;
+    }
+    unsigned int texture_width = image ? image->width : GX_PROBE_TEXTURE_SIZE;
+    unsigned int texture_height = image ? image->height : GX_PROBE_TEXTURE_SIZE;
+    size_t texture_bytes = image ? image->stride * image->height * sizeof(uint32_t) :
+        GX_PROBE_TEXTURE_SIZE * GX_PROBE_TEXTURE_SIZE * sizeof(uint32_t);
 
     GpuMemory draw = {0}, vertex_usse = {0}, fragment_usse = {0}, offscreen = {0};
     GpuMemory fragment_ring = {0};
@@ -127,7 +142,7 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
         return -1;
     }
 
-    GPU_STEP("allocate command memory", allocate_memory(&draw, "twwDraw", GEOMETRY_OFFSET + 4096, DRAW_MEMORY));
+    GPU_STEP("allocate command memory", allocate_memory(&draw, "twwDraw", TEXTURE_OFFSET + texture_bytes, DRAW_MEMORY));
     GPU_STEP("allocate vertex USSE", allocate_memory(&vertex_usse, "twwVertex", CDRAM_ALIGNMENT, VERTEX_USSE));
     GPU_STEP("allocate fragment USSE", allocate_memory(&fragment_usse, "twwFragment", CDRAM_ALIGNMENT, FRAGMENT_USSE));
     GPU_STEP("allocate fragment USSE ring", allocate_memory(&fragment_ring, "twwFragmentRing",
@@ -211,13 +226,18 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
     _Static_assert(GEOMETRY_OFFSET + sizeof(mesh.vertices) + sizeof(mesh.indices) <= TEXTURE_OFFSET,
                    "Texture overlaps geometry");
     memcpy(gpu_vertices, mesh.vertices, sizeof(mesh.vertices));
-    memcpy(gpu_indices, mesh.indices, sizeof(mesh.indices));
+    if (image)
+        memcpy(gpu_indices, mesh.indices + 6, 6 * sizeof(mesh.indices[0]));
+    else
+        memcpy(gpu_indices, mesh.indices, sizeof(mesh.indices));
     uint32_t *texture_data = (uint32_t *)(commands + TEXTURE_OFFSET);
-    gx_probe_texture(texture_data);
-    probe_log(log, "gx: decoded %ux%u tiled RGB565 texture\n", GX_PROBE_TEXTURE_SIZE, GX_PROBE_TEXTURE_SIZE);
+    if (image)
+        memcpy(texture_data, image->pixels, texture_bytes);
+    else
+        gx_probe_texture(texture_data);
     SceGxmTexture texture;
     GPU_STEP("initialize linear texture", sceGxmTextureInitLinear(&texture, texture_data,
-        SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, GX_PROBE_TEXTURE_SIZE, GX_PROBE_TEXTURE_SIZE, 0));
+        SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, texture_width, texture_height, 0));
     GPU_STEP("texture clamp S", sceGxmTextureSetUAddrMode(&texture, SCE_GXM_TEXTURE_ADDR_CLAMP));
     GPU_STEP("texture clamp T", sceGxmTextureSetVAddrMode(&texture, SCE_GXM_TEXTURE_ADDR_CLAMP));
     GPU_STEP("texture min point", sceGxmTextureSetMinFilter(&texture, SCE_GXM_TEXTURE_FILTER_POINT));
@@ -240,7 +260,7 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
     GPU_STEP("bind GX texture", sceGxmSetFragmentTexture(context,
         sceGxmProgramParameterGetResourceIndex(sampler), &texture));
     GPU_STEP("draw textured GX quads", sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES,
-        SCE_GXM_INDEX_FORMAT_U16, gpu_indices, mesh.index_count));
+        SCE_GXM_INDEX_FORMAT_U16, gpu_indices, image ? 6 : mesh.index_count));
     GPU_STEP("end scene", sceGxmEndScene(context, NULL, NULL));
     scene_open = 0;
     probe_log(log, "gpu: wait for draw\n");
@@ -252,6 +272,15 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
         offscreen.base, 0, 0, stride, SCE_GXM_TRANSFER_FORMAT_RAW32, SCE_GXM_TRANSFER_LINEAR,
         display, 0, 0, stride, NULL, 0, NULL));
     GPU_STEP("wait for copy", sceGxmTransferFinish());
+
+    if (image) {
+        unsigned int visible = 0;
+        for (size_t i = 0; i < SCREEN_BYTES / sizeof(uint32_t); ++i)
+            visible += (display[i] & 0x00ffffffu) != 0;
+        result = visible > 0 && memcmp(offscreen.base, display, SCREEN_BYTES) == 0 ? 0 : -1;
+        probe_log(log, "title: GXM copy %s (%u nonblack pixels)\n", result == 0 ? "PASS" : "FAIL", visible);
+        goto cleanup;
+    }
 
     const size_t samples[] = {
         16 * SCREEN_WIDTH + 16,
@@ -304,4 +333,14 @@ cleanup:
     release_memory(&draw);
     free(host);
     return result;
+}
+
+int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
+{
+    return render_probe(log, display, display_size, NULL);
+}
+
+int gpu_title(SceUID log, uint32_t *display, size_t display_size, const ProbeImage *image)
+{
+    return render_probe(log, display, display_size, image);
 }

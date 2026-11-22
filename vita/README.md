@@ -7,7 +7,8 @@ It then calls Aurora's OSInit and exercises the game's root, system, archive
 and game heaps before the game scheduler starts.
 The suite also expands the title and ocean RARC archives through the upstream
 loader, checks a GXM texture render and framebuffer copy, and displays the
-disc banner decoded from `opening.bnr`.
+logo texture from the title actor's archive through GXM. If that texture
+cannot be rendered, the probe uses the disc banner when available.
 
 ## Build and run the hardware probe
 
@@ -26,7 +27,7 @@ cmake -S vita/probe -B build-vita-probe -G Ninja -DCMAKE_BUILD_TYPE=Release -DTW
 
 Set `VITASDK` to the SDK installation directory. Install
 `build-vita-probe/tww-vita-probe.vpk` in VitaShell and open **TWW Vita Probe**.
-Expect the disc banner over a green background if the checks succeed, or red
+Expect the title logo on black with a green status strip, or a red strip
 if a check reports an error. Press START
 while moving both sticks. The app logs the stick readings at the time START is
 pressed, then exits. It also exits on its own after about 30 seconds.

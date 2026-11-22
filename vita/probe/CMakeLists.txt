@@ -68,14 +68,14 @@ target_include_directories(switchwaker_boot_system PRIVATE
   "${TWW_AURORA_DIR}/include" "${sw_game}/include" "${TWW_SWITCHWAKER_ASSETS}"
   "${sw_native}/include/pc/msl")
 
-add_executable(tww-vita-probe main.c disc.c switchwaker_boot.cpp gpu.c gx_probe.cpp)
+add_executable(tww-vita-probe main.c disc.c bti.c switchwaker_boot.cpp gpu.c gx_probe.cpp)
 target_compile_features(tww-vita-probe PRIVATE c_std_11 cxx_std_20)
 target_compile_options(tww-vita-probe PRIVATE -Wall -Wextra -Wformat=2)
 target_link_libraries(tww-vita-probe PRIVATE switchwaker_assets switchwaker_boot_system pthread SceCtrl_stub SceDisplay_stub SceGxm_stub SceIofilemgr_stub)
 
 vita_create_self(tww-vita-probe.self tww-vita-probe)
 vita_create_vpk(tww-vita-probe.vpk TWWP00001 tww-vita-probe.self
-  VERSION 01.09
+  VERSION 01.10
   NAME "TWW Vita Probe"
   FILE "${TWW_SWITCHWAKER_DIR}/LICENSE" switchwaker-LICENSE.txt
   FILE "${TWW_AURORA_DIR}/LICENSE" aurora-LICENSE.txt

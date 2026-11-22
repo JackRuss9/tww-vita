@@ -2,6 +2,7 @@
 #include "gpu.h"
 #include <dolphin/dvd.h>
 #include "pc_internal.h"
+#include "cos_sdk/host_alloc.h"
 
 #include <cstdarg>
 #include <cstdio>
@@ -73,6 +74,7 @@ extern "C" const u8 *DVDGetDOLLocation(s32 *out_size)
 namespace pc {
 Config gConfig;
 bool probeStageArchive(const char *path, uint32_t *expandedSize);
+bool probeTitleTexture(cos_sdk::HostVector<uint8_t>& texture);
 
 void writef(int, const char *format, ...)
 {
@@ -142,4 +144,21 @@ int boot_switchwaker_archives(SceUID log, const char *path)
     boot_disc_close(disc);
     disc = nullptr;
     return fail ? -1 : 0;
+}
+
+int boot_read_title(SceUID log, const char *path, ProbeImage *image)
+{
+    log_fd = log;
+    disc = boot_disc_open(log, path);
+    if (!disc)
+        return -1;
+    cos_sdk::HostVector<uint8_t> texture;
+    const bool found = pc::probeTitleTexture(texture);
+    boot_disc_close(disc);
+    disc = nullptr;
+    if (!found) {
+        probe_log(log, "title: logo_zelda_main.bti could not be loaded\n");
+        return -1;
+    }
+    return probe_decode_bti(log, texture.data(), texture.size(), image);
 }
