@@ -1,9 +1,12 @@
 # SwitchWaker on Vita
 
 The first hardware check is a standalone homebrew that tests startup, storage,
-GXM initialization, display output and the controller. GXM draws an RGB
-triangle to an offscreen surface, copies it to the display framebuffer, and
-checks two pixels from both surfaces. The probe runs independently of the game.
+GXM initialization, display output and the controller. The probe records a GX
+quad and triangle with the FIFO writer from Aurora `3227d76`, decodes the direct
+position and color commands, and feeds the result to GXM. It copies the
+offscreen render to the display framebuffer and checks two corresponding
+pixels. This probe covers that command subset and runs independently of the
+complete Aurora renderer and game.
 
 ## Build and run the hardware probe
 
@@ -15,7 +18,7 @@ cmake -S vita/probe -B build-vita-probe -G Ninja -DCMAKE_BUILD_TYPE=Release && c
 
 Set `VITASDK` to the SDK installation directory. Install
 `build-vita-probe/tww-vita-probe.vpk` in VitaShell and open **TWW Vita Probe**.
-Expect a red, green and blue triangle on a dark background. A solid red
+Expect a downward-pointing yellow, cyan and magenta triangle on a dark background. A solid red
 screen indicates that a graphics step failed. Press START
 while moving both sticks. The app logs the stick readings at the time START is
 pressed, then exits. It also exits on its own after about 30 seconds.
@@ -41,5 +44,5 @@ size for `GZLE01` (USA) or `GZLP01` (Europe).
   Port the GX interface and movie support alongside the renderer. A replacement
   Aurora checkout needs its interfaces and patches reconciled first.
 - Use `sms-vita` as the reference for file paths, Vita input, logging and
-  runtime shader compilation. A representative GX draw through Aurora is
-  the next graphics check before trying the opening on Vita.
+  runtime shader compilation. The next graphics check for the complete Aurora
+  backend is textured rendering with a GX material and the matching shader.

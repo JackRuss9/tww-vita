@@ -7,6 +7,7 @@
 #include <psp2/kernel/sysmem.h>
 
 #include "color_shaders.h"
+#include "gx_probe.h"
 
 /* Exported by libgxm, but missing from the VitaSDK header. */
 extern void sceGxmDepthStencilSurfaceSetBackgroundMask(SceGxmDepthStencilSurface *, SceBool);
@@ -85,18 +86,6 @@ static void patcher_free(void *unused, void *memory)
     free(memory);
 }
 
-typedef struct {
-    float x, y, z;
-    uint32_t rgba;
-} Vertex;
-
-static const Vertex vertices[] = {
-    {-1.0f, -1.0f, 0.5f, 0xff302018}, { 1.0f, -1.0f, 0.5f, 0xff302018},
-    { 1.0f,  1.0f, 0.5f, 0xff302018}, {-1.0f,  1.0f, 0.5f, 0xff302018},
-    { 0.0f,  0.76f, 0.5f, 0xff3030ff}, {-0.72f, -0.65f, 0.5f, 0xff30ff30},
-    { 0.72f, -0.65f, 0.5f, 0xffff3030},
-};
-static const uint16_t indices[] = {0, 1, 2, 0, 2, 3, 4, 5, 6};
 static const float identity[] = {
     1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
 };
@@ -113,6 +102,14 @@ static const float identity[] = {
 
 int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
 {
+    GxProbeMesh mesh;
+    if (gx_probe_mesh(&mesh) < 0) {
+        probe_log(log, "gx: FIFO decode failed (%u bytes)\n", (unsigned int)mesh.fifo_bytes);
+        return -1;
+    }
+    probe_log(log, "gx: Aurora FIFO decoded %u bytes, %u vertices, %u indices\n",
+              (unsigned int)mesh.fifo_bytes, (unsigned int)mesh.vertex_count, (unsigned int)mesh.index_count);
+
     GpuMemory draw = {0}, vertex_usse = {0}, fragment_usse = {0}, offscreen = {0};
     GpuMemory fragment_ring = {0};
     SceGxmContext *context = NULL;
@@ -181,12 +178,12 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
         goto cleanup;
     }
     const SceGxmVertexAttribute attributes[] = {
-        {.offset = offsetof(Vertex, x), .format = SCE_GXM_ATTRIBUTE_FORMAT_F32,
+        {.offset = offsetof(GxProbeVertex, x), .format = SCE_GXM_ATTRIBUTE_FORMAT_F32,
          .componentCount = 3, .regIndex = sceGxmProgramParameterGetResourceIndex(position)},
-        {.offset = offsetof(Vertex, rgba), .format = SCE_GXM_ATTRIBUTE_FORMAT_U8N,
+        {.offset = offsetof(GxProbeVertex, rgba), .format = SCE_GXM_ATTRIBUTE_FORMAT_U8N,
          .componentCount = 4, .regIndex = sceGxmProgramParameterGetResourceIndex(color)},
     };
-    const SceGxmVertexStream stream = {.stride = sizeof(Vertex), .indexSource = SCE_GXM_INDEX_SOURCE_INDEX_16BIT};
+    const SceGxmVertexStream stream = {.stride = sizeof(GxProbeVertex), .indexSource = SCE_GXM_INDEX_SOURCE_INDEX_16BIT};
     GPU_STEP("register vertex shader", sceGxmShaderPatcherRegisterProgram(patcher, vs, &vertex_id));
     GPU_STEP("register fragment shader", sceGxmShaderPatcherRegisterProgram(patcher, fs, &fragment_id));
     GPU_STEP("patch vertex shader", sceGxmShaderPatcherCreateVertexProgram(patcher, vertex_id, attributes, 2,
@@ -208,9 +205,9 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
     sceGxmDepthStencilSurfaceSetBackgroundMask(&depth, SCE_TRUE);
 
     void *gpu_vertices = commands + GEOMETRY_OFFSET;
-    void *gpu_indices = commands + GEOMETRY_OFFSET + sizeof(vertices);
-    memcpy(gpu_vertices, vertices, sizeof(vertices));
-    memcpy(gpu_indices, indices, sizeof(indices));
+    void *gpu_indices = commands + GEOMETRY_OFFSET + sizeof(mesh.vertices);
+    memcpy(gpu_vertices, mesh.vertices, sizeof(mesh.vertices));
+    memcpy(gpu_indices, mesh.indices, sizeof(mesh.indices));
     memset(offscreen.base, 0, SCREEN_BYTES);
     GPU_STEP("begin scene", sceGxmBeginScene(context, 0, target, NULL, NULL, sync, &surface, &depth));
     scene_open = 1;
@@ -226,8 +223,8 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
     GPU_STEP("reserve matrix uniform", sceGxmReserveVertexDefaultUniformBuffer(context, &uniform));
     GPU_STEP("set matrix uniform", sceGxmSetUniformDataF(uniform, matrix, 0, 16, identity));
     GPU_STEP("set vertex stream", sceGxmSetVertexStream(context, 0, gpu_vertices));
-    GPU_STEP("draw background and RGB triangle", sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES,
-        SCE_GXM_INDEX_FORMAT_U16, gpu_indices, sizeof(indices) / sizeof(indices[0])));
+    GPU_STEP("draw GX quad and triangle", sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES,
+        SCE_GXM_INDEX_FORMAT_U16, gpu_indices, mesh.index_count));
     GPU_STEP("end scene", sceGxmEndScene(context, NULL, NULL));
     scene_open = 0;
     probe_log(log, "gpu: wait for draw\n");
@@ -246,7 +243,7 @@ int gpu_probe(SceUID log, uint32_t *display, size_t display_size)
     const volatile uint32_t *copied = display;
     uint32_t center_pixel = rendered[center], corner_pixel = rendered[corner];
     uint32_t copied_center = copied[center], copied_corner = copied[corner];
-    int sample_ok = center_pixel != corner_pixel && corner_pixel == vertices[0].rgba &&
+    int sample_ok = center_pixel != corner_pixel && corner_pixel == mesh.vertices[0].rgba &&
                     copied_center == center_pixel && copied_corner == corner_pixel;
     probe_log(log, "gpu: pixels render %08x/%08x copy %08x/%08x (%s)\n",
               (unsigned int)center_pixel, (unsigned int)corner_pixel,
