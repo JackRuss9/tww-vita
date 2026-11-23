@@ -1,0 +1,68 @@
+diff --git a/game/src/JAZelAudio/JAIZelAtmos.cpp b/game/src/JAZelAudio/JAIZelAtmos.cpp
+--- a/game/src/JAZelAudio/JAIZelAtmos.cpp
++++ b/game/src/JAZelAudio/JAIZelAtmos.cpp
+@@ -35,6 +35,9 @@
+ 
+ /* 802AD0A8-802AD54C       .text seaEnvSePlay__11JAIZelBasicFUlSc */
+ void JAIZelBasic::seaEnvSePlay(u32 type, s8 reverb) {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     if (field_0x01f8 != 0) {
+         return;
+     }
+@@ -222,6 +225,9 @@
+ 
+ /* 802AD878-802AD98C       .text seaShoreSE__11JAIZelBasicFUlP3VecUlSc */
+ void JAIZelBasic::seaShoreSE(u32 type, Vec* pos, u32 keepPlaying, s8 reverb) {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     if (field_0x0201 == 1) {
+         return;
+     }
+@@ -294,6 +300,9 @@
+ 
+ /* 802ADB38-802ADC58       .text riverSePlay__11JAIZelBasicFUcSc */
+ void JAIZelBasic::riverSePlay(u8 type, s8 reverb) {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     if (field_0x1dd0 == 0) {
+         return;
+     }
+@@ -336,6 +345,9 @@
+ 
+ /* 802ADC58-802ADE68       .text waterfallSePlay__11JAIZelBasicFUcP3VecSc */
+ void JAIZelBasic::waterfallSePlay(u8 type, Vec* pos, s8 reverb) {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     u32 id;
+     switch (type) {
+     case 0:
+@@ -409,6 +421,9 @@
+ 
+ /* 802ADF20-802AE04C       .text rainPlay__11JAIZelBasicFl */
+ void JAIZelBasic::rainPlay(s32 type) {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     if (field_0x1ec0 == 0) {
+         if (type == 1) {
+             seStart(JA_SE_ATM_RAIN_HARD);
+diff --git a/game/src/JSystem/JAudio/JAIBasic.cpp b/game/src/JSystem/JAudio/JAIBasic.cpp
+--- a/game/src/JSystem/JAudio/JAIBasic.cpp
++++ b/game/src/JSystem/JAudio/JAIBasic.cpp
+@@ -425,6 +425,11 @@
+ // demo debug map records this function as 0x114 bytes, exactly what this plain body compiles to at -O0, so the source is
+ // believed correct.
+ void JAIBasic::deleteObject(void* param_1) {
++#if TARGET_PC
++    // Muted builds never construct the registered sound lists.
++    if (JAInter::SeMgr::seRegist == NULL)
++        return;
++#endif
+     JAInter::DummyVec* r30 = NULL;
+     bool r29;
+     for (int i = 0; i < JAIGlobalParameter::getParamSeCategoryMax(); i++) {
