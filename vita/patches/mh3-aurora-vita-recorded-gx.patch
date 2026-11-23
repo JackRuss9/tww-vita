@@ -1,0 +1,202 @@
+diff --git a/aurora-main/cmake/aurora_core.cmake b/aurora-main/cmake/aurora_core.cmake
+--- a/aurora-main/cmake/aurora_core.cmake
++++ b/aurora-main/cmake/aurora_core.cmake
+@@ -68,7 +68,7 @@
+         file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/tww_gxm_utility.inc"
+           CONTENT "@tww_gxm_utility@" @ONLY)
+         target_include_directories(aurora_core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+-        target_compile_definitions(aurora_core PRIVATE TWW_GXM_RUNTIME_SHADERS=1)
++        target_compile_definitions(aurora_core PUBLIC TWW_GXM_RUNTIME_SHADERS=1)
+         target_sources(aurora_core PRIVATE lib/gxm/tww_empty_shader_bank.cpp)
+       endif()
+       target_compile_options(aurora_core PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,Clang>:-gline-tables-only>)
+diff --git a/aurora-main/lib/gxm/native_capacity.hpp b/aurora-main/lib/gxm/native_capacity.hpp
+--- a/aurora-main/lib/gxm/native_capacity.hpp
++++ b/aurora-main/lib/gxm/native_capacity.hpp
+@@ -5,7 +5,7 @@
+ 
+ namespace aurora::gxm {
+ // Native vertices, uniforms and U16 indices share one CDRAM block per
+-// notification-protected frame slot. No recorded GX word buffers are needed.
++// notification-protected frame slot. Recorded GX array data uses main memory.
+ inline constexpr size_t CdramBlockAlignment = 256u << 10;
+ inline constexpr size_t NativeVertexBytes = 1u << 20;
+ inline constexpr size_t NativeUniformBytes = 2u << 20;
+@@ -14,6 +14,9 @@
+ inline constexpr size_t NativeUniformOffset = NativeVertexBytes;
+ inline constexpr size_t NativeIndexOffset = NativeUniformOffset + NativeUniformBytes;
+ inline constexpr size_t NativeSlotBytes = NativeIndexOffset + NativeIndexBytes;
++#ifdef TWW_GXM_RUNTIME_SHADERS
++inline constexpr size_t RecordedGxArrayBytes = 2u << 20;
++#endif
+ 
+ // DrawMemory's immutable IDs, PixelClip's rectangle and the renderer's
+ // utility rectangle each own one rounded block. Keep headroom rounded to MiB.
+diff --git a/aurora-main/lib/gfx/common.hpp b/aurora-main/lib/gfx/common.hpp
+--- a/aurora-main/lib/gfx/common.hpp
++++ b/aurora-main/lib/gfx/common.hpp
+@@ -254,7 +254,11 @@
+ inline constexpr uint64_t UniformBufferSize = gxm::NativeUniformBytes;
+ inline constexpr uint64_t VertexBufferSize = gxm::NativeVertexBytes;
+ inline constexpr uint64_t IndexBufferSize = gxm::NativeIndexBytes;
++#ifdef TWW_GXM_RUNTIME_SHADERS
++inline constexpr uint64_t StorageBufferSize = gxm::RecordedGxArrayBytes;
++#else
+ inline constexpr uint64_t StorageBufferSize = 0;
++#endif
+ #else
+ inline constexpr uint64_t UniformBufferSize = 25165824; // 24mb
+ inline constexpr uint64_t VertexBufferSize = 3145728;   // 3mb
+diff --git a/aurora-main/lib/gfx/common.cpp b/aurora-main/lib/gfx/common.cpp
+--- a/aurora-main/lib/gfx/common.cpp
++++ b/aurora-main/lib/gfx/common.cpp
+@@ -800,6 +800,11 @@
+   set->verts = ByteBuffer{base + gxm::NativeVertexOffset, VertexBufferSize};
+   set->uniforms = ByteBuffer{base + gxm::NativeUniformOffset, UniformBufferSize};
+   set->indices = ByteBuffer{base + gxm::NativeIndexOffset, IndexBufferSize};
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  auto& arrays = set->memory[1];
++  arrays = gxm::MappedMemory(StorageBufferSize, gxm::MappedMemory::Kind::Main, "SwitchWaker GX array slot");
++  set->storage = ByteBuffer{static_cast<uint8_t*>(arrays.data()), StorageBufferSize};
++#endif
+ #else
+   const auto reserve = [](ByteBuffer& buffer, uint64_t size) {
+     buffer = ByteBuffer{static_cast<size_t>(size)};
+diff --git a/aurora-main/lib/gxm/draw_memory.hpp b/aurora-main/lib/gxm/draw_memory.hpp
+--- a/aurora-main/lib/gxm/draw_memory.hpp
++++ b/aurora-main/lib/gxm/draw_memory.hpp
+@@ -43,6 +43,10 @@
+   const void* m_uniforms = nullptr;
+   const void* m_indices = nullptr;
+   size_t m_uniformBytes = 0, m_indexBytes = 0;
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  const void* m_gxVertices = nullptr;
++  const void* m_gxArrays = nullptr;
++#endif
+   SceGxmNotification m_lastUse{};
+ };
+ 
+diff --git a/aurora-main/lib/gxm/draw_memory.cpp b/aurora-main/lib/gxm/draw_memory.cpp
+--- a/aurora-main/lib/gxm/draw_memory.cpp
++++ b/aurora-main/lib/gxm/draw_memory.cpp
+@@ -41,6 +41,11 @@
+   m_uniformBytes = uniformBytes;
+   m_indices = indices;
+   m_indexBytes = indexBytes;
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  m_gxVertices = vertexBytes ? vertices : nullptr;
++  // Direct-only draws have no array reads, but can still declare BUFFER[2].
++  m_gxArrays = attributeBytes ? attributes : m_gxVertices;
++#endif
+ }
+ 
+ void DrawMemory::bind_shaded(const void* draw, uint32_t drawBytes, uint32_t shadeOffset, uint32_t shadeBytes, uint32_t paletteOffset, uint32_t paletteBytes, const void* scene, uint32_t sceneBytes,
+@@ -100,6 +105,12 @@
+     AURORA_THROW(std::runtime_error("Native indexed draw exceeds active draw slot"));
+   m_lastUse = m_device.current_fence();
+   auto* context = m_device.context();
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  if (!m_gxVertices)
++    AURORA_THROW(std::runtime_error("Recorded GX draw has no staged vertex data"));
++  check(sceGxmSetVertexUniformBuffer(context, 1, m_gxVertices), "bind recorded GX vertices");
++  check(sceGxmSetVertexUniformBuffer(context, 2, m_gxArrays), "bind recorded GX arrays");
++#endif
+   check(sceGxmSetVertexStream(context, 0, m_ids.data()), "bind vertex IDs");
+   check(sceGxmSetVertexStream(context, 1, m_ids.data()), "bind instance IDs");
+   const void* indices = static_cast<const char*>(m_indices) + indexOffset;
+diff --git a/aurora-main/lib/gfx/cg_shader.cpp b/aurora-main/lib/gfx/cg_shader.cpp
+--- a/aurora-main/lib/gfx/cg_shader.cpp
++++ b/aurora-main/lib/gfx/cg_shader.cpp
+@@ -1,4 +1,7 @@
+ #include "cg_shader.hpp"
++#ifdef TWW_GXM_RUNTIME_SHADERS
++#include "../gxm/native_capacity.hpp"
++#endif
+ #include <aurora/fatal.hpp>
+ #include <algorithm>
+ #include <cctype>
+@@ -655,10 +658,18 @@
+   result +=
+       "static uint aur_vertex_id;\nstatic uint aur_instance_id;\n"
+       "static float4 aur_position_out;\nstatic float4 aur_fragcoord;\nstatic float aur_depth_out;\n";
+-  if (wordBuffers)
+-    result +=
+-        "uint vwords[786432] : BUFFER[1];\nuint awords[2097152] : BUFFER[2];\n"
+-        "uint aur_word(int buffer_id, uint i) { return buffer_id == 0 ? vwords[i] : awords[i]; }\n";
++  if (wordBuffers) {
++#ifdef TWW_GXM_RUNTIME_SHADERS
++    constexpr auto vertexWords = gxm::NativeVertexBytes / sizeof(uint32_t);
++    constexpr auto arrayWords = gxm::RecordedGxArrayBytes / sizeof(uint32_t);
++#else
++    constexpr auto vertexWords = 786432;
++    constexpr auto arrayWords = 2097152;
++#endif
++    result += "uint vwords[" + std::to_string(vertexWords) + "] : BUFFER[1];\n"
++              "uint awords[" + std::to_string(arrayWords) + "] : BUFFER[2];\n"
++              "uint aur_word(int buffer_id, uint i) { return buffer_id == 0 ? vwords[i] : awords[i]; }\n";
++  }
+   return result +
+          "bool2 aur_less(float2 a, float2 b) { return a < b; }\n"
+          "bool3 aur_equal(float3 a, float3 b) { return a == b; }\n"
+diff --git a/aurora-main/lib/gxm/runtime_shader.cpp b/aurora-main/lib/gxm/runtime_shader.cpp
+--- a/aurora-main/lib/gxm/runtime_shader.cpp
++++ b/aurora-main/lib/gxm/runtime_shader.cpp
+@@ -2,6 +2,7 @@
+ #include <aurora/fatal.hpp>
+ #include "shader_cache_pack.hpp"
+ #include "../gfx/cg_shader.hpp"
++#include "../logging.hpp"
+ #include <vitashark.h>
+ #define XXH_INLINE_ALL
+ #include <xxhash.h>
+@@ -21,6 +22,7 @@
+ namespace aurora::gxm {
+ namespace {
+ #ifdef TWW_GXM_RUNTIME_SHADERS
++Module ShaderLog("aurora::gxm::shader");
+ constexpr const char* Directory = "ux0:/data/tww/shaders";
+ struct UtilityShader {
+   uint64_t key;
+@@ -169,7 +171,12 @@
+ }
+ 
+ void compiler_log(const char* message, shark_log_level level, int line) {
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  if (message && level >= SHARK_LOG_WARNING)
++    ShaderLog.report(level == SHARK_LOG_ERROR ? LOG_ERROR : LOG_WARNING, "Cg line {}: {}", line, message);
++#else
+   std::fprintf(stderr, "MH3 shader compiler [%d:%d] %s\n", int(level), line, message);
++#endif
+ }
+ 
+ void start_compiler(Store& s) {
+@@ -336,8 +343,28 @@
+     struct CompilerOutput {
+       ~CompilerOutput() { shark_clear_output(); }
+     } output;
+-    const SceGxmProgram* compiled = shark_compile_shader_extended(cg.c_str(), &compiledSize, stage == RuntimeShaderStage::Vertex ? SHARK_VERTEX_SHADER : SHARK_FRAGMENT_SHADER, SHARK_OPT_FAST,
++    const auto shaderType = stage == RuntimeShaderStage::Vertex ? SHARK_VERTEX_SHADER : SHARK_FRAGMENT_SHADER;
++#ifdef TWW_GXM_RUNTIME_SHADERS
++    const auto shaderId = id(hash, stage);
++    const auto compile = [&](const char* options, shark_opt optimization, int fastMath) {
++      ShaderLog.info("Compile {} ({}) {} ({} bytes)", shaderId, entry.origin, options, cg.size());
++      compiledSize = static_cast<uint32_t>(cg.size());
++      return shark_compile_shader_extended(cg.c_str(), &compiledSize, shaderType, optimization,
++                                           fastMath, SHARK_DISABLE, SHARK_ENABLE);
++    };
++    const SceGxmProgram* compiled = compile("O3", SHARK_OPT_FAST, SHARK_ENABLE);
++    if (!compiled) {
++      shark_clear_output();
++      compiled = compile("O2", SHARK_OPT_DEFAULT, SHARK_ENABLE);
++    }
++    if (!compiled) {
++      shark_clear_output();
++      compiled = compile("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE);
++    }
++#else
++    const SceGxmProgram* compiled = shark_compile_shader_extended(cg.c_str(), &compiledSize, shaderType, SHARK_OPT_FAST,
+                                                                   SHARK_ENABLE, SHARK_DISABLE, SHARK_ENABLE);
++#endif
+     std::fprintf(stderr, "MH3 shader compiler output %s pointer=%p alignment=%u bytes=%u\n", id(hash, stage).c_str(), static_cast<const void*>(compiled),
+                  unsigned(reinterpret_cast<uintptr_t>(compiled) & 63), compiledSize);
+     if (!compiled || compiledSize < 64 || compiledSize > MaxProgramBytes)
