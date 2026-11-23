@@ -1,0 +1,67 @@
+diff --git a/game/src/JAZelAudio/JAIZelBasic.cpp b/game/src/JAZelAudio/JAIZelBasic.cpp
+--- a/game/src/JAZelAudio/JAIZelBasic.cpp
++++ b/game/src/JAZelAudio/JAIZelBasic.cpp
+@@ -633,6 +633,9 @@
+ 
+ /* 802A30A4-802A31C0       .text resetProcess__11JAIZelBasicFv */
+ void JAIZelBasic::resetProcess() {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+ #if VERSION > VERSION_DEMO
+     OSReport("[JAIZelBasic::resetProcess]\n");
+     for (int i = 0; i < MAX_CONCURRENT_SE_NUM; i++) {
+@@ -668,6 +671,9 @@
+ 
+ /* 802A31C0-802A334C       .text resetRecover__11JAIZelBasicFv */
+ void JAIZelBasic::resetRecover() {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     if (JAInter::SeMgr::seHandle) {
+         JAInter::SeMgr::seHandle->setSeqInterVolume(SOUNDPARAM_Direct, 1.0f, 0);
+     }
+@@ -3117,6 +3123,9 @@
+ 
+ /* 802A8748-802A892C       .text linkVoiceStart__11JAIZelBasicFUlP3VecUcSc */
+ void JAIZelBasic::linkVoiceStart(u32 id, Vec* pos, u8 vowel, s8 reverb) {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     if (!field_0x022d) return;
+     if (mStreamBgmNum == 0xC0000005) {
+         if (field_0x00b8) {
+@@ -3165,6 +3174,9 @@
+ 
+ /* 802A8958-802A8B24       .text monsSeStart__11JAIZelBasicFUlP3VecUlUlSc */
+ void JAIZelBasic::monsSeStart(u32 i_seNum, Vec* pos, u32 actorId, u32 variation, s8 reverb) {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     if (field_0x0201 == 1) return;
+     if (i_seNum >= JA_SE_CV_KS_ATTACK && i_seNum <= JA_SE_CV_KS_BLOW) {
+         kuroboVoicePlay(i_seNum, pos, reverb);
+@@ -3605,6 +3617,11 @@
+ 
+ /* 802A9CF8-802A9DB0       .text getCameraInfo__11JAIZelBasicFP3VecPA4_fUl */
+ void JAIZelBasic::getCameraInfo(Vec* param_1, MtxP param_2, u32 param_3) {
++#if TARGET_PC
++    // The gameplay camera exists even when JAudio has no listener storage.
++    if (mAudioCamera == NULL)
++        return;
++#endif
+     mAudioCamera[param_3].field_0x0 = param_1;
+     mAudioCamera[param_3].field_0x4 = &field_0x0048;
+     mAudioCamera[param_3].field_0x8 = param_2;
+@@ -3638,6 +3655,11 @@
+ 
+ /* 802A9DDC-802A9F60       .text setCameraGroupInfo__11JAIZelBasicFUc */
+ void JAIZelBasic::setCameraGroupInfo(u8 param_1) {
++#if TARGET_PC
++    // The gameplay camera exists even when JAudio has no listener storage.
++    if (mAudioCamera == NULL)
++        return;
++#endif
+     if (isDemo() == 1) {
+         return;
+     }
