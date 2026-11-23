@@ -7,6 +7,7 @@
 #include <aurora/aurora.h>
 #include <aurora/fatal.hpp>
 #include <aurora/legacy_gx.h>
+#include <aurora/vita_host_alloc.hpp>
 #include <psp2/io/fcntl.h>
 #include <psp2/kernel/threadmgr.h>
 
@@ -100,6 +101,7 @@ extern "C" int tww_vita_gxm_init(SceUID log, int argc, char **argv)
 
 extern "C" void pc_frame_begin()
 {
+    aurora::VitaHostAllocScope host_alloc;
     // The game must only submit GX work once GXM admits the frame.
     for (unsigned int attempt = 0; attempt < 2000; ++attempt) {
         aurora_update();
@@ -119,6 +121,7 @@ extern "C" void pc_frame_begin()
 
 extern "C" void pc_frame_end()
 {
+    aurora::VitaHostAllocScope host_alloc;
     if (!first_frame_submitted)
         pc_milestone("vita-first-frame-submit-begin");
     aurora_end_frame();

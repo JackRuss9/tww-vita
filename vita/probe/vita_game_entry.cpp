@@ -130,6 +130,9 @@ extern "C" [[noreturn]] void pc_exit(int status)
     std::abort();
 }
 
+extern "C" void tww_vita_begin_host_alloc() { JKRPcBeginHostAlloc(); }
+extern "C" void tww_vita_end_host_alloc() { JKRPcEndHostAlloc(); }
+
 int main(int argc, char **argv)
 {
     sceIoMkdir(DataDir, 0777);
