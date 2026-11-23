@@ -1,0 +1,18 @@
+diff --git a/aurora-main/lib/gl/device.cpp b/aurora-main/lib/gl/device.cpp
+--- a/aurora-main/lib/gl/device.cpp
++++ b/aurora-main/lib/gl/device.cpp
+@@ -90,9 +90,14 @@
+ }
+ 
+ PresentSource current_present_source() noexcept {
++#ifndef TWW_GXM_RUNTIME_SHADERS
+   if (g_presentSourceOverrideActive && g_presentSourceOverride.texture) {
+     return g_presentSourceOverride;
+   }
++#else
++  // The GX display copy is black on Vita even though the EFB has rendered
++  // color. Present the EFB while the GX copy pipeline is being investigated.
++#endif
+ 
+   return {
+       .texture = g_frameBuffer.texture,
