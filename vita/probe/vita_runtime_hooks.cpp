@@ -11,6 +11,7 @@
 #include <psp2/kernel/processmgr.h>
 #include <sys/time.h>
 
+
 extern "C" OSTime OSGetSystemTime()
 {
     constexpr OSTime GameCubeEpoch = 946684800;
@@ -80,12 +81,14 @@ extern "C" void pc_title_drawn()
     }
 }
 
-extern "C" void pc_name_scene_drawn(int, int, int draw_proc)
+extern "C" void pc_name_scene_drawn(int main_proc, int card_proc, int draw_proc)
 {
-    static int last_draw_proc = -1;
-    if (draw_proc != last_draw_proc) {
-        last_draw_proc = draw_proc;
-        pc::writef(2, "file-select draw=%d\n", draw_proc);
+    static int last_main = -1, last_card = -1, last_draw = -1;
+    if (main_proc != last_main || card_proc != last_card || draw_proc != last_draw) {
+        last_main = main_proc;
+        last_card = card_proc;
+        last_draw = draw_proc;
+        pc::writef(2, "file-select main=%d card=%d draw=%d\n", main_proc, card_proc, draw_proc);
         pc_milestone("vita-file-select-draw");
     }
 }
@@ -107,9 +110,38 @@ extern "C" void pc_trace_resource(const char *path, int entry)
     pc::writef(2, "resource entry=%d path=%s\n", entry, path ? path : "");
 }
 
+extern "C" void tww_vita_heap_overlap(const void* heap, const void* block, u32 size,
+                                       const void* next, u32 next_size, uintptr_t end, uintptr_t next_start)
+{
+    pc::writef(2, "heap overlap heap=%p block=%p size=0x%x next=%p next_size=0x%x end=0x%lx next_start=0x%lx\n",
+               heap, block, unsigned(size), next, unsigned(next_size),
+               static_cast<unsigned long>(end), static_cast<unsigned long>(next_start));
+    pc_milestone("vita-heap-overlap");
+}
+
 extern "C" [[noreturn]] void pc_panic(const char *file, int line)
 {
     pc::writef(2, "game panic %s:%d\n", file, line);
+    pc::writef(2, "panic anchor=0x%08lx\n", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(&pc_panic)));
+
+    // The Vita toolchain does not expose a uniform unwind API for game objects.
+    // Record candidate code addresses within the current thread's stack bounds.
+    SceKernelThreadInfo info{};
+    info.size = sizeof(info);
+    if (sceKernelGetThreadInfo(sceKernelGetThreadId(), &info) >= 0 && info.stackSize > 0) {
+        uintptr_t sp;
+        asm volatile("mov %0, sp" : "=r"(sp));
+        const uintptr_t base = reinterpret_cast<uintptr_t>(info.stack);
+        const uintptr_t top = base + static_cast<uintptr_t>(info.stackSize);
+        if (sp >= base && sp < top) {
+            for (unsigned i = 0; i < 256 && top - sp >= (i + 1) * sizeof(uintptr_t); ++i) {
+                const uintptr_t word = reinterpret_cast<const volatile uintptr_t*>(sp)[i];
+                if (word >= 0x81000000U && word < 0x82000000U)
+                    pc::writef(2, "panic stack[%u]=0x%08lx\n", i, static_cast<unsigned long>(word));
+            }
+        }
+    }
+    pc_milestone("vita-panic-stack-complete");
     pc_exit(12);
 }
 
