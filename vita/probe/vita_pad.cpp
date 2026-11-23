@@ -1,5 +1,8 @@
 #include "disc.h"
 #include "gpu.h"
+#ifdef TWW_VITA_RUNTIME_SDK
+#include "pc/pc_harness.h"
+#endif
 #include "JSystem/JUtility/JUTGamePad.h"
 
 #include <psp2/ctrl.h>
@@ -54,6 +57,13 @@ extern "C" u32 PADRead(PADStatus *status)
     }
     PADStatus &pad = status[0];
     pad.err = PAD_ERR_NONE;
+#ifdef TWW_VITA_RUNTIME_SDK
+    static bool start_held;
+    const bool start = (input.buttons & SCE_CTRL_START) != 0;
+    if (start && !start_held)
+        pc_milestone("vita-pad-start-pressed");
+    start_held = start;
+#endif
     for (const auto &mapping : buttons) {
         if (input.buttons & mapping.vita)
             pad.button |= mapping.gamecube;

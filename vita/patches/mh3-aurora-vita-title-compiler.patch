@@ -1,0 +1,42 @@
+diff --git a/aurora-main/lib/gxm/runtime_shader.cpp b/aurora-main/lib/gxm/runtime_shader.cpp
+--- a/aurora-main/lib/gxm/runtime_shader.cpp
++++ b/aurora-main/lib/gxm/runtime_shader.cpp
+@@ -7,6 +7,7 @@
+ #define XXH_INLINE_ALL
+ #include <xxhash.h>
+ #include <algorithm>
++#include <chrono>
+ #include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
+@@ -349,17 +350,26 @@
+     const auto compile = [&](const char* options, shark_opt optimization, int fastMath) {
+       ShaderLog.info("Compile {} ({}) {} ({} bytes)", shaderId, entry.origin, options, cg.size());
+       compiledSize = static_cast<uint32_t>(cg.size());
+-      return shark_compile_shader_extended(cg.c_str(), &compiledSize, shaderType, optimization,
+-                                           fastMath, SHARK_DISABLE, SHARK_ENABLE);
++      const auto begin = std::chrono::steady_clock::now();
++      const auto* result = shark_compile_shader_extended(cg.c_str(), &compiledSize, shaderType, optimization,
++                                                         fastMath, SHARK_DISABLE, SHARK_ENABLE);
++      ShaderLog.info("Compiler returned {} {} ok={} bytes={} elapsed_ms={}", shaderId, options,
++                     result != nullptr, compiledSize,
++                     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count());
++      return result;
+     };
+-    const SceGxmProgram* compiled = compile("O3", SHARK_OPT_FAST, SHARK_ENABLE);
++    // 01.32's final trace began compiling this title vertex shader at O3.
++    const bool titleVertex = stage == RuntimeShaderStage::Vertex && hash == 0x2a4f5a80355c9dd3ULL;
++    const SceGxmProgram* compiled = titleVertex ? compile("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE)
++                                                : compile("O3", SHARK_OPT_FAST, SHARK_ENABLE);
+     if (!compiled) {
+       shark_clear_output();
+       compiled = compile("O2", SHARK_OPT_DEFAULT, SHARK_ENABLE);
+     }
+     if (!compiled) {
+       shark_clear_output();
+-      compiled = compile("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE);
++      compiled = titleVertex ? compile("O0 without fast math", SHARK_OPT_SLOW, SHARK_DISABLE)
++                             : compile("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE);
+     }
+ #else
+     const SceGxmProgram* compiled = shark_compile_shader_extended(cg.c_str(), &compiledSize, shaderType, SHARK_OPT_FAST,
