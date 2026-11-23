@@ -1,0 +1,15 @@
+diff --git a/aurora-main/lib/gxm/renderer.cpp b/aurora-main/lib/gxm/renderer.cpp
+--- a/aurora-main/lib/gxm/renderer.cpp
++++ b/aurora-main/lib/gxm/renderer.cpp
+@@ -47,6 +47,11 @@
+ namespace {
+ using namespace gxm;
+ [[noreturn]] void fail(const char* message) {
++  // Give the embedding application the same report as AURORA_THROW before
++  // using the standalone GXM exit path.
++  if (aurora::fatal_handler)
++    aurora::fatal_handler(message);
++
+   std::printf("Aurora GXM: %s\n", message);
+   std::fprintf(stderr, "Aurora GXM: %s\n", message);
+   std::fflush(stdout);
