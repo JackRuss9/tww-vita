@@ -1,0 +1,91 @@
+diff --git a/aurora-main/lib/gxm/renderer.cpp b/aurora-main/lib/gxm/renderer.cpp
+--- a/aurora-main/lib/gxm/renderer.cpp
++++ b/aurora-main/lib/gxm/renderer.cpp
+@@ -1,4 +1,8 @@
+ #include "../gl/gl.hpp"
++#ifdef TWW_GXM_RUNTIME_SHADERS
++#include "../gl/device.hpp"
++#include "../logging.hpp"
++#endif
+ #include <aurora/fast_map.h>
+ #include <aurora/fatal.hpp>
+ #include "../gfx/port_capture.hpp"
+@@ -2150,6 +2154,49 @@
+   guarded([&] { renderer().programs.at(id).uniforms[name] = {x, y, z, w}; });
+ }
+ 
++#ifdef TWW_GXM_RUNTIME_SHADERS
++namespace {
++Module PresentLog("aurora::gxm::present");
++std::atomic<bool> titleProbeRequested{false};
++
++void log_rgb(const char* label, const void* pixels, uint32_t width, uint32_t height, size_t stride) {
++  if (!pixels || !width || !height) {
++    PresentLog.info("{} unavailable", label);
++    return;
++  }
++  size_t nonblack = 0;
++  const auto* row = static_cast<const uint8_t*>(pixels);
++  for (uint32_t y = 0; y < height; ++y, row += stride) {
++    for (uint32_t x = 0; x < width; ++x) {
++      const auto* pixel = row + 4 * x;
++      nonblack += (pixel[0] | pixel[1] | pixel[2]) != 0;
++    }
++  }
++  const auto* center = static_cast<const uint8_t*>(pixels) + (height / 2) * stride + 4 * (width / 2);
++  PresentLog.info("{} {}x{} nonblack={}/{} center={:02x}{:02x}{:02x}",
++                  label, width, height, nonblack, size_t(width) * height,
++                  unsigned(center[0]), unsigned(center[1]), unsigned(center[2]));
++}
++
++void log_texture(const char* label, Renderer& r, const TexturePtr& texture) {
++  if (!texture) {
++    PresentLog.info("{} unavailable", label);
++    return;
++  }
++  const auto& storage = r.texture(texture->gl());
++  if (storage.format != Format::RGBA8) {
++    PresentLog.info("{} format={} (not RGBA8)", label, unsigned(storage.format));
++    return;
++  }
++  log_rgb(label, storage.pixels(), storage.width, storage.height, storage.row_bytes());
++}
++} // namespace
++
++extern "C" void aurora_vita_request_title_probe() {
++  titleProbeRequested.store(true, std::memory_order_release);
++}
++#endif
++
+ void present(const TexturePtr& source, int32_t x, int32_t y, int32_t width, int32_t height) noexcept {
+   if (!aurora::native_frame_drawing_allowed())
+     return;
+@@ -2189,6 +2236,28 @@
+       r.pin(source->gl(), false);
+     }
+ 
++#ifdef TWW_GXM_RUNTIME_SHADERS
++    static uint32_t frames = 0;
++    static uint32_t fromTitle = 0;
++    static bool titleSeen = false;
++    ++frames;
++    if (titleProbeRequested.exchange(false, std::memory_order_acquire))
++      titleSeen = true;
++    if (titleSeen)
++      ++fromTitle;
++
++    if (frames == 1 || fromTitle == 1 || fromTitle == 60 || fromTitle == 180) {
++      const auto stats = gxm::display_statistics();
++      PresentLog.info("frame={} title_frame={} viewport={},{} {}x{} queued={} presented={} failures={}",
++                      frames, fromTitle, x, y, width, height,
++                      stats.queued, stats.presented, stats.failures);
++      r.device.finish();
++      log_texture("presentation-source", r, source);
++      if (const auto& efb = gpu::present_source().texture; efb != source)
++        log_texture("game-efb", r, efb);
++      log_rgb("display-buffer", r.device.display_pixels(), Device::Width, Device::Height, Device::Stride * 4);
++    }
++#endif
+     r.device.flip();
+     r.collect();
+ 

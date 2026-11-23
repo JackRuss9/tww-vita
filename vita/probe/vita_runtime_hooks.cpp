@@ -68,12 +68,15 @@ extern "C" void pc_stage_created(const char *stage, int room, int files, int dzs
     pc_milestone("vita-stage-created");
 }
 
+extern "C" void aurora_vita_request_title_probe();
+
 extern "C" void pc_title_drawn()
 {
     static bool logged;
     if (!logged) {
         logged = true;
         pc_milestone("vita-title-draw-submitted");
+        aurora_vita_request_title_probe();
     }
 }
 
