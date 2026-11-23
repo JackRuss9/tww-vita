@@ -1,0 +1,27 @@
+diff --git a/game/src/d/actor/d_a_title.cpp b/game/src/d/actor/d_a_title.cpp
+--- a/game/src/d/actor/d_a_title.cpp
++++ b/game/src/d/actor/d_a_title.cpp
+@@ -296,9 +296,11 @@
+             }
+ #endif
+ 
++#if !defined(TWW_VITA_BOOT)
+             m00C.set(pane[4].mPosTopLeftOrig.x - 320.0f, pane[4].mPosTopLeftOrig.y - 240.0f, 0.0f);
+ 
+             mpEmitter2 = dComIfGp_particle_set2Dfore(dPa_name::ID_AK_S2_TITLEKIRAKIRA00, &m00C);
++#endif
+         } else if (m018 > 80 && m018 <= 115 && mpEmitter2 != NULL) {
+             m00C.x += (pane[5].mPosTopLeftOrig.x - pane[4].mPosTopLeftOrig.x) / 35.0f;
+ 
+@@ -442,9 +444,11 @@
+ #if VERSION > VERSION_JPN
+     if (mBtkSub.getFrame() != 0.0f) {
+ #endif
++#if !defined(TWW_VITA_BOOT)
+         mBtkKirari.entry(mModel_kirari->getModelData());
+         mDoExt_modelUpdateDL(mModel_kirari);
+         mBtkKirari.remove(mModel_kirari->getModelData());
++#endif
+ 
+         mBtkSub.entry(mModel_subtitle->getModelData());
+         mDoExt_modelUpdateDL(mModel_subtitle);
