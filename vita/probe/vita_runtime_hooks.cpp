@@ -46,11 +46,22 @@ extern "C" void pc_copydate_loaded(int status, const char *date)
 void pc_logo_scene_created_hook() { pc_milestone("vita-logo-scene-created"); }
 bool pc_logo_dvd_synced(dScnLogo_c *)
 {
-    pc_milestone("vita-logo-resources-synced");
+    static bool logged;
+    if (!logged) {
+        logged = true;
+        pc_milestone("vita-logo-resources-synced");
+    }
     return false;
 }
 
-extern "C" void pc_opening_scene_called() { pc_milestone("vita-opening-scene-requested"); }
+extern "C" void pc_opening_scene_called()
+{
+    static bool logged;
+    if (!logged) {
+        logged = true;
+        pc_milestone("vita-opening-scene-requested");
+    }
+}
 extern "C" void pc_stage_created(const char *stage, int room, int files, int dzs)
 {
     pc::writef(2, "stage %.8s room=%d files=%d dzs=%d\n", stage, room, files, dzs);

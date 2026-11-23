@@ -1,0 +1,48 @@
+diff --git a/game/src/JSystem/JAudio/JAIBankWave.cpp b/game/src/JSystem/JAudio/JAIBankWave.cpp
+--- a/game/src/JSystem/JAudio/JAIBankWave.cpp
++++ b/game/src/JSystem/JAudio/JAIBankWave.cpp
+@@ -136,6 +136,11 @@
+ 
+ /* 802916C0-80291704       .text checkAllWaveLoadStatus__Q27JAInter8BankWaveFv */
+ bool JAInter::BankWave::checkAllWaveLoadStatus() {
++#if TARGET_PC
++    // With audio disabled there are no pending wave loads.
++    if (initOnCodeWs == NULL || wsLoadStatus == NULL)
++        return false;
++#endif
+     for (int i = 0; initOnCodeWs[i].field_0x0; i++) {
+         if (wsLoadStatus[i] == 1) {
+             return true;
+diff --git a/game/src/JAZelAudio/JAIZelBasic.cpp b/game/src/JAZelAudio/JAIZelBasic.cpp
+--- a/game/src/JAZelAudio/JAIZelBasic.cpp
++++ b/game/src/JAZelAudio/JAIZelBasic.cpp
+@@ -4195,6 +4195,9 @@
+ 
+ /* 802AB204-802AB374       .text sceneBgmStart__11JAIZelBasicFv */
+ void JAIZelBasic::sceneBgmStart() {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     OSReport("[JAIZelBasic::sceneBgmStart] %08x\n", mNextSceneBgmId);
+     field_0x0021 = 1;
+     int night = 0;
+@@ -4328,6 +4331,9 @@
+ 
+ /* 802AB678-802AB6F4       .text check1stDynamicWave__11JAIZelBasicFv */
+ BOOL JAIZelBasic::check1stDynamicWave() {
++#if defined(TWW_VITA_BOOT)
++    return FALSE;
++#endif
+     s32 firstStatus = 0;
+     s32 secondStatus = 0;
+     u32 first = m_dy_wave_set_1st[mFirstDynamicSceneWaveIndex][0];
+@@ -4345,6 +4351,9 @@
+ 
+ /* 802AB6F4-802AB858       .text load2ndDynamicWave__11JAIZelBasicFv */
+ void JAIZelBasic::load2ndDynamicWave() {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     OSReport("[JAIZelBasic::load2ndDynamicWave] (%d) set num = %d\n", field_0x0237, mSecondDynamicSceneWaveIndex);
+     u32 stream = 0;
+     switch (field_0x0224) {
