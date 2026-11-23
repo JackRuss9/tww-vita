@@ -1,0 +1,36 @@
+diff --git a/game/src/JSystem/JAudio/JAIAnimation.cpp b/game/src/JSystem/JAudio/JAIAnimation.cpp
+--- a/game/src/JSystem/JAudio/JAIAnimation.cpp
++++ b/game/src/JSystem/JAudio/JAIAnimation.cpp
+@@ -81,6 +81,9 @@
+ 
+ /* 8028F2A0-8028F7B8       .text setAnimSoundActor__13JAIAnimeSoundFP8JAIBasicPQ27JAInter5ActorffUc */
+ void JAIAnimeSound::setAnimSoundActor(JAIBasic* basic, JAInter::Actor* actor, f32 currentFrame, f32 speed, u8 ownerID) {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     JAIAnimeSoundData* _asdata = mpAsData;
+     if (!_asdata) {
+         return;
+@@ -188,6 +191,9 @@
+ 
+ /* 8028F7B8-8028FA60       .text playActorAnimSound__13JAIAnimeSoundFP8JAIBasicPQ27JAInter5ActorfUc */
+ void JAIAnimeSound::playActorAnimSound(JAIBasic* basic, JAInter::Actor* actor, f32 pitch, u8 r28) {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     u8 i = 0;
+     JAIAnimeSoundData* _asdata = mpAsData;
+     JUT_ASSERT_MSG(274, (dataCounter>=0 && dataCounter<_asdata->datas), "JAIAnimeSound::playActorAnimSound  dataCounter??????\n");
+diff --git a/game/src/JAZelAudio/JAIZelAnime.cpp b/game/src/JAZelAudio/JAIZelAnime.cpp
+--- a/game/src/JAZelAudio/JAIZelAnime.cpp
++++ b/game/src/JAZelAudio/JAIZelAnime.cpp
+@@ -18,6 +18,9 @@
+ 
+ /* 802AC888-802ACD34       .text startAnimSound__11JAIZelAnimeFPvUlPP8JAISoundPQ27JAInter5ActorUc */
+ void JAIZelAnime::startAnimSound(void* i_basic, u32 i_soundID, JAISound** i_sound, JAInter::Actor* i_actor, u8 param_4) {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     JAIZelBasic* basic = (JAIZelBasic*)i_basic;
+ 
+     if (basic->isTaktUsing()) {
