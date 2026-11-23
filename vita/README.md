@@ -111,7 +111,7 @@ SceShaccCgExt and taiHEN stubs. Use a VitaSDK with GNU ld support for
 `__sce_headroom`, such as the October 2026 VitaSDK.
 
 ```sh
-git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-gcc.patch" "$PWD/vita/patches/switchwaker-vita-gx-ownership.patch" "$PWD/vita/patches/switchwaker-vita-title-log.patch"
+git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-gcc.patch" "$PWD/vita/patches/switchwaker-vita-gx-ownership.patch" "$PWD/vita/patches/switchwaker-vita-title-log.patch" "$PWD/vita/patches/switchwaker-vita-first-painter.patch"
 git -C "$AURORA" apply "$PWD/vita/patches/aurora-vita-dvd.patch"
 git -C "$GXM/.." apply "$PWD/vita/patches/mh3-aurora-vita-gxm.patch" "$PWD/vita/patches/mh3-aurora-public-gx.patch" "$PWD/vita/patches/mh3-aurora-public-gx-headers.patch"
 cmake -S "$GXM" -B build-vita-gxm -G Ninja -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-fno-short-enums -DCMAKE_CXX_FLAGS=-fno-short-enums -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_BZIP2=ON -DAURORA_ENABLE_CARD=OFF -DAURORA_ENABLE_DVD=OFF -DAURORA_SDL3_PROVIDER=vendor -DAURORA_SDL3_LINKAGE=static -DTWW_GXM_RUNTIME_SHADERS=ON -DTWW_VITASHARK_PREFIX="$SHARK"
@@ -130,7 +130,7 @@ The Vita executable starts SwitchWaker's `aurora_main` with runtime DVD and
 GXM. It writes `ux0:/data/tww/boot.log` and flushes the boot checkpoints.
 The log records GXM initialization, admission and presentation of the first game frame, the logo and
 opening scenes, the title draw and the file-select screen if reached.
-The 01.18 build runs muted and reports empty memory-card slots. The GXM
+The 01.20 build runs muted and reports empty memory-card slots. The GXM
 readback path for the Picto Box still needs implementation.
 On real hardware, 01.16 initialized GXM, compiled the initial utility
 shaders, loaded the 163 disc asset arrays and entered `main01`. The crash
