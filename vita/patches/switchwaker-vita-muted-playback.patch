@@ -1,0 +1,591 @@
+diff --git a/game/include/m_Do/m_Do_audio.h b/game/include/m_Do/m_Do_audio.h
+--- a/game/include/m_Do/m_Do_audio.h
++++ b/game/include/m_Do/m_Do_audio.h
+@@ -76,95 +76,149 @@
+ 
+ extern JKRSolidHeap* g_mDoAud_audioHeap;
+ 
++// Vita's muted boot has no JAudio engine or playback channels. Keep
++// game-facing state machines (including the Wind Waker rhythm) running.
++inline bool mDoAud_playbackEnabled() {
++#if defined(TWW_VITA_BOOT)
++    return false;
++#else
++    return true;
++#endif
++}
++
+ inline void mDoAud_bgmStart(u32 param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->bgmStart(param_0, 0, 0);
+ }
+ 
+ inline void mDoAud_subBgmStart(u32 param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->subBgmStart(param_0);
+ }
+ 
+ inline void mDoAud_subBgmStop() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->subBgmStop();
+ }
+ 
+ inline void mDoAud_changeBgmStatus(s32 status) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->changeBgmStatus(status);
+ }
+ 
+ inline void mDoAud_changeSubBgmStatus(s32 status) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->changeSubBgmStatus(status);
+ }
+ 
+ inline void mDoAud_bgmStreamPrepare(u32 soundID) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->bgmStreamPrepare(soundID);
+ }
+ 
+ inline void mDoAud_bgmStreamPlay() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->bgmStreamPlay();
+ }
+ 
+ inline void mDoAud_bgmStop(u32 i_fadeTime) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->bgmStop(i_fadeTime, 0);
+ }
+ 
+ inline void mDoAud_bgmAllMute(u32 param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->bgmAllMute(param_0);
+ }
+ 
+ inline int mDoAud_checkPlayingMainBgmFlag() {
++    if (!mDoAud_playbackEnabled())
++        return 0;
+     return mDoAud_zelAudio_c::getInterface()->checkPlayingMainBgmFlag();
+ }
+ 
+ inline int mDoAud_checkPlayingSubBgmFlag() {
++    if (!mDoAud_playbackEnabled())
++        return 0;
+     return mDoAud_zelAudio_c::getInterface()->checkPlayingSubBgmFlag();
+ }
+ 
+ inline s32 mDoAud_checkFirstWaves() {
++    if (!mDoAud_playbackEnabled())
++        return 0;
+     return mDoAud_zelAudio_c::getInterface()->checkFirstWaves();
+ }
+ 
+ inline void mDoAud_loadStaticWaves() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->loadStaticWaves();
+ }
+ 
+ int mDoAud_load1stDynamicWave();
+ 
+ inline void mDoAud_load2ndDynamicWave() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->load2ndDynamicWave();
+ }
+ 
+ inline void mDoAud_check1stDynamicWave() {}
+ 
+ inline bool mDoAud_checkAllWaveLoadStatus() {
++    if (!mDoAud_playbackEnabled())
++        return 0;
+     return mDoAud_zelAudio_c::getInterface()->checkAllWaveLoadStatus();
+ }
+ 
+ inline void mDoAud_prepareLandingDemo(s32 idx) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->prepareLandingDemo(idx);
+ }
+ 
+ inline void mDoAud_startLandingDemo() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->startLandingDemo();
+ }
+ 
+ inline void mDoAud_endLandingDemo() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->endLandingDemo();
+ }
+ 
+ inline void mDoAud_sceneBgmStart() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->sceneBgmStart();
+ }
+ 
+ inline void mDoAud_taktModeMute() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->taktModeMute();
+ }
+ 
+ inline void mDoAud_taktModeMuteOff() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->taktModeMuteOff();
+ }
+ 
+ inline void mDoAud_resetProcess() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     if (mDoAud_zelAudio_c::isResetFlag()) {
+         mDoAud_zelAudio_c::getInterface()->resetProcess();
+         mDoAud_zelAudio_c::onResetFlag();
+@@ -172,46 +226,68 @@
+ }
+ 
+ inline void mDoAud_seStart(u32 i_seNum, Vec* i_sePos, u32 param_2, s8 i_reverb) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->seStart(i_seNum, i_sePos, param_2, i_reverb, 1.0f, 1.0f, -1.0f, -1.0f, 0);
+ }
+ 
+ inline void mDoAud_seStart(u32 i_seNum, Vec* i_sePos, u32 param_2) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->seStart(i_seNum, i_sePos, param_2, 0, 1.0f, 1.0f, -1.0f, -1.0f, 0);
+ }
+ 
+ inline void mDoAud_seStart(u32 i_seNum, Vec* i_sePos) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->seStart(i_seNum, i_sePos, 0, 0, 1.0f, 1.0f, -1.0f, -1.0f, 0);
+ }
+ 
+ inline JAISound** mDoAud_seStart(u32 i_seNum) {
++    if (!mDoAud_playbackEnabled())
++        return NULL;
+     return mDoAud_zelAudio_c::getInterface()->seStart(i_seNum, NULL, 0, 0, 1.0f, 1.0f, -1.0f, -1.0f, 0);
+ }
+ 
+ inline void mDoAud_messageSePlay(u16 i_seNum, Vec* i_sePos = NULL, s8 i_reverb = 0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->messageSePlay(i_seNum, i_sePos, i_reverb);
+ }
+ 
+ inline void mDoAud_bgmSetSwordUsing(s32 param_1) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->bgmSetSwordUsing(param_1);
+ }
+ 
+ inline void mDoAud_seStop(u32 i_seNum, s32 param_2) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->seStop(i_seNum, param_2);
+ }
+ 
+ inline void mDoAud_seStop(u32 i_seNum) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->seStop(i_seNum, 0);
+ }
+ 
+ inline void mDoAud_seStopActor(Vec* param_1, u32 param_2) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->seStopActor(param_1, param_2);
+ }
+ 
+ inline void mDoAud_seStopActor(Vec* param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->seStopActor(param_0, -1);
+ }
+ 
+ inline void mDoAud_seDeleteObject(Vec* i_sePos) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->seDeleteObject(i_sePos);
+ }
+ 
+@@ -220,102 +296,152 @@
+ }
+ 
+ inline void mDoAud_linkVoiceStart(u32 i_soundID, Vec* i_sePos, u8 param_3, s8 param_4) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->linkVoiceStart(i_soundID, i_sePos, param_3, param_4);
+ }
+ 
+ inline void mDoAud_setLinkSwordType(s32 param_0, s32 param_1) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->setLinkSwordType(param_0, param_1);
+ }
+ 
+ inline void mDoAud_setLinkShieldType(s32 param_0, s32 param_1) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->setLinkShieldType(param_0, param_1);
+ }
+ 
+ inline void mDoAud_setLinkBootsType(s32 param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->setLinkBootsType(param_0);
+ }
+ 
+ inline void mDoAud_setLinkGroupInfo(u8 param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->setLinkGroupInfo(param_0);
+ }
+ 
+ inline void mDoAud_setLinkOnBoard(s32 param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->setLinkOnBoard(param_0);
+ }
+ 
+ inline void mDoAud_setLinkHp(s32 param_0, s32 param_1) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->setLinkHp(param_0, param_1);
+ }
+ 
+ inline void mDoAud_bgmNowKaitengiri() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->bgmNowKaitengiri();
+ }
+ 
+ inline void mDoAud_getCameraMapInfo(u32 param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->getCameraMapInfo(param_0);
+ }
+ 
+ inline void mDoAud_setCameraGroupInfo(u8 param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->setCameraGroupInfo(param_0);
+ }
+ 
+ inline void mDoAud_getCameraInfo(Vec* param_0, MtxP param_1, u32 param_2) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->getCameraInfo(param_0, param_1, param_2);
+ }
+ 
+ inline void mDoAud_setShipSailState(s32 state) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->setShipSailState(state);
+ }
+ 
+ inline void mDoAud_shipCruiseSePlay(cXyz* i_sePos, f32 param_1) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->shipCruiseSePlay(i_sePos, param_1);
+ }
+ 
+ inline void mDoAud_monsSeInit() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->monsSeInit();
+ }
+ 
+ inline void mDoAud_monsSeStart(u32 i_seNum, Vec* param_1, u32 param_2, u32 param_3) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->monsSeStart(i_seNum, param_1, param_2, param_3, 0);
+ }
+ 
+ inline void mDoAud_monsSeStart(u32 i_seNum, Vec* param_1, u32 param_2, u32 param_3, s8 i_reverb) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->monsSeStart(i_seNum, param_1, param_2, param_3, i_reverb);
+ }
+ 
+ inline void mDoAud_onEnemyDamage() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->onEnemyDamage();
+ }
+ 
+ inline void mDoAud_bgmMuteMtDragon() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->bgmMuteMtDragon();
+ }
+ 
+ inline void mDoAud_bgmHitSound(s32 param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->bgmHitSound(param_0);
+ }
+ 
+ inline void mDoAud_stSkyCloisters() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->stSkyCloisters();
+ }
+ 
+ inline void mDoAud_setHour(s32 hour) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->setHour(hour);
+ }
+ 
+ inline void mDoAud_setMinute(s32 min) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->setMinute(min);
+ }
+ 
+ inline void mDoAud_setWeekday(s32 day) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->setWeekday(day);
+ }
+ 
+ inline void mDoAud_setOutputMode(u32 mode) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->setOutputMode(mode);
+ }
+ 
+ inline void mDoAud_rainPlay(s32 param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->rainPlay(param_0);
+ }
+ 
+@@ -384,85 +510,127 @@
+ }
+ 
+ inline BOOL mDoAud_checkCbPracticePlay() {
++    if (!mDoAud_playbackEnabled())
++        return 0;
+     return mDoAud_zelAudio_c::getInterface()->checkCbPracticePlay();
+ }
+ 
+ inline void mDoAud_cbPracticePlay(Vec* pos) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->cbPracticePlay(pos);
+ }
+ 
+ inline void mDoAud_cbPracticeStop() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->cbPracticeStop();
+ }
+ 
+ inline void mDoAud_stWaterLevelUp() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->stWaterLevelUp();
+ }
+ 
+ inline void mDoAud_stWaterLevelDown() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->stWaterLevelDown();
+ }
+ 
+ inline void mDoAud_bgmNowBattle(f32 distance) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->bgmNowBattle(distance);
+ }
+ 
+ inline void mDoAud_initSeaEnvPos() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->initSeaEnvPos();
+ }
+ 
+ inline void mDoAud_registSeaEnvPos(Vec* param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->registSeaEnvPos(param_0);
+ }
+ 
+ inline void mDoAud_seaEnvSePlay(u32 param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->seaEnvSePlay(param_0, 0);
+ }
+ 
+ inline void mDoAud_startSeaShoreSE(Vec* param_0, u32 param_1) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->seaShoreSE(param_1, param_0, 0, 0);
+ }
+ 
+ inline void mDoAud_continueSeaShoreSE(Vec* param_0, u32 param_1) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->seaShoreSE(param_1, param_0, 1, 0);
+ }
+ 
+ inline void mDoAud_initRiverPos() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->initRiverPos();
+ }
+ 
+ inline void mDoAud_registRiverPos(cXyz* param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->registRiverPos(param_0);
+ }
+ 
+ inline void mDoAud_riverSePlay(u8 param_0, s8 param_1) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->riverSePlay(param_0, param_1);
+ }
+ 
+ inline void mDoAud_waterfallSePlay(u8 param_0, cXyz* param_1, s8 param_2) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->waterfallSePlay(param_0, param_1, param_2);
+ }
+ 
+ inline void mDoAud_initWindowPos() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->initWindowPos();
+ }
+ 
+ inline void mDoAud_registWindowPos(Vec* param_0) {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->registWindowPos(param_0);
+ }
+ 
+ inline void mDoAud_talkIn() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->talkIn();
+ }
+ 
+ inline void mDoAud_talkOut() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->talkOut();
+ }
+ 
+ inline BOOL mDoAud_checkSePlaying(u32 param_0) {
++    if (!mDoAud_playbackEnabled())
++        return 0;
+     return mDoAud_zelAudio_c::getInterface()->checkSePlaying(param_0);
+ }
+ inline void mDoAud_heartGaugeOn() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     mDoAud_zelAudio_c::getInterface()->heartGaugeOn();
+ }
+ inline void mDoAud_resetRecover() {}
+diff --git a/game/src/m_Do/m_Do_audio.cpp b/game/src/m_Do/m_Do_audio.cpp
+--- a/game/src/m_Do/m_Do_audio.cpp
++++ b/game/src/m_Do/m_Do_audio.cpp
+@@ -194,6 +194,8 @@
+ 
+ /* 80007224-80007268       .text mDoAud_Execute__Fv */
+ void mDoAud_Execute() {
++    if (!mDoAud_playbackEnabled())
++        return;
+     if (!mDoAud_zelAudio_c::isInitFlag()) {
+         mDoAud_Create();
+     } else {
+@@ -274,6 +276,8 @@
+ 
+ /* 80007424-80007478       .text mDoAud_load1stDynamicWave__Fv */
+ int mDoAud_load1stDynamicWave() {
++    if (!mDoAud_playbackEnabled())
++        return 1;
+     if (mDoAud_zelAudio_c::getLoadTimer() == 0) {
+         return 1;
+     } else if (mDoAud_zelAudio_c::getLoadTimer() <= 1) {
+diff --git a/game/src/JSystem/JAudio/JAIBasic.cpp b/game/src/JSystem/JAudio/JAIBasic.cpp
+--- a/game/src/JSystem/JAudio/JAIBasic.cpp
++++ b/game/src/JSystem/JAudio/JAIBasic.cpp
+@@ -227,6 +227,9 @@
+ 
+ /* 8029050C-8029057C       .text startSoundDirectID__8JAIBasicFUlPP8JAISoundPQ27JAInter5ActorUlUc */
+ void JAIBasic::startSoundDirectID(u32 soundID, JAISound** param_2, JAInter::Actor* param_3, u32 param_4, u8 param_5) {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     SoundInfo* info = JAInter::SoundTable::getInfoPointer(soundID);
+     if (info) {
+         startSoundBasic(soundID, param_2, param_3, param_4, param_5, info);
+@@ -235,6 +238,9 @@
+ 
+ /* 8029057C-80290708       .text startSoundBasic__8JAIBasicFUlPP8JAISoundPQ27JAInter5ActorUlUcPv */
+ void JAIBasic::startSoundBasic(u32 soundID, JAISound** param_2, JAInter::Actor* param_3, u32 param_4, u8 param_5, void* param_6) {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     switch (soundID & JAISoundID_TypeMask) {
+     case JAISoundID_Type_Sequence:
+         if (field_0xe.flag2 == 1) {
+@@ -497,6 +503,9 @@
+ 
+ /* 80290E14-80290E50       .text setSeCategoryVolume__8JAIBasicFUcUc */
+ void JAIBasic::setSeCategoryVolume(u8 param_1, u8 param_2) {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     JAInter::SeMgr::seCategoryVolume[param_1] = param_2 / 127.0f;
+ }
+ 
+diff --git a/game/src/JAZelAudio/JAIZelBasic.cpp b/game/src/JAZelAudio/JAIZelBasic.cpp
+--- a/game/src/JAZelAudio/JAIZelBasic.cpp
++++ b/game/src/JAZelAudio/JAIZelBasic.cpp
+@@ -4254,6 +4254,9 @@
+ 
+ /* 802AB374-802AB678       .text load1stDynamicWave__11JAIZelBasicFv */
+ void JAIZelBasic::load1stDynamicWave() {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     OSReport("[JAIZelBasic::load1stDynamicWave] (%d) set num = %d\n", mSetNum, mFirstDynamicSceneWaveIndex);
+     field_0x0224 = field_0x0220;
+     if (field_0x0231 || mSetNum || field_0x0237) {
+diff --git a/game/src/d/actor/d_a_movie_player.cpp b/game/src/d/actor/d_a_movie_player.cpp
+--- a/game/src/d/actor/d_a_movie_player.cpp
++++ b/game/src/d/actor/d_a_movie_player.cpp
+@@ -3408,11 +3408,17 @@
+ 
+ /* 00004A04-00004A30       .text daMP_audioInitWithMSound__Fv */
+ static void daMP_audioInitWithMSound() {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     JASystem::Kernel::registerMixCallback(daMP_audioCallbackWithMSound, MIX_MODE_INTERLEAVE);
+ }
+ 
+ /* 00004A30-00004A58       .text daMP_audioQuitWithMSound__Fv */
+ static void daMP_audioQuitWithMSound() {
++#if defined(TWW_VITA_BOOT)
++    return;
++#endif
+     JASystem::Kernel::registerMixCallback(NULL, MIX_MODE_MONO);
+ }
+ 
