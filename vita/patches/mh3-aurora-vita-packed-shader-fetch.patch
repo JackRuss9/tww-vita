@@ -1,0 +1,38 @@
+diff --git a/aurora-main/lib/gfx/cg_shader.cpp b/aurora-main/lib/gfx/cg_shader.cpp
+--- a/aurora-main/lib/gfx/cg_shader.cpp
++++ b/aurora-main/lib/gfx/cg_shader.cpp
+@@ -660,15 +660,27 @@
+       "static float4 aur_position_out;\nstatic float4 aur_fragcoord;\nstatic float aur_depth_out;\n";
+   if (wordBuffers) {
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+-    constexpr auto vertexWords = gxm::NativeVertexBytes / sizeof(uint32_t);
+-    constexpr auto arrayWords = gxm::RecordedGxArrayBytes / sizeof(uint32_t);
++    // BUFFER memory preserves the same contiguous words. Vector declarations
++    // reduce the size of the Cg array types without shrinking the GX buffers.
++    constexpr size_t vectorBytes = 4 * sizeof(uint32_t);
++    static_assert(gxm::NativeVertexBytes % vectorBytes == 0);
++    static_assert(gxm::RecordedGxArrayBytes % vectorBytes == 0);
++    result += "uint4 vwords[" + std::to_string(gxm::NativeVertexBytes / vectorBytes) + "] : BUFFER[1];\n"
++              "uint4 awords[" + std::to_string(gxm::RecordedGxArrayBytes / vectorBytes) + "] : BUFFER[2];\n"
++              "uint aur_word(int buffer_id, uint i) {\n"
++              "  uint4 words;\n"
++              "  if (buffer_id == 0) words = vwords[i >> 2u];\n"
++              "  else words = awords[i >> 2u];\n"
++              "  uint lane = i & 3u;\n"
++              "  if (lane == 0u) return words.x;\n"
++              "  if (lane == 1u) return words.y;\n"
++              "  if (lane == 2u) return words.z;\n"
++              "  return words.w;\n"
++              "}\n";
+ #else
+-    constexpr auto vertexWords = 786432;
+-    constexpr auto arrayWords = 2097152;
++    result += "uint vwords[786432] : BUFFER[1];\nuint awords[2097152] : BUFFER[2];\n"
++              "uint aur_word(int buffer_id, uint i) { return buffer_id == 0 ? vwords[i] : awords[i]; }\n";
+ #endif
+-    result += "uint vwords[" + std::to_string(vertexWords) + "] : BUFFER[1];\n"
+-              "uint awords[" + std::to_string(arrayWords) + "] : BUFFER[2];\n"
+-              "uint aur_word(int buffer_id, uint i) { return buffer_id == 0 ? vwords[i] : awords[i]; }\n";
+   }
+   return result +
+          "bool2 aur_less(float2 a, float2 b) { return a < b; }\n"
