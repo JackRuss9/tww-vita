@@ -1,6 +1,9 @@
 #include "gpu.h"
 #include "pc/pc_harness.h"
 
+#include <cstdlib>
+#include <exception>
+
 #include <aurora/aurora.h>
 #include <aurora/fatal.hpp>
 #include <aurora/legacy_gx.h>
@@ -13,6 +16,7 @@ namespace {
 SceUID boot_log = -1;
 bool first_present_logged;
 bool first_frame_admitted;
+bool first_frame_submitted;
 
 void aurora_fatal(const char *message)
 {
@@ -26,6 +30,22 @@ void aurora_gx_panic(const char *entry)
     if (boot_log >= 0)
         sceIoSyncByFd(boot_log, 0);
     // Aurora still aborts so the Vita records a crash dump.
+}
+
+[[noreturn]] void report_terminate() noexcept
+{
+    const auto exception = std::current_exception();
+    if (exception) {
+        try {
+            std::rethrow_exception(exception);
+        } catch (const std::exception &error) {
+            probe_log(boot_log, "vita-unhandled-exception: %s\n", error.what());
+        } catch (...) {
+            probe_log(boot_log, "vita-unhandled-exception: unknown type\n");
+        }
+    }
+    pc_milestone("vita-terminate");
+    std::abort();
 }
 
 void check_presentation()
@@ -49,6 +69,8 @@ extern "C" int tww_vita_gxm_init(SceUID log, int argc, char **argv)
     boot_log = log;
     first_present_logged = false;
     first_frame_admitted = false;
+    first_frame_submitted = false;
+    std::set_terminate(report_terminate);
     aurora::fatal_handler = aurora_fatal;
     aurora_set_legacy_gx_panic_handler(aurora_gx_panic);
     AuroraConfig config{};
@@ -97,6 +119,12 @@ extern "C" void pc_frame_begin()
 
 extern "C" void pc_frame_end()
 {
+    if (!first_frame_submitted)
+        pc_milestone("vita-first-frame-submit-begin");
     aurora_end_frame();
+    if (!first_frame_submitted) {
+        first_frame_submitted = true;
+        pc_milestone("vita-first-frame-submit-complete");
+    }
     check_presentation();
 }

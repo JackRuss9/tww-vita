@@ -120,8 +120,31 @@ extern "C" {
 int pc_gpu_groups_level = 0;
 void pc_gpu_group(const char *) {}
 void pc_gpu_group_packet(const void *) {}
-void pc_perf_begin(int) {}
-void pc_perf_end(int) {}
+void pc_perf_begin(int phase)
+{
+    static bool game_logged;
+    static bool painter_logged;
+    if (phase == PC_PERF_GAME && !game_logged) {
+        game_logged = true;
+        pc_milestone("vita-first-game-update-begin");
+    } else if (phase == PC_PERF_PAINTER && !painter_logged) {
+        painter_logged = true;
+        pc_milestone("vita-first-painter-begin");
+    }
+}
+
+void pc_perf_end(int phase)
+{
+    static bool game_logged;
+    static bool painter_logged;
+    if (phase == PC_PERF_GAME && !game_logged) {
+        game_logged = true;
+        pc_milestone("vita-first-game-update-complete");
+    } else if (phase == PC_PERF_PAINTER && !painter_logged) {
+        painter_logged = true;
+        pc_milestone("vita-first-painter-complete");
+    }
+}
 void pc_play_draw() {}
 }
 
