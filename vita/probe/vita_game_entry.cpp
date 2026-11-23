@@ -135,5 +135,6 @@ int main(int argc, char **argv)
     sceIoMkdir(DataDir, 0777);
     game_log = sceIoOpen("ux0:data/tww/boot.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
     pc_milestone("vita-executable-entered");
+    pc_milestone("vita-build-" TWW_VITA_GAME_VERSION);
     pc_exit(aurora_main(argc, argv));
 }

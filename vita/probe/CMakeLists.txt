@@ -41,6 +41,7 @@ target_include_directories(switchwaker_assets PUBLIC
   "${TWW_SWITCHWAKER_ASSETS}/include"
   "${TWW_AURORA_DIR}/include")
 
+set(TWW_VITA_GAME_VERSION 01.18)
 set(sw_game "${TWW_SWITCHWAKER_DIR}/game")
 set(sw_native "${TWW_SWITCHWAKER_DIR}/native")
 set(aurora_os "${TWW_AURORA_DIR}/lib/dolphin/os")
@@ -95,6 +96,7 @@ if(TWW_GXM_AURORA_DIR)
     "${TWW_GXM_AURORA_DIR}/include" "${sw_native}/include")
   if(TWW_BUILD_RUNTIME_DVD)
     add_library(tww_vita_game_entry STATIC vita_game_entry.cpp)
+    target_compile_definitions(tww_vita_game_entry PRIVATE TWW_VITA_GAME_VERSION="${TWW_VITA_GAME_VERSION}")
     target_link_libraries(tww_vita_game_entry PRIVATE tww_game_headers switchwaker_assets tww_vita_dvd)
     target_include_directories(tww_vita_game_entry PRIVATE
       "${sw_native}/src/pc" "${tww_nod}")
@@ -276,7 +278,7 @@ if(TWW_GXM_BUILD_DIR)
     SceProcessmgr_stub SceCamera_stub SceKernelModulemgr_stub
     -Wl,--end-group)
 
-  tww_package_vpk(switchwaker-vita 01.17 "SwitchWaker Vita" UNSAFE
+  tww_package_vpk(switchwaker-vita "${TWW_VITA_GAME_VERSION}" "SwitchWaker Vita" UNSAFE
     FILE "${TWW_SWITCHWAKER_DIR}/LICENSE" switchwaker-LICENSE.txt
     FILE "${TWW_GXM_AURORA_DIR}/LICENSE" aurora-LICENSE.txt
     FILE "${TWW_GXM_AURORA_DIR}/../LICENSE" mh3-wii-LICENSE.txt)

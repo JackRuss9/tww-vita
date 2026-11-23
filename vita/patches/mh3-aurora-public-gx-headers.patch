@@ -1,0 +1,29 @@
+diff --git a/aurora-main/include/dolphin/gx/GXGeometry.h b/aurora-main/include/dolphin/gx/GXGeometry.h
+--- a/aurora-main/include/dolphin/gx/GXGeometry.h
++++ b/aurora-main/include/dolphin/gx/GXGeometry.h
+@@ -1,4 +1,3 @@
+-#include <aurora/legacy_gx.h>
+ #ifndef DOLPHIN_GXGEOMETRY_H
+ #define DOLPHIN_GXGEOMETRY_H
+ 
+@@ -30,7 +29,7 @@ void GXSetArray(GXAttr attr, const void* data, u8 stride);
+ void GXInvalidateVtxCache(void);
+ 
+ static inline void GXSetTexCoordGen(GXTexCoordID dst_coord, GXTexGenType func, GXTexGenSrc src_param, u32 mtx) {
+-  aurora_legacy_gx_panic("GXSetTexCoordGen");
++  GXSetTexCoordGen2(dst_coord, func, src_param, mtx, GX_FALSE, GX_PTIDENTITY);
+ }
+ 
+ #ifdef __cplusplus
+diff --git a/aurora-main/include/dolphin/gx/GXVert.h b/aurora-main/include/dolphin/gx/GXVert.h
+--- a/aurora-main/include/dolphin/gx/GXVert.h
++++ b/aurora-main/include/dolphin/gx/GXVert.h
+@@ -29,7 +29,7 @@ typedef union {
+ #define GXWGFifo (*(volatile PPCWGPipe*)GXFIFO_ADDR)
+ #endif
+ 
+-#ifdef TARGET_PC
++#if defined(TARGET_PC) || defined(__vita__)
+ 
+ void GXPosition3f32(f32 x, f32 y, f32 z);
+ void GXPosition3u16(u16 x, u16 y, u16 z);
