@@ -1,0 +1,35 @@
+diff --git a/game/src/m_Do/m_Do_main.cpp b/game/src/m_Do/m_Do_main.cpp
+--- a/game/src/m_Do/m_Do_main.cpp
++++ b/game/src/m_Do/m_Do_main.cpp
+@@ -512,9 +512,14 @@
+             mDoMch_HeapCheckAll();
+         }
+ #endif
++#if defined(TWW_VITA_BOOT)
++        // The persistent Vita card has no dependency on the muted audio worker.
++        mDoMemCd_UpDate();
++#else
+         if (mDoDvdThd::SyncWidthSound) {
+             mDoMemCd_UpDate();
+         }
++#endif
+ 
+ #if TARGET_PC
+         // Step 6.7 (pc_frame.cpp): the phase split of COS_PERF / COS_PERF_EVERY.
+diff --git a/game/src/m_Do/m_Do_MemCard.cpp b/game/src/m_Do/m_Do_MemCard.cpp
+--- a/game/src/m_Do/m_Do_MemCard.cpp
++++ b/game/src/m_Do/m_Do_MemCard.cpp
+@@ -486,9 +486,13 @@
+ #if VERSION > VERSION_DEMO
+     { JKRThread thread(OSGetCurrentThread(), 0); }
+ 
++#if defined(TWW_VITA_BOOT)
++    JKRHeap::sCurrentHeap = NULL;
++#else
+     JKRHeap* heap = NULL;
+     heap->becomeCurrentHeap();
+ #endif
++#endif
+ 
+     g_mDoMemCd_control.main();
+     return 0;

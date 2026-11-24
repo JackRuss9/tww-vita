@@ -1,0 +1,69 @@
+diff --git a/aurora-main/lib/gxm/runtime_shader.cpp b/aurora-main/lib/gxm/runtime_shader.cpp
+--- a/aurora-main/lib/gxm/runtime_shader.cpp
++++ b/aurora-main/lib/gxm/runtime_shader.cpp
+@@ -24,6 +24,7 @@
+ namespace {
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+ Module ShaderLog("aurora::gxm::shader");
++char compilerError[384];
+ constexpr const char* Directory = "ux0:/data/tww/shaders";
+ struct UtilityShader {
+   uint64_t key;
+@@ -173,8 +174,14 @@
+ 
+ void compiler_log(const char* message, shark_log_level level, int line) {
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+-  if (message && level >= SHARK_LOG_WARNING)
+-    ShaderLog.report(level == SHARK_LOG_ERROR ? LOG_ERROR : LOG_WARNING, "Cg line {}: {}", line, message);
++  // Avoid allocations and logging while the compiler is reporting an internal error.
++  if (message && level == SHARK_LOG_ERROR && compilerError[0] == '\0') {
++    size_t i = 0;
++    for (; i + 1 < sizeof(compilerError) && message[i]; ++i)
++      compilerError[i] = message[i];
++    compilerError[i] = '\0';
++  }
++  (void)line;
+ #else
+   std::fprintf(stderr, "MH3 shader compiler [%d:%d] %s\n", int(level), line, message);
+ #endif
+@@ -351,25 +358,30 @@
+       ShaderLog.info("Compile {} ({}) {} ({} bytes)", shaderId, entry.origin, options, cg.size());
+       compiledSize = static_cast<uint32_t>(cg.size());
+       const auto begin = std::chrono::steady_clock::now();
++      compilerError[0] = '\0';
+       const auto* result = shark_compile_shader_extended(cg.c_str(), &compiledSize, shaderType, optimization,
+                                                          fastMath, SHARK_DISABLE, SHARK_ENABLE);
++      if (compilerError[0] != '\0')
++        ShaderLog.report(LOG_ERROR, "Cg compiler error: {}", compilerError);
+       ShaderLog.info("Compiler returned {} {} ok={} bytes={} elapsed_ms={}", shaderId, options,
+                      result != nullptr, compiledSize,
+                      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count());
+       return result;
+     };
+-    // 01.32's final trace began compiling this title vertex shader at O3.
+-    const bool titleVertex = stage == RuntimeShaderStage::Vertex && hash == 0x2a4f5a80355c9dd3ULL;
+-    const SceGxmProgram* compiled = titleVertex ? compile("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE)
+-                                                : compile("O3", SHARK_OPT_FAST, SHARK_ENABLE);
++    // These vertex programs triggered compiler faults at O3 on Vita.
++    const bool safeVertex = stage == RuntimeShaderStage::Vertex &&
++        (hash == 0x2a4f5a80355c9dd3ULL || hash == 0x423e4a681fc7ae43ULL);
++    const SceGxmProgram* compiled = safeVertex
++        ? compile("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE)
++        : compile("O3", SHARK_OPT_FAST, SHARK_ENABLE);
++    if (!compiled && !safeVertex) {
++      shark_clear_output();
++      compiled = compile("O2", SHARK_OPT_DEFAULT, SHARK_ENABLE);
++    }
+     if (!compiled) {
+       shark_clear_output();
+-      compiled = compile("O2", SHARK_OPT_DEFAULT, SHARK_ENABLE);
+-    }
+-    if (!compiled) {
+-      shark_clear_output();
+-      compiled = titleVertex ? compile("O0 without fast math", SHARK_OPT_SLOW, SHARK_DISABLE)
+-                             : compile("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE);
++      compiled = safeVertex ? compile("O0 without fast math", SHARK_OPT_SLOW, SHARK_DISABLE)
++                            : compile("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE);
+     }
+ #else
+     const SceGxmProgram* compiled = shark_compile_shader_extended(cg.c_str(), &compiledSize, shaderType, SHARK_OPT_FAST,
