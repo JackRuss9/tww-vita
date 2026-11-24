@@ -1,0 +1,23 @@
+diff --git a/aurora-main/lib/gxm/raster.cpp b/aurora-main/lib/gxm/raster.cpp
+--- a/aurora-main/lib/gxm/raster.cpp
++++ b/aurora-main/lib/gxm/raster.cpp
+@@ -145,7 +145,19 @@
+     }
+ 
++#ifdef TWW_GXM_RUNTIME_SHADERS
++    // GX writes a constant destination alpha through this blend state. GXM
++    // cannot express a fractional constant in its fixed-function blender.
++    // Keep the RGB draw and preserve the target's previous alpha in that case.
++    if (state.colorMask[3] && state.alphaEquation == GL_FUNC_ADD &&
++        state.srcAlpha == GL_CONSTANT_ALPHA && state.dstAlpha == GL_ZERO &&
++        blendColor[3] > 0.f && blendColor[3] < 1.f) {
++      result.colorMask &= ~SCE_GXM_COLOR_MASK_A;
++      return result;
++    }
++#endif
++
+     if (state.colorMask[3]) {
+       result.alphaFunc = blend_equation(state.alphaEquation);
+       result.alphaSrc = state.alphaEquation == GL_MAX ? SCE_GXM_BLEND_FACTOR_ONE : blend_factor(state.srcAlpha, blendColor[3]);
+       result.alphaDst = state.alphaEquation == GL_MAX ? SCE_GXM_BLEND_FACTOR_ONE : blend_factor(state.dstAlpha, blendColor[3]);
+     }
