@@ -130,4 +130,17 @@ extern "C" void pc_frame_end()
         pc_milestone("vita-first-frame-submit-complete");
     }
     check_presentation();
+
+    static uint64_t last_report = sceKernelGetSystemTimeWide();
+    static unsigned int submitted, last_presented;
+    ++submitted;
+    const uint64_t now = sceKernelGetSystemTimeWide();
+    if (now - last_report >= 10000000) {
+        const unsigned int presented = aurora_vita_presented_frames();
+        probe_log(boot_log, "vita-frames elapsed_ms=%lu submitted=%u presented=%u\n",
+                  static_cast<unsigned long>((now - last_report) / 1000), submitted, presented - last_presented);
+        last_report = now;
+        last_presented = presented;
+        submitted = 0;
+    }
 }

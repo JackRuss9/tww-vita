@@ -1,0 +1,131 @@
+diff --git a/game/src/m_Do/m_Do_MemCardRWmng.cpp b/game/src/m_Do/m_Do_MemCardRWmng.cpp
+--- a/game/src/m_Do/m_Do_MemCardRWmng.cpp
++++ b/game/src/m_Do/m_Do_MemCardRWmng.cpp
+@@ -107,8 +107,12 @@
+         }
+     }
+ 
++#if defined(TWW_VITA_BOOT)
++    return mDoMemCdRWm_SetCardStat(card);
++#else
+     mDoMemCdRWm_SetCardStat(card);
+     return ret;
++#endif
+ }
+ 
+ /* 80019CE8-80019F4C       .text mDoMemCdRWm_Restore__FP12CARDFileInfoPvUl */
+@@ -163,6 +167,10 @@
+         if (ret != CARD_ERROR_READY) return ret;
+         ret = CARDWrite(card, save, sizeof(card_savedata), 2 * sizeof(card_savedata));
+         if (ret != CARD_ERROR_READY) return ret;
++#if defined(TWW_VITA_BOOT)
++        ret = mDoMemCdRWm_SetCardStat(card);
++        if (ret != CARD_ERROR_READY) return ret;
++#endif
+     }
+ 
+     memcpy(dst, save->gamedata, size);
+@@ -261,7 +269,11 @@
+ }
+ 
+ /* 8001A0A8-8001A1EC       .text mDoMemCdRWm_SetCardStat__FP12CARDFileInfo */
++#if defined(TWW_VITA_BOOT)
++s32 mDoMemCdRWm_SetCardStat(CARDFileInfo* card) {
++#else
+ void mDoMemCdRWm_SetCardStat(CARDFileInfo* card) {
++#endif
+     CARDStat stat;
+     CARDGetStatus(mDoMemCd_getNowSlot(), card->fileNo, &stat);
+     stat.iconAddr = 0;
+@@ -284,7 +296,11 @@
+     CARDSetIconSpeed(&stat, 5, 0);
+     CARDSetIconSpeed(&stat, 6, 0);
+     CARDSetIconSpeed(&stat, 7, 0);
++#if defined(TWW_VITA_BOOT)
++    return CARDSetStatus(mDoMemCd_getNowSlot(), card->fileNo, &stat);
++#else
+     CARDSetStatus(mDoMemCd_getNowSlot(), card->fileNo, &stat);
++#endif
+ }
+ 
+ /* 8001A1EC-8001A2F0       .text mDoMemCdRWm_CheckCardStat__FP12CARDFileInfo */
+diff --git a/game/include/m_Do/m_Do_MemCardRWmng.h b/game/include/m_Do/m_Do_MemCardRWmng.h
+--- a/game/include/m_Do/m_Do_MemCardRWmng.h
++++ b/game/include/m_Do/m_Do_MemCardRWmng.h
+@@ -52,7 +52,11 @@
+ s32 mDoMemCdRWm_Restore2(CARDFileInfo*);
+ #endif
+ void mDoMemCdRWm_BuildHeader(mDoMemCdRWm_HeaderData*);
++#if defined(TWW_VITA_BOOT)
++s32 mDoMemCdRWm_SetCardStat(CARDFileInfo*);
++#else
+ void mDoMemCdRWm_SetCardStat(CARDFileInfo*);
++#endif
+ BOOL mDoMemCdRWm_CheckCardStat(CARDFileInfo*);
+ u32 mDoMemCdRWm_CalcCheckSum(void*, u32 size);
+ u16 mDoMemCdRWm_CalcCheckSumPictData(void*, u32 size);
+diff --git a/game/src/d/d_s_name.cpp b/game/src/d/d_s_name.cpp
+--- a/game/src/d/d_s_name.cpp
++++ b/game/src/d/d_s_name.cpp
+@@ -1520,10 +1520,10 @@
+     // game does. The opening scene (d_s_open.cpp, d_s_open_sub.cpp) only plays the legend and its
+     // music: it sets no event bit and writes nothing to the save.
+     const bool openingScene = field_0x55f && !pc_qol(PC_QOL_SKIP_INTRO);
++    if (fopScnM_ChangeReq(this, openingScene ? fpcNm_OPEN_SCENE_e : fpcNm_PLAY_SCENE_e, fpcNm_OVERLAP0_e, 5)) {
+ #if defined(TWW_VITA_BOOT)
+-    pc_milestone("vita-name-transition-request");
+-#endif
+-    if (fopScnM_ChangeReq(this, openingScene ? fpcNm_OPEN_SCENE_e : fpcNm_PLAY_SCENE_e, fpcNm_OVERLAP0_e, 5)) {
++        pc_milestone(openingScene ? "vita-name-transition-opening" : "vita-name-transition-play");
++#endif
+ #else
+     if (fopScnM_ChangeReq(this, field_0x55f ? fpcNm_OPEN_SCENE_e : fpcNm_PLAY_SCENE_e, fpcNm_OVERLAP0_e, 5)) {
+ #endif
+diff --git a/game/src/d/d_save.cpp b/game/src/d/d_save.cpp
+--- a/game/src/d/d_save.cpp
++++ b/game/src/d/d_save.cpp
+@@ -29,7 +29,11 @@
+ 
+     for (int i = 0; i < ARRAY_SIZE(mSelectItem); i++) {
+         mSelectItem[i] = dItemNo_NONE_e;
+-        dComIfGp_setSelectItem(i);
++#if defined(TWW_VITA_BOOT)
++        // The persistent array has one additional entry beyond the live play array.
++        if (i < 4)
++#endif
++            dComIfGp_setSelectItem(i);
+     }
+ 
+     for (int i = 0; i < ARRAY_SIZE(mSelectEquip); i++) {
+@@ -1989,8 +1993,15 @@
+     dSv_memory_c memory;
+     memory.init();
+     buffer_src = (char*)&memory;
++#if defined(TWW_VITA_BOOT)
++    for (int i = 0; i < dSv_save_c::STAGE_MAX; ++i) {
++        memcpy(buffer, buffer_src, sizeof(memory));
++        buffer += sizeof(memory);
++    }
++#else
+     memcpy(buffer, buffer_src, sizeof(dSv_memory_c) * dSv_save_c::STAGE_MAX);
+     buffer += sizeof(dSv_memory_c) * dSv_save_c::STAGE_MAX;
++#endif
+ 
+     dSv_ocean_c ocean;
+     ocean.init();
+diff --git a/game/src/m_Do/m_Do_MemCard.cpp b/game/src/m_Do/m_Do_MemCard.cpp
+--- a/game/src/m_Do/m_Do_MemCard.cpp
++++ b/game/src/m_Do/m_Do_MemCard.cpp
+@@ -160,7 +160,12 @@
+     CARDFileInfo cardInfo;
+     s32 ret = CARDOpen(mCardSlot, "gczelda", &cardInfo);
+     if (ret == CARD_ERROR_READY) {
++#if defined(TWW_VITA_BOOT)
++        ret = mDoMemCdRWm_Restore(&cardInfo, mData, sizeof(mData));
++        if (ret == CARD_ERROR_READY) {
++#else
+         if (!mDoMemCdRWm_Restore(&cardInfo, mData, sizeof(mData))) {
++#endif
+             field_0x1660 = 3;
+         } else {
+             setCardState(ret);

@@ -1,6 +1,7 @@
 #include "gpu.h"
 #include "vita_dvd_platform.h"
 #include "pc_internal.h"
+#include "pc/pc_qol.h"
 #include "cos_sdk/hooks.h"
 #include "m_Do/m_Do_audio.h"
 #include "JSystem/JKernel/JKRHeap.h"
@@ -97,6 +98,8 @@ extern "C" void pc_harness_init(int, char **)
 {
     pc::gConfig.disc = DiscPath;
     pc::gConfig.audio = false;
+    pc_qol_set("COS_QOL_SKIP_INTRO", "1");
+    pc_milestone("vita-opening-legend-skip-enabled");
 }
 
 extern "C" OSThread *pc_main_thread()

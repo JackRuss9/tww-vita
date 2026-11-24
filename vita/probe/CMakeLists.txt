@@ -41,7 +41,7 @@ target_include_directories(switchwaker_assets PUBLIC
   "${TWW_SWITCHWAKER_ASSETS}/include"
   "${TWW_AURORA_DIR}/include")
 
-set(TWW_VITA_GAME_VERSION 01.36)
+set(TWW_VITA_GAME_VERSION 01.37)
 set(sw_game "${TWW_SWITCHWAKER_DIR}/game")
 set(sw_native "${TWW_SWITCHWAKER_DIR}/native")
 set(aurora_os "${TWW_AURORA_DIR}/lib/dolphin/os")
@@ -104,8 +104,9 @@ if(TWW_GXM_AURORA_DIR)
 endif()
 
 if(TWW_BUILD_GAME_OBJECTS)
-  add_library(tww_vita_no_card STATIC vita_no_card.cpp)
-  target_link_libraries(tww_vita_no_card PRIVATE tww_game_headers)
+  add_library(tww_vita_card STATIC vita_card.cpp)
+  target_include_directories(tww_vita_card PRIVATE "${sw_native}/src/pc" "${sw_native}/include")
+  target_link_libraries(tww_vita_card PRIVATE tww_game_headers)
   file(GLOB_RECURSE runtime_sdk_sources CONFIGURE_DEPENDS
     "${sw_native}/sdk/src/*.c" "${sw_native}/sdk/src/*.cpp")
   # This boot build uses the muted Vita audio adapter.
@@ -270,7 +271,7 @@ if(TWW_GXM_BUILD_DIR)
   target_link_libraries(switchwaker-vita PRIVATE
     -Wl,--start-group
     tww_vita_game_entry switchwaker_assets tww_vita_gxm_frames tww_vita_dvd
-    tww_vita_sdk tww_vita_no_card ${renderer_archives}
+    tww_vita_sdk tww_vita_card ${renderer_archives}
     vitashark SceShaccCgExt SceShaccCg_stub_weak taihen_stub pthread
     SceGxm_stub SceDisplay_stub SceCtrl_stub SceAppMgr_stub SceAppUtil_stub
     SceAudio_stub SceAudioIn_stub SceSysmodule_stub SceIofilemgr_stub

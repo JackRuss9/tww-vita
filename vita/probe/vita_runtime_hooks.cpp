@@ -191,7 +191,14 @@ void pc_perf_end(int phase)
         pc_milestone("vita-first-painter-complete");
     }
 }
-void pc_play_draw() {}
+void pc_play_draw()
+{
+    static bool logged;
+    if (!logged) {
+        logged = true;
+        pc_milestone("vita-first-play-draw");
+    }
+}
 }
 
 void pc_kyr_draw_mist(PcFnRef draw) { draw(); }
