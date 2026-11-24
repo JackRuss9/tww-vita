@@ -1,0 +1,32 @@
+diff --git a/aurora-main/lib/dolphin/gx/GXFrameBuffer.cpp b/aurora-main/lib/dolphin/gx/GXFrameBuffer.cpp
+--- a/aurora-main/lib/dolphin/gx/GXFrameBuffer.cpp
++++ b/aurora-main/lib/dolphin/gx/GXFrameBuffer.cpp
+@@ -1,3 +1,6 @@
++#ifdef TWW_GXM_RUNTIME_SHADERS
++#include <aurora/vita_host_alloc.hpp>
++#endif
+ #include "gx.hpp"
+ #include "__gx.h"
+ 
+@@ -435,6 +438,10 @@
+ }
+ 
+ void GXCopyDisp(void* dest, GXBool clear) {
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  // The sealed frame and copy caches can retain these allocations after a scene heap is destroyed.
++  aurora::VitaHostAllocScope hostAlloc;
++#endif
+   (void)dest;
+   // Finish queued commands before this copy reads live EFB state.
+   if (aurora::gx::fifo::get_buffer_size() != 0) {
+@@ -469,6 +476,10 @@
+ }
+ 
+ void GXCopyTex(void* dest, GXBool clear) {
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  // The sealed frame and copy caches can retain these allocations after a scene heap is destroyed.
++  aurora::VitaHostAllocScope hostAlloc;
++#endif
+   // Texture copies must see all earlier draws and state changes.
+   if (aurora::gx::fifo::get_buffer_size() != 0) {
+     aurora::gx::fifo::drain();
