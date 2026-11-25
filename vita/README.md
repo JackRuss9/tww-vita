@@ -462,6 +462,13 @@ the game thread waits for it 30-68 ms, at 4-6 sync points a frame.
   instead of the frame admission wait, which with the worker also holds waits
   for the CPU.
 
+## 01.53: GX tasks in host memory
+
+01.52 corrupted a game heap when loading a save: a queued copy's task was
+built on the game thread from the current JKR heap and freed by the worker
+(`run_next_task` -> `JKRExpHeap::do_free` on the worker). Tasks and their
+queue nodes are now allocated in host memory.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)

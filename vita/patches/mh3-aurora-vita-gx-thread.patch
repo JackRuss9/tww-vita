@@ -562,7 +562,7 @@ index 665e528..d90749e 100644
      auto label = read_string(data, pos, size, bigEndian);
      gfx::push_debug_group(std::move(label));
 diff --git a/aurora-main/lib/gx/fifo.cpp b/aurora-main/lib/gx/fifo.cpp
-index c7fd176..2ce9fbe 100644
+index c7fd176..2d0205d 100644
 --- a/aurora-main/lib/gx/fifo.cpp
 +++ b/aurora-main/lib/gx/fifo.cpp
 @@ -6,11 +6,23 @@
@@ -760,10 +760,10 @@ index c7fd176..2ce9fbe 100644
 +#endif
 +}
 +
-+void enqueue_task(std::function<void()> task) {
++void enqueue_task_fn(std::function<void()>* task) {
 +  {
 +    std::lock_guard lock{sTaskMutex};
-+    sTasks.push_back(std::move(task));
++    sTasks.push_back(std::move(*task));
 +  }
 +  write_u8(GX_LOAD_AURORA);
 +  write_u16(GX_LOAD_AURORA_RUN_TASK);
@@ -877,18 +877,21 @@ index c7fd176..2ce9fbe 100644
 +}
 +#endif
 diff --git a/aurora-main/lib/gx/fifo.hpp b/aurora-main/lib/gx/fifo.hpp
-index 1ab6169..179cbc7 100644
+index 1ab6169..e849c36 100644
 --- a/aurora-main/lib/gx/fifo.hpp
 +++ b/aurora-main/lib/gx/fifo.hpp
-@@ -1,5 +1,7 @@
+@@ -1,5 +1,10 @@
  #pragma once
  
 +#include <functional>
++#ifdef TWW_GXM_RUNTIME_SHADERS
++#include <aurora/vita_host_alloc.hpp>
++#endif
 +
  #include "../internal.hpp"
  
  #include <cstring>
-@@ -85,6 +87,26 @@ bool in_display_list();
+@@ -85,6 +90,36 @@ bool in_display_list();
  // Drain the internal FIFO buffer through the command processor
  void drain();
  
@@ -903,7 +906,17 @@ index 1ab6169..179cbc7 100644
 +
 +// GX THREAD tasks: host work (EFB copies, frame begin/end) that must run on the
 +// worker in FIFO order. enqueue_task appends a marker and publishes.
-+void enqueue_task(std::function<void()> task);
++void enqueue_task_fn(std::function<void()>* task);
++// The task's storage (and the queue node) come from host memory: the worker
++// frees them, and game heaps must only be touched from the game thread.
++template <typename F>
++void enqueue_task(F&& f) {
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  VitaHostAllocScope hostAlloc;
++#endif
++  std::function<void()> task(std::forward<F>(f));
++  enqueue_task_fn(&task);
++}
 +void run_next_task();
 +// GX THREAD FULL: frames are begun and ended on the worker, and the game thread
 +// only waits for the previous frame (frame_draw_done) instead of the current one.
