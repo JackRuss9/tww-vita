@@ -179,9 +179,9 @@ extern "C" void pc_frame_end()
             return static_cast<unsigned long>((phase[i] - previous_phase[i]) / submitted / 100);
         };
         const AuroraStats *stats = aurora_get_stats();
-        probe_log(boot_log, "vita-phase-0.1ms game=%lu painter=%lu after_draw=%lu audio=%lu pad=%lu fifo=%lu draws=%u\n",
+        probe_log(boot_log, "vita-phase-0.1ms game=%lu painter=%lu after_draw=%lu audio=%lu pad=%lu drains=%lu draws=%u\n",
                   per_frame(2), per_frame(3), per_frame(6), per_frame(1), per_frame(0),
-                  static_cast<unsigned long>((drain_us - previous_drain_us) / submitted / 100),
+                  static_cast<unsigned long>((drain_us - previous_drain_us) / submitted),
                   stats ? static_cast<unsigned int>(stats->drawCallCount) : 0u);
         for (unsigned i = 0; i < 7; ++i)
             previous_phase[i] = phase[i];

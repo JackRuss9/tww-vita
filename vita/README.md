@@ -113,7 +113,7 @@ SceShaccCgExt and taiHEN stubs. Use a VitaSDK with GNU ld support for
 ```sh
 git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-gcc.patch" "$PWD/vita/patches/switchwaker-vita-gx-ownership.patch" "$PWD/vita/patches/switchwaker-vita-title-log.patch" "$PWD/vita/patches/switchwaker-vita-first-painter.patch" "$PWD/vita/patches/switchwaker-vita-frame-tail.patch" "$PWD/vita/patches/switchwaker-vita-muted-opening.patch" "$PWD/vita/patches/switchwaker-vita-muted-waves.patch" "$PWD/vita/patches/switchwaker-vita-muted-listener.patch" "$PWD/vita/patches/switchwaker-vita-muted-ambience.patch" "$PWD/vita/patches/switchwaker-vita-muted-playback.patch" "$PWD/vita/patches/switchwaker-vita-muted-animation.patch" "$PWD/vita/patches/switchwaker-vita-title-sparkle.patch" "$PWD/vita/patches/switchwaker-vita-name-heap-trace.patch" "$PWD/vita/patches/switchwaker-vita-card-commit.patch" "$PWD/vita/patches/switchwaker-vita-card-poll.patch" "$PWD/vita/patches/switchwaker-vita-minimap-alpha.patch" "$PWD/vita/patches/switchwaker-vita-icon-trace.patch"
 git -C "$AURORA" apply "$PWD/vita/patches/aurora-vita-dvd.patch"
-git -C "$GXM/.." apply "$PWD/vita/patches/mh3-aurora-vita-gxm.patch" "$PWD/vita/patches/mh3-aurora-public-gx.patch" "$PWD/vita/patches/mh3-aurora-public-gx-headers.patch" "$PWD/vita/patches/mh3-aurora-vita-fatal-log.patch" "$PWD/vita/patches/mh3-aurora-vita-recorded-gx.patch" "$PWD/vita/patches/mh3-aurora-vita-packed-shader-fetch.patch" "$PWD/vita/patches/mh3-aurora-vita-host-alloc.patch" "$PWD/vita/patches/mh3-aurora-vita-present-probe.patch" "$PWD/vita/patches/mh3-aurora-vita-present-efb.patch" "$PWD/vita/patches/mh3-aurora-vita-title-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-copy-host-alloc.patch" "$PWD/vita/patches/mh3-aurora-vita-outset-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-fractional-dst-alpha.patch" "$PWD/vita/patches/mh3-aurora-vita-fps-and-swim-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-palette-and-efb.patch" "$PWD/vita/patches/mh3-aurora-vita-toon-float-tev-and-scale.patch" "$PWD/vita/patches/mh3-aurora-vita-settings-menu.patch" "$PWD/vita/patches/mh3-aurora-vita-safe-vertex-compiler.patch"
+git -C "$GXM/.." apply "$PWD/vita/patches/mh3-aurora-vita-gxm.patch" "$PWD/vita/patches/mh3-aurora-public-gx.patch" "$PWD/vita/patches/mh3-aurora-public-gx-headers.patch" "$PWD/vita/patches/mh3-aurora-vita-fatal-log.patch" "$PWD/vita/patches/mh3-aurora-vita-recorded-gx.patch" "$PWD/vita/patches/mh3-aurora-vita-packed-shader-fetch.patch" "$PWD/vita/patches/mh3-aurora-vita-host-alloc.patch" "$PWD/vita/patches/mh3-aurora-vita-present-probe.patch" "$PWD/vita/patches/mh3-aurora-vita-present-efb.patch" "$PWD/vita/patches/mh3-aurora-vita-title-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-copy-host-alloc.patch" "$PWD/vita/patches/mh3-aurora-vita-outset-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-fractional-dst-alpha.patch" "$PWD/vita/patches/mh3-aurora-vita-fps-and-swim-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-palette-and-efb.patch" "$PWD/vita/patches/mh3-aurora-vita-toon-float-tev-and-scale.patch" "$PWD/vita/patches/mh3-aurora-vita-settings-menu.patch" "$PWD/vita/patches/mh3-aurora-vita-safe-vertex-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-param-cache-and-icon-trace.patch"
 cmake -S "$GXM" -B build-vita-gxm -G Ninja -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-fno-short-enums -DCMAKE_CXX_FLAGS=-fno-short-enums -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_BZIP2=ON -DAURORA_ENABLE_CARD=OFF -DAURORA_ENABLE_DVD=OFF -DAURORA_SDL3_PROVIDER=vendor -DAURORA_SDL3_LINKAGE=static -DTWW_GXM_RUNTIME_SHADERS=ON -DTWW_VITASHARK_PREFIX="$SHARK"
 cmake --build build-vita-gxm --target aurora_gx aurora_gd aurora_os aurora_mtx aurora_vi aurora_ms
 cmake -S vita/probe -B build-vita-game -G Ninja -DCMAKE_BUILD_TYPE=Release -DTWW_SWITCHWAKER_DIR="$SW" -DTWW_AURORA_DIR="$AURORA" -DTWW_SWITCHWAKER_ASSETS="$STUBS" -DTWW_BUILD_GAME_OBJECTS=ON -DTWW_BUILD_RUNTIME_DVD=ON -DTWW_GXM_AURORA_DIR="$GXM" -DTWW_GXM_BUILD_DIR="$PWD/build-vita-gxm" -DTWW_VITASHARK_PREFIX="$SHARK"
@@ -360,6 +360,29 @@ limit above 75% (100%: ~9 fps with 32 ms of staging waits; 62% and below:
   `-finstrument-functions -finstrument-functions-exclude-file-list=include/c++,/bits/,_deps,/extern/`
   added to `CMAKE_CXX_FLAGS`. The hooks slow the game down; read the shares,
   not the frame rate.
+
+## 01.46: first profile results
+
+The 01.45 profiling build (20 s windows of the game thread, instrumented, so
+small functions are overstated):
+
+| Outset outside | share | Grandma's house | share |
+| --- | --- | --- | --- |
+| `mDoGph_Painter` (draw) | 62% | `mDoGph_Painter` | 77% |
+| GX translation (`fifo::process`) | 42% | GX translation | 48% |
+| `GXCallDisplayList` | 40% | `GXCallDisplayList` | 34% |
+| `dGrass_packet_c::draw` | 18% | HUD (`dDlst_2DMETER1_c`) | 13% |
+| game logic (`fpcEx_Execute`) | 20% | `dKankyo_wave_Packet::draw` | 10% |
+| `aurora_end_frame` | 10% | `GXEnd` (immediate 2D quads) | 19% |
+
+Display lists and immediate primitives are translated on the game thread as
+they are called. 01.46 removes two per-draw costs found there: the FIFO drain
+timer (a clock read per drain; the log now counts `drains=` per frame) and the
+uniform parameter lookups by name (`sceGxmProgramFindParameterByName` and a
+`std::string` per sampler per draw), now cached per program. It also logs
+24x24 palette textures bound to texmaps other than 0, for the message icons:
+their pictures hold two C4 textures with RGB5A3 palettes, and only the ones
+whose second texture is palettized are missing.
 
 ## Integration points
 

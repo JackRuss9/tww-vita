@@ -1,0 +1,160 @@
+diff --git a/aurora-main/lib/gx/fifo.cpp b/aurora-main/lib/gx/fifo.cpp
+index 3045e9e..c7fd176 100644
+--- a/aurora-main/lib/gx/fifo.cpp
++++ b/aurora-main/lib/gx/fifo.cpp
+@@ -15,7 +15,7 @@
+ namespace aurora::gx::fifo {
+ static Module Log("aurora::gx::fifo");
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+-static uint64_t sDrainMicros = 0;
++static uint64_t sDrainCalls = 0;
+ #endif
+ 
+ namespace detail {
+@@ -93,14 +93,7 @@ void drain() {
+   }
+ 
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+-  // Time spent translating GX commands into GXM work on the calling thread.
+-  struct DrainTimer {
+-    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+-    ~DrainTimer() {
+-      sDrainMicros += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+-          std::chrono::steady_clock::now() - start).count());
+-    }
+-  } drainTimer;
++  ++sDrainCalls;
+ #endif
+   uint32_t consumed = 0;
+   bool retried = false;
+@@ -132,5 +125,6 @@ void clear_buffer() {
+ } // namespace aurora::gx::fifo
+ 
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+-extern "C" unsigned long long aurora_vita_fifo_drain_us() { return aurora::gx::fifo::sDrainMicros; }
++// FIFO drains so far (the timer of 01.42-01.45 cost ~5% of the game thread).
++extern "C" unsigned long long aurora_vita_fifo_drain_us() { return aurora::gx::fifo::sDrainCalls; }
+ #endif
+diff --git a/aurora-main/lib/gx/gx.cpp b/aurora-main/lib/gx/gx.cpp
+index b00096f..9d3a2ec 100644
+--- a/aurora-main/lib/gx/gx.cpp
++++ b/aurora-main/lib/gx/gx.cpp
+@@ -1489,6 +1489,20 @@ void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+           }
+         }
+       }
++#ifdef TWW_GXM_RUNTIME_SHADERS
++      // Message button icons (two palette textures in one picture) draw as gaps.
++      if ((!handle || i != 0) && obj.width() == 24 && obj.height() == 24) {
++        static unsigned reports;
++        if (reports < 24) {
++          ++reports;
++          const bool haveTlut = tlutIdx < g_gxState.loadedTluts.size();
++          Log.warn("palette texmap={} fmt={} {}x{} tlut={} tlutData={} entries={} handle={} data={}", i,
++                   unsigned(obj.format()), obj.width(), obj.height(), unsigned(tlutIdx),
++                   haveTlut && g_gxState.loadedTluts[tlutIdx].data != nullptr,
++                   haveTlut ? unsigned(g_gxState.loadedTluts[tlutIdx].numEntries) : 0u, bool(handle), obj.data != nullptr);
++        }
++      }
++#endif
+     } else if (copyRef != nullptr) {
+       handle = copyRef->handle;
+     } else if (obj.data != nullptr) {
+diff --git a/aurora-main/lib/gxm/device.cpp b/aurora-main/lib/gxm/device.cpp
+index 74b9348..26af41f 100644
+--- a/aurora-main/lib/gxm/device.cpp
++++ b/aurora-main/lib/gxm/device.cpp
+@@ -812,8 +812,19 @@ void PatchedProgram::bind(const SceGxmBlendInfo& blend, SceGxmOutputRegisterForm
+   m_fragmentDefault = nullptr;
+ }
+ 
++const SceGxmProgramParameter* PatchedProgram::find_parameter(const SceGxmProgram* binary, const char* name) {
++  for (const auto& entry : m_parameterCache)
++    if (entry.binary == binary && (entry.name == name || std::strcmp(entry.name, name) == 0))
++      return entry.parameter;
++
++  const auto* parameter = sceGxmProgramFindParameterByName(binary, name);
++  // Names come from the program description (stable storage) or literals.
++  m_parameterCache.push_back({binary, name, parameter});
++  return parameter;
++}
++
+ void PatchedProgram::set_vertex_uniform(const char* name, const float* values, unsigned count) {
+-  const auto* parameter = sceGxmProgramFindParameterByName(m_vertexBinary, name);
++  const auto* parameter = find_parameter(m_vertexBinary, name);
+ 
+   if (!parameter)
+     return;
+@@ -825,7 +836,7 @@ void PatchedProgram::set_vertex_uniform(const char* name, const float* values, u
+ }
+ 
+ void PatchedProgram::set_fragment_uniform(const char* name, const float* values, unsigned count) {
+-  const auto* parameter = sceGxmProgramFindParameterByName(m_boundFragmentBinary, name);
++  const auto* parameter = find_parameter(m_boundFragmentBinary, name);
+ 
+   if (!parameter)
+     return;
+diff --git a/aurora-main/lib/gxm/device.hpp b/aurora-main/lib/gxm/device.hpp
+index 9688a20..f6872b2 100644
+--- a/aurora-main/lib/gxm/device.hpp
++++ b/aurora-main/lib/gxm/device.hpp
+@@ -178,6 +178,15 @@ private:
+   void* m_vertexDefault = nullptr;
+   void* m_fragmentDefault = nullptr;
+   int m_defaultStream = -1;
++  // Uniform parameters by (binary, name): sceGxmProgramFindParameterByName
++  // walks every parameter by name and ran several times a draw.
++  struct ParameterCacheEntry {
++    const SceGxmProgram* binary;
++    const char* name;
++    const SceGxmProgramParameter* parameter;
++  };
++  std::vector<ParameterCacheEntry> m_parameterCache;
++  const SceGxmProgramParameter* find_parameter(const SceGxmProgram* binary, const char* name);
+   void release() noexcept;
+ };
+ } // namespace aurora::gxm
+diff --git a/aurora-main/lib/gxm/renderer.cpp b/aurora-main/lib/gxm/renderer.cpp
+index 63b21d8..3219bb3 100644
+--- a/aurora-main/lib/gxm/renderer.cpp
++++ b/aurora-main/lib/gxm/renderer.cpp
+@@ -91,6 +91,8 @@ struct NativeProgram {
+   bool usesDiscard = false, replacesDepth = false;
+   std::shared_ptr<PatchedProgram> program;
+   std::vector<std::pair<std::string, int>> samplers;
++  // "aur_size_<sampler>" per sampler, built once (a string a draw before).
++  std::vector<std::string> samplerSizeNames;
+   std::map<std::string, std::array<float, 4>> uniforms;
+   bool buffer0 = false;
+   bool nativeMaterialVertices = false;
+@@ -470,7 +472,8 @@ public:
+       native.program->set_fragment_uniform(uniform.c_str(), values.data(), 4);
+     }
+ 
+-    for (const auto& [samplerName, unit] : native.samplers) {
++    for (size_t samplerIndex = 0; samplerIndex < native.samplers.size(); ++samplerIndex) {
++      const int unit = native.samplers[samplerIndex].second;
+       const auto& bound = state.textures.at(unit);
+ 
+       if (!bound.texture)
+@@ -485,9 +488,9 @@ public:
+       // from current storage; no cached PDS address survives that move.
+       check(sceGxmSetFragmentTexture(device.context(), unit, &sampled), "bind sampled texture");
+       const float size[2]{float(source.width), float(source.height)};
+-      const std::string parameter = "aur_size_" + samplerName;
+-      native.program->set_vertex_uniform(parameter.c_str(), size, 2);
+-      native.program->set_fragment_uniform(parameter.c_str(), size, 2);
++      const char* parameter = native.samplerSizeNames[samplerIndex].c_str();
++      native.program->set_vertex_uniform(parameter, size, 2);
++      native.program->set_fragment_uniform(parameter, size, 2);
+     }
+   }
+ 
+@@ -1593,6 +1596,7 @@ GLuint Program::get() noexcept {
+           AURORA_THROW(std::runtime_error("Offline native sampler unit differs from the frontend"));
+ 
+         native.samplers.emplace_back(name, unit);
++        native.samplerSizeNames.push_back("aur_size_" + name);
+       }
+     }
+ 
