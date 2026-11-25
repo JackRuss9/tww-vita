@@ -1,0 +1,32 @@
+diff --git a/game/src/JSystem/JKernel/JKRHeap.cpp b/game/src/JSystem/JKernel/JKRHeap.cpp
+index cfff0f36..cbef0d06 100644
+--- a/game/src/JSystem/JKernel/JKRHeap.cpp
++++ b/game/src/JSystem/JKernel/JKRHeap.cpp
+@@ -122,8 +122,17 @@ JKRHeap* JKRHeap::becomeCurrentHeap() {
+     return prev;
+ }
+ 
++#if defined(__vita__)
++// tww-vita GX THREAD: the GX worker may still read this heap's models, arrays
++// and textures; finish its queued work first (no-op without the worker).
++extern "C" void tww_vita_gx_sync();
++#endif
++
+ /* 802B0408-802B0434       .text destroy__7JKRHeapFv */
+ void JKRHeap::destroy() {
++#if defined(__vita__)
++    tww_vita_gx_sync();
++#endif
+     do_destroy();
+ }
+ 
+@@ -185,6 +194,9 @@ void JKRHeap::freeAll() {
+     if (mInitFlag) {
+         JUT_WARN(408, "freeAll in heap %x", this);
+     }
++#if defined(__vita__)
++    tww_vita_gx_sync();
++#endif
+     do_freeAll();
+ }
+ 

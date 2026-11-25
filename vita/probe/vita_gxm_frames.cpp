@@ -128,7 +128,13 @@ extern "C" void pc_frame_begin()
             check_presentation();
             frame_begin_us = sceKernelGetSystemTimeWide();
             total_admission_us += frame_begin_us - admission_start_us;
-            tww_vita_autores_note(frame_begin_us, frame_begin_us - admission_start_us);
+            // AUTO follows the GPU: time spent waiting for a free staging set (on
+            // whichever thread begins frames), not waits for the GX worker.
+            static uint64_t previous_staging_us;
+            uint64_t staging_us, finish_us;
+            tww_vita_gxm_wait_totals(&staging_us, &finish_us);
+            tww_vita_autores_note(frame_begin_us, staging_us - previous_staging_us);
+            previous_staging_us = staging_us;
             return;
         }
         sceKernelDelayThread(1000);

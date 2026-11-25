@@ -111,7 +111,7 @@ SceShaccCgExt and taiHEN stubs. Use a VitaSDK with GNU ld support for
 `__sce_headroom`, such as the October 2026 VitaSDK.
 
 ```sh
-git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-gcc.patch" "$PWD/vita/patches/switchwaker-vita-gx-ownership.patch" "$PWD/vita/patches/switchwaker-vita-title-log.patch" "$PWD/vita/patches/switchwaker-vita-first-painter.patch" "$PWD/vita/patches/switchwaker-vita-frame-tail.patch" "$PWD/vita/patches/switchwaker-vita-muted-opening.patch" "$PWD/vita/patches/switchwaker-vita-muted-waves.patch" "$PWD/vita/patches/switchwaker-vita-muted-listener.patch" "$PWD/vita/patches/switchwaker-vita-muted-ambience.patch" "$PWD/vita/patches/switchwaker-vita-muted-playback.patch" "$PWD/vita/patches/switchwaker-vita-muted-animation.patch" "$PWD/vita/patches/switchwaker-vita-title-sparkle.patch" "$PWD/vita/patches/switchwaker-vita-name-heap-trace.patch" "$PWD/vita/patches/switchwaker-vita-card-commit.patch" "$PWD/vita/patches/switchwaker-vita-card-poll.patch" "$PWD/vita/patches/switchwaker-vita-minimap-alpha.patch" "$PWD/vita/patches/switchwaker-vita-icon-trace.patch" "$PWD/vita/patches/switchwaker-vita-fast-grass.patch"
+git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-gcc.patch" "$PWD/vita/patches/switchwaker-vita-gx-ownership.patch" "$PWD/vita/patches/switchwaker-vita-title-log.patch" "$PWD/vita/patches/switchwaker-vita-first-painter.patch" "$PWD/vita/patches/switchwaker-vita-frame-tail.patch" "$PWD/vita/patches/switchwaker-vita-muted-opening.patch" "$PWD/vita/patches/switchwaker-vita-muted-waves.patch" "$PWD/vita/patches/switchwaker-vita-muted-listener.patch" "$PWD/vita/patches/switchwaker-vita-muted-ambience.patch" "$PWD/vita/patches/switchwaker-vita-muted-playback.patch" "$PWD/vita/patches/switchwaker-vita-muted-animation.patch" "$PWD/vita/patches/switchwaker-vita-title-sparkle.patch" "$PWD/vita/patches/switchwaker-vita-name-heap-trace.patch" "$PWD/vita/patches/switchwaker-vita-card-commit.patch" "$PWD/vita/patches/switchwaker-vita-card-poll.patch" "$PWD/vita/patches/switchwaker-vita-minimap-alpha.patch" "$PWD/vita/patches/switchwaker-vita-icon-trace.patch" "$PWD/vita/patches/switchwaker-vita-fast-grass.patch" "$PWD/vita/patches/switchwaker-vita-gx-sync.patch"
 git -C "$AURORA" apply "$PWD/vita/patches/aurora-vita-dvd.patch"
 git -C "$GXM/.." apply "$PWD/vita/patches/mh3-aurora-vita-gxm.patch" "$PWD/vita/patches/mh3-aurora-public-gx.patch" "$PWD/vita/patches/mh3-aurora-public-gx-headers.patch" "$PWD/vita/patches/mh3-aurora-vita-fatal-log.patch" "$PWD/vita/patches/mh3-aurora-vita-recorded-gx.patch" "$PWD/vita/patches/mh3-aurora-vita-packed-shader-fetch.patch" "$PWD/vita/patches/mh3-aurora-vita-host-alloc.patch" "$PWD/vita/patches/mh3-aurora-vita-present-probe.patch" "$PWD/vita/patches/mh3-aurora-vita-present-efb.patch" "$PWD/vita/patches/mh3-aurora-vita-title-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-copy-host-alloc.patch" "$PWD/vita/patches/mh3-aurora-vita-outset-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-fractional-dst-alpha.patch" "$PWD/vita/patches/mh3-aurora-vita-fps-and-swim-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-palette-and-efb.patch" "$PWD/vita/patches/mh3-aurora-vita-toon-float-tev-and-scale.patch" "$PWD/vita/patches/mh3-aurora-vita-settings-menu.patch" "$PWD/vita/patches/mh3-aurora-vita-safe-vertex-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-param-cache-and-icon-trace.patch" "$PWD/vita/patches/mh3-aurora-vita-icon-palette-trace.patch" "$PWD/vita/patches/mh3-aurora-vita-gx-thread.patch"
 cmake -S "$GXM" -B build-vita-gxm -G Ninja -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-fno-short-enums -DCMAKE_CXX_FLAGS=-fno-short-enums -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_BZIP2=ON -DAURORA_ENABLE_CARD=OFF -DAURORA_ENABLE_DVD=OFF -DAURORA_SDL3_PROVIDER=vendor -DAURORA_SDL3_LINKAGE=static -DTWW_GXM_RUNTIME_SHADERS=ON -DTWW_VITASHARK_PREFIX="$SHARK"
@@ -445,6 +445,22 @@ own images and the build packs `vita/livearea/` when it exists.
 01.50 log, GX THREAD on (per frame): Outset 75-128 ms game thread (sync 01.49:
 133-160 ms), houses 42-62 ms (sync 54-57 ms). The worker is busy 50-97 ms and
 the game thread waits for it 30-68 ms, at 4-6 sync points a frame.
+
+## 01.52: fewer waits for the GX worker
+
+- EFB copies (`GXCopyTex`, `GXCopyDisp`) are worker tasks in FIFO order
+  instead of waits: the copy setters write a shadow of the copy state and each
+  copy carries a snapshot of it. `GXPeekZ` reads the latest depth snapshot
+  without waiting. RAM readbacks of copies (`aurora_flush_efb_copies_to_ram`)
+  wait for everything first.
+- `GX THREAD` has a third value, `FULL`: the worker also begins, seals,
+  renders and presents frames, and `GXDrawDone` waits only for the previous
+  frame, so the game thread runs one frame ahead of the worker.
+- `JKRHeap::destroy`/`freeAll` wait for all queued GX work
+  (`switchwaker-vita-gx-sync.patch`), as the worker may still read the heap.
+- `GX THREAD` is on by default. AUTO resolution follows GPU staging waits
+  instead of the frame admission wait, which with the worker also holds waits
+  for the CPU.
 
 ## Integration points
 
