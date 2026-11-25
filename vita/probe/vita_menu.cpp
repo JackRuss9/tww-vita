@@ -28,9 +28,20 @@ namespace {
 constexpr char kFile[] = "ux0:data/tww/settings.txt";
 
 volatile int g_showFps = 1;
-volatile int g_resolution = 50;  // percent of the GX frame in each dimension (live)
+volatile int g_resolution = 0;   // percent of the GX frame in each dimension (live); 0: AUTO
+volatile int g_autoPercent = 100; // AUTO's current choice
 volatile int g_floatTev = 1;     // read at start-up
-int g_appliedResolution = 50;
+int g_appliedResolution = -1;
+
+// RESOLUTION AUTO: lowers the render size only while the game waits for the
+// GPU (the frame admission wait), as sms-vita's AUTO does; raises it again
+// when the GPU has had time to spare for a while.
+constexpr int kAutoSteps[] = {100, 87, 75, 62, 50};
+struct AutoRes {
+    uint64_t waitUs = 0, frameUs = 0, windowStart = 0;
+    int calmWindows = 0;
+    bool settle = false;
+} g_auto;
 
 enum Shown { ON_OFF, PERCENT };
 struct Item {
@@ -43,10 +54,10 @@ struct Item {
     int def;
 };
 const int kOnOff[] = {1, 0};
-const int kScales[] = {100, 87, 75, 62, 50, 37};
+const int kScales[] = {0, 100, 87, 75, 62, 50, 37};
 const Item kItems[] = {
     {"show_fps", "SHOW FPS", &g_showFps, kOnOff, 2, ON_OFF, 1},
-    {"resolution", "RESOLUTION", &g_resolution, kScales, 6, PERCENT, 50},
+    {"resolution", "RESOLUTION", &g_resolution, kScales, 7, PERCENT, 0},
     {"float_tev", "FAST COLOUR MIXING (NEXT START)", &g_floatTev, kOnOff, 2, ON_OFF, 1},
 };
 constexpr int kCount = int(sizeof kItems / sizeof kItems[0]);
@@ -179,6 +190,8 @@ void draw_menu(void* address, unsigned stride, unsigned width, unsigned height)
         char v[16];
         if (it.shown == ON_OFF)
             std::snprintf(v, sizeof v, "%s", *it.value ? "ON" : "OFF");
+        else if (*it.value == 0)
+            std::snprintf(v, sizeof v, "AUTO %d%%", g_autoPercent);
         else
             std::snprintf(v, sizeof v, "%d%%", *it.value);
         c.color = *it.value != it.def ? 0xff66ff66 : 0xff999999;  // green: changed from the default
@@ -212,8 +225,8 @@ extern "C" void tww_vita_settings_load()
                 int value = 0;
                 if (std::sscanf(line + n + 1, "%d", &value) != 1)
                     continue;
-                if (it.shown == PERCENT)  // any percent from a hand-edited file
-                    *it.value = value < 25 ? 25 : value > 100 ? 100 : value;
+                if (it.shown == PERCENT)  // 0 (AUTO) or any percent from a hand-edited file
+                    *it.value = value <= 0 ? 0 : value < 25 ? 25 : value > 100 ? 100 : value;
                 else
                     *it.value = value != 0;
             }
@@ -222,17 +235,55 @@ extern "C" void tww_vita_settings_load()
     }
     save();
     aurora_vita_show_fps = g_showFps;
-    aurora_vita_set_efb_scale(unsigned(g_resolution));
+    aurora_vita_set_efb_scale(unsigned(g_resolution ? g_resolution : g_autoPercent));
     aurora_vita_set_float_tev(g_floatTev);
-    g_appliedResolution = g_resolution;
+    g_appliedResolution = g_resolution ? g_resolution : g_autoPercent;
     aurora_vita_overlay_hook = draw_menu;
     pc::writef(2, "vita-settings resolution=%d float_tev=%d show_fps=%d\n", g_resolution, g_floatTev, g_showFps);
+}
+
+// Each frame's wait for a free GPU slot (game thread, after admission).
+extern "C" void tww_vita_autores_note(uint64_t now_us, uint64_t wait_us)
+{
+    static uint64_t last;
+    if (last && now_us > last) {
+        g_auto.frameUs += now_us - last;
+        g_auto.waitUs += wait_us;
+    }
+    last = now_us;
+    if (!g_auto.windowStart)
+        g_auto.windowStart = now_us;
+    if (now_us - g_auto.windowStart < 1500000 || g_resolution != 0)
+        return;
+    const uint64_t wait = g_auto.waitUs, frame = g_auto.frameUs;
+    g_auto.waitUs = g_auto.frameUs = 0;
+    g_auto.windowStart = now_us;
+    if (g_auto.settle) {  // the window after a change measures the old size too
+        g_auto.settle = false;
+        return;
+    }
+    int step = 0;
+    while (step < 4 && kAutoSteps[step] > g_autoPercent)
+        ++step;
+    if (frame && wait * 100 > frame * 12 && step < 4) {
+        g_autoPercent = kAutoSteps[step + 1];  // the GPU holds frames back: smaller
+        g_auto.calmWindows = 0;
+        g_auto.settle = true;
+    } else if (frame && wait * 100 < frame * 2) {
+        if (++g_auto.calmWindows >= 3 && step > 0) {  // ~4.5 s with the GPU idle: larger
+            g_autoPercent = kAutoSteps[step - 1];
+            g_auto.calmWindows = 0;
+            g_auto.settle = true;
+        }
+    } else {
+        g_auto.calmWindows = 0;
+    }
 }
 
 // Between frames (game thread): a new resolution rebuilds the render targets.
 extern "C" void tww_vita_settings_frame()
 {
-    const int resolution = g_resolution;
+    const int resolution = g_resolution ? g_resolution : g_autoPercent;
     if (resolution == g_appliedResolution)
         return;
     g_appliedResolution = resolution;

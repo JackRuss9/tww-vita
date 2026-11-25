@@ -17,6 +17,7 @@ extern "C" void tww_vita_gxm_wait_totals(uint64_t* staging, uint64_t* finish);
 extern "C" void tww_vita_perf_totals(unsigned long long *out, unsigned int count);
 extern "C" unsigned long long aurora_vita_fifo_drain_us();
 extern "C" void tww_vita_settings_frame();
+extern "C" void tww_vita_autores_note(uint64_t now_us, uint64_t wait_us);
 
 namespace {
 SceUID boot_log = -1;
@@ -124,6 +125,7 @@ extern "C" void pc_frame_begin()
             check_presentation();
             frame_begin_us = sceKernelGetSystemTimeWide();
             total_admission_us += frame_begin_us - admission_start_us;
+            tww_vita_autores_note(frame_begin_us, frame_begin_us - admission_start_us);
             return;
         }
         sceKernelDelayThread(1000);

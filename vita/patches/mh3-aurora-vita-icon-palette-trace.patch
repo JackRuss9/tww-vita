@@ -1,0 +1,59 @@
+diff --git a/aurora-main/lib/gx/gx.cpp b/aurora-main/lib/gx/gx.cpp
+index 9d3a2ec..be3fee9 100644
+--- a/aurora-main/lib/gx/gx.cpp
++++ b/aurora-main/lib/gx/gx.cpp
+@@ -706,6 +706,20 @@ gfx::TextureHandle resolve_static_texture(const GXTexObj_& obj) {
+ }
+ 
+ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GXTlutObj_& tlut) {
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  // Message icons: which cache answers, and what the conversion holds.
++  const bool iconTrace = obj.width() == 24 && obj.height() == 24 && obj.format() == GX_TF_C4;
++  static unsigned iconReports;
++  const auto iconLog = [&](const char* how, int opaque) {
++    if (iconTrace && iconReports < 40) {
++      ++iconReports;
++      Log.warn("icon-palette {} texObj={} texVer={} tlutObj={} tlutVer={} data={} tlutData={} opaque={}", how,
++               obj.texObjId, obj.texDataVersion, tlut.tlutObjId, tlut.tlutDataVersion, obj.data, tlut.data, opaque);
++    }
++  };
++#else
++  const auto iconLog = [](const char*, int) {};
++#endif
+ 
+   if (obj.texObjId != 0) {
+     if (const auto it = s_textureObjectCaches.find(obj.texObjId); it != s_textureObjectCaches.end()) {
+@@ -714,6 +728,7 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
+       if (entry.handle && entry.texDataVersion == obj.texDataVersion && entry.tlutObjId == tlut.tlutObjId &&
+           entry.tlutDataVersion == tlut.tlutDataVersion &&
+           entry.validationRevision == s_staticTextureCacheValidationRevision) {
++        iconLog("object-cache", -1);
+         return entry.handle;
+       }
+     }
+@@ -735,6 +750,7 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
+           record_tex_obj_palette_source_key(obj.texObjId, sourceKey);
+         }
+ 
++        iconLog("source-cache", -1);
+         return handle;
+       }
+     }
+@@ -752,8 +768,17 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
+         obj.format(), obj.width(), obj.height(), obj.mip_count(), {static_cast<const u8*>(obj.data), dataSize},
+         tlut.format, tlut.numEntries, {static_cast<const u8*>(tlut.data), static_cast<size_t>(tlut.numEntries) * 2});
+     if (converted.data.empty()) {
++      iconLog("conversion-empty", 0);
+       return {};
+     }
++#ifdef TWW_GXM_RUNTIME_SHADERS
++    if (iconTrace) {
++      int opaque = 0;
++      for (size_t px = 3; px < converted.data.size(); px += 4)
++        opaque += converted.data.data()[px] != 0;
++      iconLog("converted", opaque);
++    }
++#endif
+ 
+     handle =
+         gfx::new_static_texture_2d(obj.width(), obj.height(), obj.mip_count(), GX_TF_RGBA8_PC,
