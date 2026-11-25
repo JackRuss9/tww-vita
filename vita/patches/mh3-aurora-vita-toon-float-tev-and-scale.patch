@@ -1,0 +1,165 @@
+diff --git a/aurora-main/lib/dolphin/gx/GXLighting.cpp b/aurora-main/lib/dolphin/gx/GXLighting.cpp
+index f7331c6..f1f06e5 100644
+--- a/aurora-main/lib/dolphin/gx/GXLighting.cpp
++++ b/aurora-main/lib/dolphin/gx/GXLighting.cpp
+@@ -83,7 +83,7 @@ void GXInitLightSpot(GXLightObj* light_, float cutoff, GXSpotFn spotFn) {
+ }
+ 
+ void GXInitLightDistAttn(GXLightObj* light_, float refDistance, float refBrightness, GXDistAttnFn distFunc) {
+-  if (refDistance < 0.f || refBrightness < 0.f || refBrightness >= 1.f) {
++  if (refDistance < 0.f || refBrightness <= 0.f || refBrightness >= 1.f) {
+     distFunc = GX_DA_OFF;
+   }
+   float k0 = 1.f;
+diff --git a/aurora-main/lib/gl/device.cpp b/aurora-main/lib/gl/device.cpp
+index 201ed9f..90fb8c5 100644
+--- a/aurora-main/lib/gl/device.cpp
++++ b/aurora-main/lib/gl/device.cpp
+@@ -19,6 +19,10 @@ void clear_caches() noexcept;
+ 
+ namespace aurora::gpu {
+ static Module Log("aurora::gpu");
++#ifdef TWW_GXM_RUNTIME_SHADERS
++// Percentage of the GX EFB size used for the render targets (set before initialization).
++static uint32_t g_vitaEfbScalePercent = 50;
++#endif
+ 
+ GraphicsConfig g_graphicsConfig;
+ RenderTarget g_frameBuffer;
+@@ -168,8 +172,8 @@ void resize_swapchain(uint32_t width, uint32_t height, uint32_t native_width, ui
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+   // GX coordinates still use the original EFB, including its scratch rows.
+   // Scale the backing targets here while keeping scanout at the native size.
+-  render_width = (render_width + 1) / 2;
+-  render_height = (render_height + 1) / 2;
++  render_width = std::max(1u, (render_width * g_vitaEfbScalePercent + 99) / 100);
++  render_height = std::max(1u, (render_height * g_vitaEfbScalePercent + 99) / 100);
+ #endif
+   const auto clamped = clamp_frame_buffer_size(render_width, render_height);
+ 
+@@ -210,3 +214,9 @@ void resize_swapchain(uint32_t width, uint32_t height, uint32_t native_width, ui
+   Log.info("EFB render target {}x{}, {} sample(s) per pixel", render_width, render_height, g_graphicsConfig.msaaSamples);
+ }
+ } // namespace aurora::gpu
++
++#ifdef TWW_GXM_RUNTIME_SHADERS
++extern "C" void aurora_vita_set_efb_scale(unsigned percent) {
++  aurora::gpu::g_vitaEfbScalePercent = std::clamp(percent, 25u, 100u);
++}
++#endif
+diff --git a/aurora-main/lib/gx/fifo.cpp b/aurora-main/lib/gx/fifo.cpp
+index 6c6217e..3045e9e 100644
+--- a/aurora-main/lib/gx/fifo.cpp
++++ b/aurora-main/lib/gx/fifo.cpp
+@@ -14,6 +14,9 @@
+ 
+ namespace aurora::gx::fifo {
+ static Module Log("aurora::gx::fifo");
++#ifdef TWW_GXM_RUNTIME_SHADERS
++static uint64_t sDrainMicros = 0;
++#endif
+ 
+ namespace detail {
+ uint8_t* sBufferData = nullptr;
+@@ -89,6 +92,16 @@ void drain() {
+     return;
+   }
+ 
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  // Time spent translating GX commands into GXM work on the calling thread.
++  struct DrainTimer {
++    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
++    ~DrainTimer() {
++      sDrainMicros += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
++          std::chrono::steady_clock::now() - start).count());
++    }
++  } drainTimer;
++#endif
+   uint32_t consumed = 0;
+   bool retried = false;
+ 
+@@ -117,3 +130,7 @@ void clear_buffer() {
+ }
+ 
+ } // namespace aurora::gx::fifo
++
++#ifdef TWW_GXM_RUNTIME_SHADERS
++extern "C" unsigned long long aurora_vita_fifo_drain_us() { return aurora::gx::fifo::sDrainMicros; }
++#endif
+diff --git a/aurora-main/lib/gx/shader.cpp b/aurora-main/lib/gx/shader.cpp
+index 498519f..fe68417 100644
+--- a/aurora-main/lib/gx/shader.cpp
++++ b/aurora-main/lib/gx/shader.cpp
+@@ -1059,6 +1059,10 @@ static std::string native_float_op(const TevOp& op,std::string_view a,std::strin
+       fmt::format("clamp({}, -1024.0 / 255.0, 1023.0 / 255.0)",expression);
+ }
+ 
++#ifdef TWW_GXM_RUNTIME_SHADERS
++bool g_vitaFloatTev = true;
++#endif
++
+ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeVertices,
+                                         u8 nativeZeroLodBiasMask,bool approximateNative,const gl::MeshLayout* nativeMeshLayout,u8 nativeNonzeroProjectiveMask,u8 nativeZeroProjectiveMask) noexcept {
+   const auto hash = xxh3_hash(config);
+@@ -1066,7 +1070,14 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+ 
+   // All native materials use float combiners. The explicit switch exists only
+   // for reference probes; material properties never trigger an exact fallback.
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  // The exact path emulates the TEV's 8-bit integer combiners per channel. On the
++  // SGX543 those integer sequences cost far more than the float combiners the
++  // native materials use, so the Vita build uses floats for GX draws as well.
++  const bool nativeFloat=(nativeVertices && approximateNative) || g_vitaFloatTev;
++#else
+   const bool nativeFloat=nativeVertices && approximateNative;
++#endif
+   const bool compact = nativeMeshLayout != nullptr;
+   CHECK(!(nativeZeroProjectiveMask & nativeNonzeroProjectiveMask),"Projective Q certificates overlap");
+   CHECK(!nativeZeroProjectiveMask || compact,"Zero projective Q requires a compact source certificate");
+@@ -1444,7 +1455,12 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+       continue;
+     }
+ 
+-    if (tcg.src >= GX_TG_TEX0 && tcg.src <= GX_TG_TEX7) {
++    if (tcg.type == GX_TG_SRTG && !UsePerPixelLighting &&
++        (tcg.src == GX_TG_COLOR0 || tcg.src == GX_TG_COLOR1)) {
++      // The hardware feeds GX_TG_SRTG the lit colour channel output, not the raw vertex
++      // colour: toon shading samples a ramp at (lit R, lit G).
++      vtxXfrAttrs += fmt::format("\n    vec4 tc{} = vec4f(out.cc{}.rgb, 1.0);", i, tcg.src - GX_TG_COLOR0);
++    } else if (tcg.src >= GX_TG_TEX0 && tcg.src <= GX_TG_TEX7) {
+       vtxXfrAttrs += fmt::format("\n    vec4 tc{} = vec4f({}, 1.0, 1.0);", i,
+                                  vtx_attr(config, GXAttr(GX_VA_TEX0 + (tcg.src - GX_TG_TEX0))));
+     } else if (tcg.src == GX_MAX_TEXGENSRC) {
+@@ -2362,3 +2378,8 @@ gl::ProgramPtr build_shader(const ShaderConfig& config) noexcept {
+   return std::make_shared<gl::Program>(build_shader_description(config));
+ }
+ } // namespace aurora::gx
++
++#ifdef TWW_GXM_RUNTIME_SHADERS
++// Set before aurora_initialize: pipelines built afterwards use the choice.
++extern "C" void aurora_vita_set_float_tev(int enabled) { aurora::gx::g_vitaFloatTev = enabled != 0; }
++#endif
+diff --git a/aurora-main/lib/gx/shader_info.cpp b/aurora-main/lib/gx/shader_info.cpp
+index 4d75bef..c582fe0 100644
+--- a/aurora-main/lib/gx/shader_info.cpp
++++ b/aurora-main/lib/gx/shader_info.cpp
+@@ -398,6 +398,19 @@ ShaderInfo build_shader_info(const ShaderConfig& config) noexcept {
+     }
+   }
+ 
++  // GX_TG_SRTG reads R and G of a lit colour channel's output (Dolphin: vertex_lighting_N),
++  // so that channel must be computed even when no TEV stage rasterizes it. Wind Waker's
++  // toon shading (Link, Aryll, Grandma, NPCs) samples its ramp texture at that coordinate.
++  for (int i = 0; i < info.sampledTexCoords.size(); ++i) {
++    if (!info.sampledTexCoords.test(i)) {
++      continue;
++    }
++    const auto& tcg = config.tcgs[i];
++    if (tcg.type == GX_TG_SRTG && (tcg.src == GX_TG_COLOR0 || tcg.src == GX_TG_COLOR1)) {
++      info.sampledColorChannels.set(tcg.src - GX_TG_COLOR0);
++    }
++  }
++
+   const auto loadsTevRegs = info.loadsTevRegRgb | info.loadsTevRegAlpha;
+   info.uniformSize += loadsTevRegs.count() * sizeof(Vec4<float>);
+ 

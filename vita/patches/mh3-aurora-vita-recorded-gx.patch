@@ -1,15 +1,3 @@
-diff --git a/aurora-main/cmake/aurora_core.cmake b/aurora-main/cmake/aurora_core.cmake
---- a/aurora-main/cmake/aurora_core.cmake
-+++ b/aurora-main/cmake/aurora_core.cmake
-@@ -68,7 +68,7 @@
-         file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/tww_gxm_utility.inc"
-           CONTENT "@tww_gxm_utility@" @ONLY)
-         target_include_directories(aurora_core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
--        target_compile_definitions(aurora_core PRIVATE TWW_GXM_RUNTIME_SHADERS=1)
-+        target_compile_definitions(aurora_core PUBLIC TWW_GXM_RUNTIME_SHADERS=1)
-         target_sources(aurora_core PRIVATE lib/gxm/tww_empty_shader_bank.cpp)
-       endif()
-       target_compile_options(aurora_core PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,Clang>:-gline-tables-only>)
 diff --git a/aurora-main/lib/gxm/native_capacity.hpp b/aurora-main/lib/gxm/native_capacity.hpp
 --- a/aurora-main/lib/gxm/native_capacity.hpp
 +++ b/aurora-main/lib/gxm/native_capacity.hpp

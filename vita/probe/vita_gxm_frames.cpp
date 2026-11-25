@@ -5,6 +5,7 @@
 #include <exception>
 
 #include <aurora/aurora.h>
+#include <aurora/gfx.h>
 #include <aurora/fatal.hpp>
 #include <aurora/legacy_gx.h>
 #include <aurora/vita_host_alloc.hpp>
@@ -13,6 +14,8 @@
 
 extern "C" unsigned int aurora_vita_presented_frames();
 extern "C" void tww_vita_gxm_wait_totals(uint64_t* staging, uint64_t* finish);
+extern "C" void tww_vita_perf_totals(unsigned long long *out, unsigned int count);
+extern "C" unsigned long long aurora_vita_fifo_drain_us();
 
 namespace {
 SceUID boot_log = -1;
@@ -163,6 +166,24 @@ extern "C" void pc_frame_end()
                   static_cast<unsigned long>((finish_us - previous_finish_us) / submitted / 1000));
         previous_staging_us = staging_us;
         previous_finish_us = finish_us;
+
+        // Where the game thread's frame goes: logic and draw-list encode (game, painter
+        // included), the GX encode alone (painter), the end-of-draw wait, GX->GXM translation.
+        static unsigned long long previous_phase[7], previous_drain_us;
+        unsigned long long phase[7]{};
+        tww_vita_perf_totals(phase, 7);
+        const unsigned long long drain_us = aurora_vita_fifo_drain_us();
+        const auto per_frame = [&](unsigned i) {
+            return static_cast<unsigned long>((phase[i] - previous_phase[i]) / submitted / 100);
+        };
+        const AuroraStats *stats = aurora_get_stats();
+        probe_log(boot_log, "vita-phase-0.1ms game=%lu painter=%lu after_draw=%lu audio=%lu pad=%lu fifo=%lu draws=%u\n",
+                  per_frame(2), per_frame(3), per_frame(6), per_frame(1), per_frame(0),
+                  static_cast<unsigned long>((drain_us - previous_drain_us) / submitted / 100),
+                  stats ? static_cast<unsigned int>(stats->drawCallCount) : 0u);
+        for (unsigned i = 0; i < 7; ++i)
+            previous_phase[i] = phase[i];
+        previous_drain_us = drain_us;
         total_admission_us = total_game_us = total_submit_us = total_events_us = 0;
         last_report = now;
         last_presented = presented;

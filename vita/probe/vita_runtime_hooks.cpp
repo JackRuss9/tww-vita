@@ -166,8 +166,20 @@ extern "C" {
 int pc_gpu_groups_level = 0;
 void pc_gpu_group(const char *) {}
 void pc_gpu_group_packet(const void *) {}
+// Per-phase times for the periodic report in vita_gxm_frames.cpp.
+static uint64_t perf_start_us[PC_PERF_PHASES];
+static uint64_t perf_total_us[PC_PERF_PHASES];
+
+void tww_vita_perf_totals(unsigned long long *out, unsigned int count)
+{
+    for (unsigned int i = 0; i < count && i < PC_PERF_PHASES; ++i)
+        out[i] = perf_total_us[i];
+}
+
 void pc_perf_begin(int phase)
 {
+    if (phase >= 0 && phase < PC_PERF_PHASES)
+        perf_start_us[phase] = sceKernelGetProcessTimeWide();
     static bool game_logged;
     static bool painter_logged;
     if (phase == PC_PERF_GAME && !game_logged) {
@@ -181,6 +193,8 @@ void pc_perf_begin(int phase)
 
 void pc_perf_end(int phase)
 {
+    if (phase >= 0 && phase < PC_PERF_PHASES && perf_start_us[phase] != 0)
+        perf_total_us[phase] += sceKernelGetProcessTimeWide() - perf_start_us[phase];
     static bool game_logged;
     static bool painter_logged;
     if (phase == PC_PERF_GAME && !game_logged) {
