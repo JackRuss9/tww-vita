@@ -1,0 +1,79 @@
+diff --git a/aurora-main/lib/gxm/device.cpp b/aurora-main/lib/gxm/device.cpp
+--- a/aurora-main/lib/gxm/device.cpp
++++ b/aurora-main/lib/gxm/device.cpp
+@@ -100,6 +100,53 @@
+   lastGame = gameUs;
+ }
+ 
++#ifdef TWW_GXM_RUNTIME_SHADERS
++void draw_fps_overlay(void* address, uint64_t now) {
++  // The display callback owns this completed buffer before it is queued for scanout.
++  static uint64_t sampleStart = now;
++  static uint32_t sampleFrames = g_displayPresented.load(std::memory_order_relaxed);
++  static unsigned tenths = 0;
++  const uint64_t elapsed = now - sampleStart;
++  if (elapsed >= 1000000) {
++    const uint32_t presented = g_displayPresented.load(std::memory_order_relaxed);
++    tenths = unsigned(std::min<uint64_t>(((presented - sampleFrames) * 10000000ULL + elapsed / 2) / elapsed, 999));
++    sampleStart = now;
++    sampleFrames = presented;
++  }
++
++  constexpr uint16_t font[] = {
++      0b111'101'101'101'111, 0b010'110'010'010'111, 0b111'001'111'100'111,
++      0b111'001'111'001'111, 0b101'101'111'001'001, 0b111'100'111'001'111,
++      0b111'100'111'101'111, 0b111'001'010'010'010, 0b111'101'111'101'111,
++      0b111'101'111'001'111,
++  };
++  const uint16_t text[] = {
++      0b111'100'110'100'100, 0b110'101'110'100'100, 0b111'100'111'001'111, 0,
++      tenths >= 100 ? font[tenths / 100] : uint16_t{0}, font[(tenths / 10) % 10],
++      0b000'000'000'000'010, font[tenths % 10],
++  };
++
++  constexpr unsigned Scale = 2, Left = (Device::Width - 68) / 2, Top = 8;
++  auto* pixels = static_cast<volatile uint32_t*>(address);
++  for (unsigned y = 0; y < 14; ++y)
++    for (unsigned x = 0; x < 68; ++x)
++      pixels[(Top + y) * Device::Stride + Left + x] = 0xff181818;
++  for (unsigned i = 0; i < std::size(text); ++i) {
++    for (unsigned y = 0; y < 5; ++y) {
++      for (unsigned x = 0; x < 3; ++x) {
++        if (!(text[i] & (1u << (14 - y * 3 - x))))
++          continue;
++        const unsigned pos = (Top + 2 + y * Scale) * Device::Stride + Left + 2 + (i * 4 + x) * Scale;
++        pixels[pos] = 0xffffffff;
++        pixels[pos + 1] = 0xffffffff;
++        pixels[pos + Device::Stride] = 0xffffffff;
++        pixels[pos + Device::Stride + 1] = 0xffffffff;
++      }
++    }
++  }
++}
++#endif
++
+ void display_callback(const void* data) {
+   aurora::pin_current_thread(aurora::ThreadRole::Worker);
+   const auto& display = *static_cast<const DisplayData*>(data);
+@@ -131,6 +178,9 @@
+   if (vblanks > 1)
+     sceDisplayWaitSetFrameBufMulti(vblanks);
+ 
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  draw_fps_overlay(display.address, gpuDoneUs);
++#endif
+   const int setResult = sceDisplaySetFrameBuf(&frame, SCE_DISPLAY_SETBUF_NEXTFRAME);
+   int waitResult = 0;
+ 
+diff --git a/aurora-main/lib/gxm/runtime_shader.cpp b/aurora-main/lib/gxm/runtime_shader.cpp
+--- a/aurora-main/lib/gxm/runtime_shader.cpp
++++ b/aurora-main/lib/gxm/runtime_shader.cpp
+@@ -370,7 +370,7 @@
+     };
+     // These vertex programs triggered compiler faults at O3 on Vita.
+     const bool safeVertex = stage == RuntimeShaderStage::Vertex &&
+-        (hash == 0x2a4f5a80355c9dd3ULL || hash == 0x423e4a681fc7ae43ULL);
++        (hash == 0x2a4f5a80355c9dd3ULL || hash == 0x423e4a681fc7ae43ULL || hash == 0xaa6a00a9790047faULL);
+     const SceGxmProgram* compiled = safeVertex
+         ? compile("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE)
+         : compile("O3", SHARK_OPT_FAST, SHARK_ENABLE);

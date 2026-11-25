@@ -1,0 +1,19 @@
+diff --git a/game/src/d/d_map.cpp b/game/src/d/d_map.cpp
+--- a/game/src/d/d_map.cpp
++++ b/game/src/d/d_map.cpp
+@@ -1538,7 +1538,15 @@
+         GXSetBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ZERO, GX_LO_SET);
+         GXSetColorUpdate(GX_DISABLE);
+         GXSetAlphaUpdate(GX_ENABLE);
++#if defined(TWW_VITA_BOOT)
++        // This pass writes only alpha with ONE/ZERO blending. Output the
++        // mask alpha directly so GXM does not need a constant blend factor.
++        GXSetTevColor(GX_TEVREG0, GXColor{0, 0, 0, mAlpha});
++        GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_A0);
++        GXSetDstAlpha(GX_DISABLE, 0);
++#else
+         GXSetDstAlpha(GX_ENABLE, mAlpha);
++#endif
+     } else if (mMode == 1) {
+         GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);
+         GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);

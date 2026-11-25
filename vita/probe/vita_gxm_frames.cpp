@@ -18,6 +18,7 @@ SceUID boot_log = -1;
 bool first_present_logged;
 bool first_frame_admitted;
 bool first_frame_submitted;
+uint64_t frame_begin_us, total_admission_us, total_game_us, total_submit_us;
 
 void aurora_fatal(const char *message)
 {
@@ -102,6 +103,7 @@ extern "C" int tww_vita_gxm_init(SceUID log, int argc, char **argv)
 extern "C" void pc_frame_begin()
 {
     aurora::VitaHostAllocScope host_alloc;
+    const uint64_t admission_start_us = sceKernelGetSystemTimeWide();
     // The game must only submit GX work once GXM admits the frame.
     for (unsigned int attempt = 0; attempt < 2000; ++attempt) {
         aurora_update();
@@ -111,6 +113,8 @@ extern "C" void pc_frame_begin()
                 pc_milestone("vita-first-game-frame-begin");
             }
             check_presentation();
+            frame_begin_us = sceKernelGetSystemTimeWide();
+            total_admission_us += frame_begin_us - admission_start_us;
             return;
         }
         sceKernelDelayThread(1000);
@@ -124,7 +128,10 @@ extern "C" void pc_frame_end()
     aurora::VitaHostAllocScope host_alloc;
     if (!first_frame_submitted)
         pc_milestone("vita-first-frame-submit-begin");
+    const uint64_t submit_start_us = sceKernelGetSystemTimeWide();
+    total_game_us += submit_start_us - frame_begin_us;
     aurora_end_frame();
+    total_submit_us += sceKernelGetSystemTimeWide() - submit_start_us;
     if (!first_frame_submitted) {
         first_frame_submitted = true;
         pc_milestone("vita-first-frame-submit-complete");
@@ -139,6 +146,11 @@ extern "C" void pc_frame_end()
         const unsigned int presented = aurora_vita_presented_frames();
         probe_log(boot_log, "vita-frames elapsed_ms=%lu submitted=%u presented=%u\n",
                   static_cast<unsigned long>((now - last_report) / 1000), submitted, presented - last_presented);
+        probe_log(boot_log, "vita-frame-average-ms admission=%lu game=%lu submit=%lu\n",
+                  static_cast<unsigned long>(total_admission_us / submitted / 1000),
+                  static_cast<unsigned long>(total_game_us / submitted / 1000),
+                  static_cast<unsigned long>(total_submit_us / submitted / 1000));
+        total_admission_us = total_game_us = total_submit_us = 0;
         last_report = now;
         last_presented = presented;
         submitted = 0;
