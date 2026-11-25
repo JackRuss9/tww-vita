@@ -240,8 +240,12 @@ extern "C" void tww_vita_settings_load()
                     continue;
                 if (it.shown == PERCENT)  // 0 (AUTO) or any percent from a hand-edited file
                     *it.value = value <= 0 ? 0 : value < 25 ? 25 : value > 100 ? 100 : value;
-                else
-                    *it.value = value != 0;
+                else {
+                    // Only a listed choice (GX THREAD has 0/1/2); anything else keeps the default.
+                    for (int k = 0; k < it.count; ++k)
+                        if (it.choices[k] == value)
+                            *it.value = value;
+                }
             }
             line = next;
         }
