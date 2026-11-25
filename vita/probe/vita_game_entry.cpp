@@ -26,6 +26,7 @@ unsigned int _sceUserMainThreadStackSize = 2 * 1024 * 1024;
 
 extern "C" int aurora_main(int argc, char **argv);
 extern "C" void tww_vita_settings_load();
+extern "C" void tww_vita_profiler_start(void) __attribute__((weak));
 extern "C" int tww_vita_gxm_init(SceUID log, int argc, char **argv);
 
 namespace {
@@ -164,5 +165,7 @@ int main(int argc, char **argv)
     pc_milestone("vita-executable-entered");
     pc_milestone("vita-build-" TWW_VITA_GAME_VERSION);
     raise_clocks(game_log);
+    if (tww_vita_profiler_start)
+        tww_vita_profiler_start();
     pc_exit(aurora_main(argc, argv));
 }

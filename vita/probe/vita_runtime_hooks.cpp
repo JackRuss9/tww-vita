@@ -259,3 +259,32 @@ unsigned char pc_fps60_blur_rate(unsigned char rate, const float current[3][4], 
     MTXCopy(current, out);
     return rate;
 }
+
+// Button icons in message text (the 01.44 test showed gaps where they belong):
+// the textures each icon picture ends up with, once per icon number.
+#include "global.h"
+#include "JSystem/J2DGraph/J2DPicture.h"
+#include "JSystem/JUtility/JUTTexture.h"
+
+extern "C" void tww_vita_icon_log(int icon, const char *name, J2DPicture *pic)
+{
+    static uint64_t logged[2];
+    if (icon < 0 || icon >= 128 || (logged[icon / 64] & (1ull << (icon % 64))))
+        return;
+    logged[icon / 64] |= 1ull << (icon % 64);
+    pc::writef(2, "vita-icon %d name=%s shown=%d white=%08x\n", icon, name ? name : "(null)",
+               pic && pic->isVisible() ? 1 : 0, pic ? static_cast<unsigned>(u32(pic->getWhite())) : 0u);
+    for (u8 i = 0; pic && i < 4; ++i) {
+        const JUTTexture *texture = pic->getTexture(i);
+        if (!texture)
+            break;
+        const ResTIMG *info = texture->getTexInfo();
+        if (!info) {
+            pc::writef(2, "vita-icon %d tex%u no info\n", icon, i);
+            continue;
+        }
+        pc::writef(2, "vita-icon %d tex%u fmt=%u %ux%u alpha=%u ci=%u tlut=%u colors=%u mips=%u\n", icon, i,
+                   info->format, unsigned(u16(info->width)), unsigned(u16(info->height)), info->alphaEnabled,
+                   info->indexTexture, info->colorFormat, unsigned(u16(info->numColors)), info->mipmapCount);
+    }
+}

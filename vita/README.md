@@ -111,7 +111,7 @@ SceShaccCgExt and taiHEN stubs. Use a VitaSDK with GNU ld support for
 `__sce_headroom`, such as the October 2026 VitaSDK.
 
 ```sh
-git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-gcc.patch" "$PWD/vita/patches/switchwaker-vita-gx-ownership.patch" "$PWD/vita/patches/switchwaker-vita-title-log.patch" "$PWD/vita/patches/switchwaker-vita-first-painter.patch" "$PWD/vita/patches/switchwaker-vita-frame-tail.patch" "$PWD/vita/patches/switchwaker-vita-muted-opening.patch" "$PWD/vita/patches/switchwaker-vita-muted-waves.patch" "$PWD/vita/patches/switchwaker-vita-muted-listener.patch" "$PWD/vita/patches/switchwaker-vita-muted-ambience.patch" "$PWD/vita/patches/switchwaker-vita-muted-playback.patch" "$PWD/vita/patches/switchwaker-vita-muted-animation.patch" "$PWD/vita/patches/switchwaker-vita-title-sparkle.patch" "$PWD/vita/patches/switchwaker-vita-name-heap-trace.patch" "$PWD/vita/patches/switchwaker-vita-card-commit.patch" "$PWD/vita/patches/switchwaker-vita-card-poll.patch" "$PWD/vita/patches/switchwaker-vita-minimap-alpha.patch"
+git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-gcc.patch" "$PWD/vita/patches/switchwaker-vita-gx-ownership.patch" "$PWD/vita/patches/switchwaker-vita-title-log.patch" "$PWD/vita/patches/switchwaker-vita-first-painter.patch" "$PWD/vita/patches/switchwaker-vita-frame-tail.patch" "$PWD/vita/patches/switchwaker-vita-muted-opening.patch" "$PWD/vita/patches/switchwaker-vita-muted-waves.patch" "$PWD/vita/patches/switchwaker-vita-muted-listener.patch" "$PWD/vita/patches/switchwaker-vita-muted-ambience.patch" "$PWD/vita/patches/switchwaker-vita-muted-playback.patch" "$PWD/vita/patches/switchwaker-vita-muted-animation.patch" "$PWD/vita/patches/switchwaker-vita-title-sparkle.patch" "$PWD/vita/patches/switchwaker-vita-name-heap-trace.patch" "$PWD/vita/patches/switchwaker-vita-card-commit.patch" "$PWD/vita/patches/switchwaker-vita-card-poll.patch" "$PWD/vita/patches/switchwaker-vita-minimap-alpha.patch" "$PWD/vita/patches/switchwaker-vita-icon-trace.patch"
 git -C "$AURORA" apply "$PWD/vita/patches/aurora-vita-dvd.patch"
 git -C "$GXM/.." apply "$PWD/vita/patches/mh3-aurora-vita-gxm.patch" "$PWD/vita/patches/mh3-aurora-public-gx.patch" "$PWD/vita/patches/mh3-aurora-public-gx-headers.patch" "$PWD/vita/patches/mh3-aurora-vita-fatal-log.patch" "$PWD/vita/patches/mh3-aurora-vita-recorded-gx.patch" "$PWD/vita/patches/mh3-aurora-vita-packed-shader-fetch.patch" "$PWD/vita/patches/mh3-aurora-vita-host-alloc.patch" "$PWD/vita/patches/mh3-aurora-vita-present-probe.patch" "$PWD/vita/patches/mh3-aurora-vita-present-efb.patch" "$PWD/vita/patches/mh3-aurora-vita-title-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-copy-host-alloc.patch" "$PWD/vita/patches/mh3-aurora-vita-outset-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-fractional-dst-alpha.patch" "$PWD/vita/patches/mh3-aurora-vita-fps-and-swim-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-palette-and-efb.patch" "$PWD/vita/patches/mh3-aurora-vita-toon-float-tev-and-scale.patch" "$PWD/vita/patches/mh3-aurora-vita-settings-menu.patch" "$PWD/vita/patches/mh3-aurora-vita-safe-vertex-compiler.patch"
 cmake -S "$GXM" -B build-vita-gxm -G Ninja -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-fno-short-enums -DCMAKE_CXX_FLAGS=-fno-short-enums -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_BZIP2=ON -DAURORA_ENABLE_CARD=OFF -DAURORA_ENABLE_DVD=OFF -DAURORA_SDL3_PROVIDER=vendor -DAURORA_SDL3_LINKAGE=static -DTWW_GXM_RUNTIME_SHADERS=ON -DTWW_VITASHARK_PREFIX="$SHARK"
@@ -342,6 +342,24 @@ changed the source of the Outset vertex program that 01.38 had listed as
 longer matched. The compiler's fatal error ends the process before a fallback
 can run, so all GX vertex programs now start at O1 without fast math (O0 as the
 fallback). Fragment programs keep O3.
+
+## 01.45: resolution measurements, icon trace and a profiling build
+
+The 01.44 resolution test (menu, Outset) showed the game is CPU bound: outside,
+37% and 100% both run at about 4.5 fps. In the first house the GPU starts to
+limit above 75% (100%: ~9 fps with 32 ms of staging waits; 62% and below:
+~12 fps, no waits). Changing the resolution while playing worked at every step.
+
+- Button icons in message text (A, L, the stick...) are drawn as gaps. 01.45
+  logs, once per icon number, the textures its J2DPicture holds (`vita-icon`).
+- `-DTWW_VITA_PROFILE=ON` builds the game with `-finstrument-functions` and the
+  sampling profiler from sms-vita (`vita_prof.cpp`): every 20 s the boot log
+  lists the busiest functions of each thread as addresses, with the sampler's
+  own address for the load offset. Build the GXM renderer for it with
+  `-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY` and
+  `-finstrument-functions -finstrument-functions-exclude-file-list=include/c++,/bits/,_deps,/extern/`
+  added to `CMAKE_CXX_FLAGS`. The hooks slow the game down; read the shares,
+  not the frame rate.
 
 ## Integration points
 

@@ -1,0 +1,34 @@
+diff --git a/game/src/f_op/f_op_msg_mng.cpp b/game/src/f_op/f_op_msg_mng.cpp
+index 58641352..b3393aa7 100644
+--- a/game/src/f_op/f_op_msg_mng.cpp
++++ b/game/src/f_op/f_op_msg_mng.cpp
+@@ -1005,6 +1005,13 @@ GXColor fopMsgM_outFontColorWhite(int i_no) {
+ }
+ 
+ /* 8002C6D8-8002C9B0       .text fopMsgM_outFontSet__FP10J2DPictureP10J2DPicturePsUlUc */
++#if defined(TWW_VITA_BOOT) && defined(TARGET_PC)
++extern "C" void tww_vita_icon_log(int icon, const char* name, J2DPicture* pic);
++#define TWW_VITA_ICON_LOG(icon, pic) tww_vita_icon_log(icon, fopMsgM_buttonTex[icon], pic)
++#else
++#define TWW_VITA_ICON_LOG(icon, pic)
++#endif
++
+ void fopMsgM_outFontSet(J2DPicture* i_iconPic, J2DPicture* i_sdwPic, s16* i_timer, u32 i_color, u8 i_iconNo) {
+     // Convert special icon numbers to indexes into fopMsgM_buttonTex/fopMsgM_buttonW.
+     if (i_iconNo == fopMsgM_Icon_FLASHING_A_BUTTON_2_e) {
+@@ -1045,6 +1052,7 @@ void fopMsgM_outFontSet(J2DPicture* i_iconPic, J2DPicture* i_sdwPic, s16* i_time
+     i_sdwPic->setBlack(0x00000000);
+     i_iconPic->setBlendRatio(0.0f, 1.0f, 1.0f, 1.0f);
+     i_sdwPic->setBlendRatio(0.0f, 1.0f, 1.0f, 1.0f);
++    TWW_VITA_ICON_LOG(i_iconNo, i_iconPic);
+ 
+     *i_timer = 0;
+ }
+@@ -1085,6 +1093,7 @@ void fopMsgM_outFontSet(J2DPicture* i_iconPic, s16* i_timer, u32 i_color, u8 i_i
+     }
+ 
+     i_iconPic->setBlendRatio(0.0f, 1.0f, 1.0f, 1.0f);
++    TWW_VITA_ICON_LOG(i_iconNo, i_iconPic);
+ 
+     *i_timer = 0;
+ }

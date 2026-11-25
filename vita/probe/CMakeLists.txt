@@ -41,7 +41,7 @@ target_include_directories(switchwaker_assets PUBLIC
   "${TWW_SWITCHWAKER_ASSETS}/include"
   "${TWW_AURORA_DIR}/include")
 
-set(TWW_VITA_GAME_VERSION 01.44)
+set(TWW_VITA_GAME_VERSION 01.45)
 set(sw_game "${TWW_SWITCHWAKER_DIR}/game")
 set(sw_native "${TWW_SWITCHWAKER_DIR}/native")
 set(aurora_os "${TWW_AURORA_DIR}/lib/dolphin/os")
@@ -82,6 +82,15 @@ target_include_directories(tww_game_headers INTERFACE
   "${TWW_SWITCHWAKER_ASSETS}/include" "${TWW_SWITCHWAKER_ASSETS}"
   "${sw_native}/include/pc/msl" "${sw_native}/sdk/include")
 
+option(TWW_VITA_PROFILE "Profiling build: -finstrument-functions and the sampling profiler (slower)" OFF)
+if(TWW_VITA_PROFILE)
+  # Standard library headers stay uninstrumented; with them every iterator
+  # and accessor call would pay for the hooks.
+  target_compile_options(tww_game_headers INTERFACE -finstrument-functions
+    "-finstrument-functions-exclude-file-list=include/c++,/bits/")
+  target_compile_definitions(tww_game_headers INTERFACE TWW_VITA_PROFILE=1)
+endif()
+
 if(TWW_GXM_AURORA_DIR)
   # Both sides of GX must share the texture and palette object layouts.
   set(gxm_abi_headers "${CMAKE_CURRENT_BINARY_DIR}/gxm-abi")
@@ -114,6 +123,7 @@ if(TWW_BUILD_GAME_OBJECTS)
   add_library(tww_vita_sdk STATIC ${runtime_sdk_sources})
   target_sources(tww_vita_sdk PRIVATE
     vita_pad.cpp vita_menu.cpp vita_runtime_hooks.cpp vita_muted_audio.cpp
+    $<$<BOOL:${TWW_VITA_PROFILE}>:${CMAKE_CURRENT_SOURCE_DIR}/vita_prof.cpp>
     "${aurora_os}/OSCache.cpp"
     "${sw_game}/src/dolphin/pad/Padclamp.c"
     "${sw_game}/src/dolphin/gf/GFGeometry.cpp"
@@ -135,6 +145,7 @@ if(TWW_BUILD_GAME_OBJECTS)
     "${sw_native}/src/pc/features/pc_controls.cpp"
     "${sw_native}/src/pc/features/pc_qol.cpp")
   target_include_directories(tww_vita_sdk PRIVATE "${sw_native}/src/pc")
+  set_source_files_properties(vita_prof.cpp PROPERTIES COMPILE_OPTIONS -fno-instrument-functions)
   target_link_libraries(tww_vita_sdk PRIVATE tww_game_headers PUBLIC pthread)
   target_compile_definitions(tww_vita_sdk PRIVATE
     TWW_VITA_RUNTIME_SDK=1
