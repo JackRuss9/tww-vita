@@ -6,3 +6,6 @@
 /build*/
 /run-pc/
 /tww-pc.log
+
+# LiveArea artwork (built locally with vita/tools/make_livearea.py)
+vita/livearea/

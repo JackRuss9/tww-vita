@@ -41,7 +41,7 @@ target_include_directories(switchwaker_assets PUBLIC
   "${TWW_SWITCHWAKER_ASSETS}/include"
   "${TWW_AURORA_DIR}/include")
 
-set(TWW_VITA_GAME_VERSION 01.50)
+set(TWW_VITA_GAME_VERSION 01.51)
 set(sw_game "${TWW_SWITCHWAKER_DIR}/game")
 set(sw_native "${TWW_SWITCHWAKER_DIR}/native")
 set(aurora_os "${TWW_AURORA_DIR}/lib/dolphin/os")
@@ -290,7 +290,21 @@ if(TWW_GXM_BUILD_DIR)
     SceProcessmgr_stub SceCamera_stub SceKernelModulemgr_stub
     -Wl,--end-group)
 
-  tww_package_vpk(switchwaker-vita "${TWW_VITA_GAME_VERSION}" "SwitchWaker Vita" UNSAFE
+  # LiveArea artwork is not kept in git: build it with vita/tools/make_livearea.py
+  # into vita/livearea (or point TWW_VITA_LIVEAREA_DIR elsewhere).
+  set(TWW_VITA_LIVEAREA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../livearea" CACHE PATH "LiveArea images (icon0/bg/startup/template)")
+  set(livearea_files)
+  if(EXISTS "${TWW_VITA_LIVEAREA_DIR}/icon0.png")
+    list(APPEND livearea_files FILE "${TWW_VITA_LIVEAREA_DIR}/icon0.png" sce_sys/icon0.png)
+    foreach(f bg.png startup.png template.xml)
+      if(EXISTS "${TWW_VITA_LIVEAREA_DIR}/${f}")
+        list(APPEND livearea_files FILE "${TWW_VITA_LIVEAREA_DIR}/${f}" sce_sys/livearea/contents/${f})
+      endif()
+    endforeach()
+  endif()
+
+  tww_package_vpk(switchwaker-vita "${TWW_VITA_GAME_VERSION}" "The Wind Waker" UNSAFE
+    ${livearea_files}
     FILE "${TWW_SWITCHWAKER_DIR}/LICENSE" switchwaker-LICENSE.txt
     FILE "${TWW_GXM_AURORA_DIR}/LICENSE" aurora-LICENSE.txt
     FILE "${TWW_GXM_AURORA_DIR}/../LICENSE" mh3-wii-LICENSE.txt)

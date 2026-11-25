@@ -435,6 +435,17 @@ keeps its own core, and a wait for the worker longer than 3 s logs
 FAST GRASS (01.49 log, Outset): about 700 fewer draws a frame and 25-30 ms
 less game thread time (160-227 ms to 133-145 ms).
 
+## 01.51: name and LiveArea
+
+The bubble is titled "The Wind Waker" and released VPKs are named
+`tww-vita-<version>.vpk`. LiveArea artwork stays out of git: run
+`vita/tools/make_livearea.py ICON_ART BACKGROUND_ART vita/livearea` with your
+own images and the build packs `vita/livearea/` when it exists.
+
+01.50 log, GX THREAD on (per frame): Outset 75-128 ms game thread (sync 01.49:
+133-160 ms), houses 42-62 ms (sync 54-57 ms). The worker is busy 50-97 ms and
+the game thread waits for it 30-68 ms, at 4-6 sync points a frame.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)
