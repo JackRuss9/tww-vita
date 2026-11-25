@@ -2,6 +2,7 @@
 #include "gpu.h"
 #ifdef TWW_VITA_RUNTIME_SDK
 #include "pc/pc_harness.h"
+extern "C" bool tww_vita_menu_pad(uint32_t buttons);
 #endif
 #include "JSystem/JUtility/JUTGamePad.h"
 
@@ -58,6 +59,9 @@ extern "C" u32 PADRead(PADStatus *status)
     PADStatus &pad = status[0];
     pad.err = PAD_ERR_NONE;
 #ifdef TWW_VITA_RUNTIME_SDK
+    // The settings menu has the pad while it is open: the game sees no input.
+    if (tww_vita_menu_pad(input.buttons))
+        return 0;
     static bool start_held;
     const bool start = (input.buttons & SCE_CTRL_START) != 0;
     if (start && !start_held)

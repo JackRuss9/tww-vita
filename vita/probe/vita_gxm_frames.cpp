@@ -16,6 +16,7 @@ extern "C" unsigned int aurora_vita_presented_frames();
 extern "C" void tww_vita_gxm_wait_totals(uint64_t* staging, uint64_t* finish);
 extern "C" void tww_vita_perf_totals(unsigned long long *out, unsigned int count);
 extern "C" unsigned long long aurora_vita_fifo_drain_us();
+extern "C" void tww_vita_settings_frame();
 
 namespace {
 SceUID boot_log = -1;
@@ -114,6 +115,7 @@ extern "C" void pc_frame_begin()
         const uint64_t events_start_us = sceKernelGetSystemTimeWide();
         aurora_update();
         total_events_us += sceKernelGetSystemTimeWide() - events_start_us;
+        tww_vita_settings_frame();
         if (aurora_begin_frame()) {
             if (!first_frame_admitted) {
                 first_frame_admitted = true;

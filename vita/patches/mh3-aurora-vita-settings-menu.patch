@@ -1,0 +1,83 @@
+diff --git a/aurora-main/lib/gl/device.cpp b/aurora-main/lib/gl/device.cpp
+index 90fb8c5..f274f82 100644
+--- a/aurora-main/lib/gl/device.cpp
++++ b/aurora-main/lib/gl/device.cpp
+@@ -7,6 +7,7 @@
+ #include <aurora/render_size_limits.hpp>
+ 
+ #include <algorithm>
++#include <array>
+ #include <cmath>
+ 
+ namespace aurora::gx {
+@@ -22,6 +23,8 @@ static Module Log("aurora::gpu");
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+ // Percentage of the GX EFB size used for the render targets (set before initialization).
+ static uint32_t g_vitaEfbScalePercent = 50;
++// The window sizes of the last resize, to rebuild the targets at a new scale.
++static std::array<uint32_t, 4> g_vitaLastSize{};
+ #endif
+ 
+ GraphicsConfig g_graphicsConfig;
+@@ -159,6 +162,9 @@ void resize_swapchain(uint32_t width, uint32_t height, uint32_t native_width, ui
+   if (!gl::initialized() || width == 0 || height == 0 || native_height == 0 || native_width == 0) {
+     return;
+   }
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  g_vitaLastSize = {width, height, native_width, native_height};
++#endif
+ 
+   uint32_t render_width = width;
+   uint32_t render_height = height;
+@@ -219,4 +225,18 @@ void resize_swapchain(uint32_t width, uint32_t height, uint32_t native_width, ui
+ extern "C" void aurora_vita_set_efb_scale(unsigned percent) {
+   aurora::gpu::g_vitaEfbScalePercent = std::clamp(percent, 25u, 100u);
+ }
++
++// Between frames on the game thread: rebuild the EFB targets at a new scale.
++// The old targets' memory is retired behind the GPU's fences.
++extern "C" void aurora_vita_apply_efb_scale(unsigned percent) {
++  using namespace aurora::gpu;
++  aurora_vita_set_efb_scale(percent);
++  const auto& size = g_vitaLastSize;
++  if (size[0] == 0)
++    return;
++  resize_swapchain(size[0], size[1], size[2], size[3], false);
++}
++
++extern "C" unsigned aurora_vita_efb_width() { return aurora::gpu::g_frameBuffer.width; }
++extern "C" unsigned aurora_vita_efb_height() { return aurora::gpu::g_frameBuffer.height; }
+ #endif
+diff --git a/aurora-main/lib/gxm/device.cpp b/aurora-main/lib/gxm/device.cpp
+index f1e3bea..74b9348 100644
+--- a/aurora-main/lib/gxm/device.cpp
++++ b/aurora-main/lib/gxm/device.cpp
+@@ -101,6 +101,16 @@ void record_pacing(uint64_t gameUs) {
+ }
+ 
+ #ifdef TWW_GXM_RUNTIME_SHADERS
++} // namespace
++} // namespace aurora::gxm
++// Set by the game: the FPS counter on or off, and the settings menu drawn into
++// each completed display buffer before it is queued for scanout.
++extern "C" {
++volatile int aurora_vita_show_fps = 1;
++void (*volatile aurora_vita_overlay_hook)(void* address, unsigned stride, unsigned width, unsigned height) = nullptr;
++}
++namespace aurora::gxm {
++namespace {
+ void draw_fps_overlay(void* address, uint64_t now) {
+   // The display callback owns this completed buffer before it is queued for scanout.
+   static uint64_t sampleStart = now;
+@@ -179,7 +189,10 @@ void display_callback(const void* data) {
+     sceDisplayWaitSetFrameBufMulti(vblanks);
+ 
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+-  draw_fps_overlay(display.address, gpuDoneUs);
++  if (aurora_vita_show_fps)
++    draw_fps_overlay(display.address, gpuDoneUs);
++  if (aurora_vita_overlay_hook)
++    aurora_vita_overlay_hook(display.address, Device::Stride, Device::Width, Device::Height);
+ #endif
+   const int setResult = sceDisplaySetFrameBuf(&frame, SCE_DISPLAY_SETBUF_NEXTFRAME);
+   int waitResult = 0;
