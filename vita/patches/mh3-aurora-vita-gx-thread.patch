@@ -562,7 +562,7 @@ index 665e528..d90749e 100644
      auto label = read_string(data, pos, size, bigEndian);
      gfx::push_debug_group(std::move(label));
 diff --git a/aurora-main/lib/gx/fifo.cpp b/aurora-main/lib/gx/fifo.cpp
-index c7fd176..2d0205d 100644
+index c7fd176..873728a 100644
 --- a/aurora-main/lib/gx/fifo.cpp
 +++ b/aurora-main/lib/gx/fifo.cpp
 @@ -6,11 +6,23 @@
@@ -589,7 +589,7 @@ index c7fd176..2d0205d 100644
  
  namespace aurora::gx::fifo {
  static Module Log("aurora::gx::fifo");
-@@ -28,8 +40,219 @@ uint32_t sDlSize = 0;
+@@ -28,8 +40,221 @@ uint32_t sDlSize = 0;
  uint32_t sDlWritePos = 0;
  } // namespace detail
  
@@ -689,7 +689,9 @@ index c7fd176..2d0205d 100644
 +  sWorkerStarted = true;
 +  sWorkerPriority = sceKernelGetThreadCurrentPriority();
 +  sWake = sceKernelCreateSema("aurora_gx_wake", 0, 0, 0x7fffffff, nullptr);
-+  // The worker takes core 1; the game thread keeps its own affinity.
++  // The worker takes core 1 and the game thread core 0, so they never share a core
++  // (01.49's hang at the logo was the GP-hang alarm, not this pinning).
++  sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0);
 +  pthread_attr_t attr;
 +  pthread_attr_init(&attr);
 +  pthread_attr_setstacksize(&attr, 2 * 1024 * 1024); // runtime Cg compiles run here
@@ -810,7 +812,7 @@ index c7fd176..2d0205d 100644
    constexpr uint32_t initialCapacity = 64 * 1024;
    reset_cp_register_cache();
    free(detail::sBufferData);
-@@ -43,6 +266,8 @@ void init() {
+@@ -43,6 +268,8 @@ void init() {
  }
  
  void write_data_grow(const void* data, uint32_t length) {
@@ -819,7 +821,7 @@ index c7fd176..2d0205d 100644
  
    uint32_t needed = detail::sBufferSize + length;
    uint32_t newCap = std::max(detail::sBufferCapacity * 2, needed);
-@@ -88,6 +313,18 @@ void drain() {
+@@ -88,6 +315,18 @@ void drain() {
    // SEALED, not DONE.
    (void)aurora::wait_for_frame_worker_sealed();
  
@@ -838,7 +840,7 @@ index c7fd176..2d0205d 100644
    if (detail::sBufferSize == 0) {
      return;
    }
-@@ -119,6 +356,11 @@ void drain() {
+@@ -119,6 +358,11 @@ void drain() {
  const uint8_t* get_buffer_data() { return detail::sBufferData; }
  uint32_t get_buffer_size() { return detail::sBufferSize; }
  void clear_buffer() {
@@ -850,7 +852,7 @@ index c7fd176..2d0205d 100644
    detail::sBufferSize = 0;
  }
  
-@@ -128,3 +370,25 @@ void clear_buffer() {
+@@ -128,3 +372,25 @@ void clear_buffer() {
  // FIFO drains so far (the timer of 01.42-01.45 cost ~5% of the game thread).
  extern "C" unsigned long long aurora_vita_fifo_drain_us() { return aurora::gx::fifo::sDrainCalls; }
  #endif
