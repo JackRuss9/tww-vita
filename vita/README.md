@@ -469,6 +469,18 @@ built on the game thread from the current JKR heap and freed by the worker
 (`run_next_task` -> `JKRExpHeap::do_free` on the worker). Tasks and their
 queue nodes are now allocated in host memory.
 
+## 01.54-01.55
+
+- 01.54: settings.txt keeps GX THREAD FULL (the loader read every non-percent
+  option as on/off).
+- 01.55: with SHOW FPS, the render size (and AUTO's current step, in yellow)
+  is shown under the FPS counter.
+
+GX THREAD FULL (01.54 log) is slower than ON for now: the worker then also
+seals, renders and presents, and it was already the longer of the two threads
+(Outset at 62%: FULL 97-120 ms a frame, ON 67-85 ms; houses 49-52 ms vs 42 ms).
+ON stays the default until the worker is cheaper.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)

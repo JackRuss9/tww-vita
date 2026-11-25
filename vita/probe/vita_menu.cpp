@@ -179,8 +179,22 @@ struct Canvas {
 // Display callback thread (core 3): reads the menu state, writes nothing back.
 void draw_menu(void* address, unsigned stride, unsigned width, unsigned height)
 {
-    if (!g_open)
+    if (!g_open) {
+        // Under Aurora's FPS counter: the render size in use (with AUTO, its current step).
+        if (g_showFps) {
+            Canvas c{static_cast<volatile uint32_t*>(address), stride, width, height, 0};
+            char res[24];
+            const int percent = g_resolution ? g_resolution : g_autoPercent;
+            std::snprintf(res, sizeof res, "%d%% %uX%u", percent, aurora_vita_efb_width(), aurora_vita_efb_height());
+            const int tw = int(std::strlen(res)) * kCellW + 8;
+            const int x = (int(width) - tw) / 2;
+            c.color = 0xff181818;
+            c.rect(x, 24, tw, 18);
+            c.color = g_resolution ? 0xffffffff : 0xff99e6ff;  // AUTO in yellow
+            c.text(x + 4, 26, res);
+        }
         return;
+    }
     Canvas c{static_cast<volatile uint32_t*>(address), stride, width, height, 0};
     const int x0 = 40, y0 = 60, pad = 14, valueCol = 34 * kCellW;
     const int w = 47 * kCellW + 2 * pad, h = (kCount + 5) * kLineH + 2 * pad;
