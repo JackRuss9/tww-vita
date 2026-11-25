@@ -1,0 +1,91 @@
+diff --git a/aurora-main/lib/dolphin/gx/GXTexture.cpp b/aurora-main/lib/dolphin/gx/GXTexture.cpp
+--- a/aurora-main/lib/dolphin/gx/GXTexture.cpp
++++ b/aurora-main/lib/dolphin/gx/GXTexture.cpp
+@@ -6,6 +6,10 @@
+ #include "dolphin/gx/GXAurora.h"
+ 
+ #include <aurora/fast_map.h>
++#ifdef TWW_GXM_RUNTIME_SHADERS
++#include <aurora/vita_host_alloc.hpp>
++#include <mutex>
++#endif
+ 
+ #include <algorithm>
+ #include <cstddef>
+@@ -62,6 +66,9 @@
+   // Limit cached palette IDs; evicted palettes are safely uploaded again.
+ constexpr size_t MaxTlutIdentities = 4096;
+ FastMap<TlutIdentity, TlutIdentityRecord> sTlutIdentities;
++#ifdef TWW_GXM_RUNTIME_SHADERS
++std::mutex sTlutIdentitiesMutex;
++#endif
+ 
+   // Use separate high-range versions when a palette points to a new buffer.
+ u32 sNextRepointedTlutDataVersion = 0;
+@@ -75,6 +82,10 @@
+ }
+ 
+ std::pair<u32, u32> resolve_tlut_identity(const void* data, GXTlutFmt format, u16 entries) {
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  // Resources can be initialized by both the game and its loading threads.
++  std::lock_guard lock(sTlutIdentitiesMutex);
++#endif
+   if (data == nullptr || entries == 0) {
+     return {next_tlut_obj_id(), 1};
+   }
+@@ -401,6 +412,11 @@
+ }
+ 
+ void GXInitTlutObj(GXTlutObj* obj_, const void* data, GXTlutFmt format, u16 entries) {
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  // Palette identities survive scene changes. A game heap can be cleared while
++  // the table still references its slots and entries.
++  aurora::VitaHostAllocScope hostAlloc;
++#endif
+   memset(obj_, 0, sizeof(GXTlutObj));
+   auto* obj = reinterpret_cast<GXTlutObj_*>(obj_);
+   obj->data = data;
+@@ -422,6 +438,9 @@
+ }
+ 
+ void GXLoadTlut(const GXTlutObj* obj_, u32 idx) {
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  aurora::VitaHostAllocScope hostAlloc;
++#endif
+   auto* obj = reinterpret_cast<const GXTlutObj_*>(obj_);
+   __GXFlushTextureState();
+   GX_WRITE_RAS_REG(obj->loadTlut0);
+diff --git a/aurora-main/lib/gl/device.cpp b/aurora-main/lib/gl/device.cpp
+--- a/aurora-main/lib/gl/device.cpp
++++ b/aurora-main/lib/gl/device.cpp
+@@ -165,6 +165,12 @@
+     render_height = std::max(render_height, efbSize.y);
+   }
+ 
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  // GX coordinates still use the original EFB, including its scratch rows.
++  // Scale the backing targets here while keeping scanout at the native size.
++  render_width = (render_width + 1) / 2;
++  render_height = (render_height + 1) / 2;
++#endif
+   const auto clamped = clamp_frame_buffer_size(render_width, render_height);
+ 
+   if (clamped.width != render_width || clamped.height != render_height) {
+diff --git a/aurora-main/lib/gfx/common.cpp b/aurora-main/lib/gfx/common.cpp
+--- a/aurora-main/lib/gfx/common.cpp
++++ b/aurora-main/lib/gfx/common.cpp
+@@ -338,6 +338,14 @@
+   return {g_stagingWaitMicros.load(std::memory_order_relaxed), finish[0], g_stagingWaitCount.load(std::memory_order_relaxed), finish[1]};
+ }
+ 
++#ifdef TWW_GXM_RUNTIME_SHADERS
++extern "C" void tww_vita_gxm_wait_totals(uint64_t* staging, uint64_t* finish) {
++  const auto counters = staging_wait_counters();
++  *staging = counters[0];
++  *finish = counters[1];
++}
++#endif
++
+ StagingSizes staging_usage() noexcept {
+   if (!g_staging) {
+     return {};

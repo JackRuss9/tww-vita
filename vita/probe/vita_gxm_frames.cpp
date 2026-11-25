@@ -12,6 +12,7 @@
 #include <psp2/kernel/threadmgr.h>
 
 extern "C" unsigned int aurora_vita_presented_frames();
+extern "C" void tww_vita_gxm_wait_totals(uint64_t* staging, uint64_t* finish);
 
 namespace {
 SceUID boot_log = -1;
@@ -19,6 +20,7 @@ bool first_present_logged;
 bool first_frame_admitted;
 bool first_frame_submitted;
 uint64_t frame_begin_us, total_admission_us, total_game_us, total_submit_us;
+uint64_t total_events_us;
 
 void aurora_fatal(const char *message)
 {
@@ -106,7 +108,9 @@ extern "C" void pc_frame_begin()
     const uint64_t admission_start_us = sceKernelGetSystemTimeWide();
     // The game must only submit GX work once GXM admits the frame.
     for (unsigned int attempt = 0; attempt < 2000; ++attempt) {
+        const uint64_t events_start_us = sceKernelGetSystemTimeWide();
         aurora_update();
+        total_events_us += sceKernelGetSystemTimeWide() - events_start_us;
         if (aurora_begin_frame()) {
             if (!first_frame_admitted) {
                 first_frame_admitted = true;
@@ -150,7 +154,16 @@ extern "C" void pc_frame_end()
                   static_cast<unsigned long>(total_admission_us / submitted / 1000),
                   static_cast<unsigned long>(total_game_us / submitted / 1000),
                   static_cast<unsigned long>(total_submit_us / submitted / 1000));
-        total_admission_us = total_game_us = total_submit_us = 0;
+        static uint64_t previous_staging_us, previous_finish_us;
+        uint64_t staging_us, finish_us;
+        tww_vita_gxm_wait_totals(&staging_us, &finish_us);
+        probe_log(boot_log, "vita-gxm-wait-ms events=%lu staging=%lu finish=%lu\n",
+                  static_cast<unsigned long>(total_events_us / submitted / 1000),
+                  static_cast<unsigned long>((staging_us - previous_staging_us) / submitted / 1000),
+                  static_cast<unsigned long>((finish_us - previous_finish_us) / submitted / 1000));
+        previous_staging_us = staging_us;
+        previous_finish_us = finish_us;
+        total_admission_us = total_game_us = total_submit_us = total_events_us = 0;
         last_report = now;
         last_presented = presented;
         submitted = 0;
