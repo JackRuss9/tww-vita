@@ -1,0 +1,20 @@
+diff --git a/aurora-main/lib/gxm/runtime_shader.cpp b/aurora-main/lib/gxm/runtime_shader.cpp
+index 27dbd32..6ae7459 100644
+--- a/aurora-main/lib/gxm/runtime_shader.cpp
++++ b/aurora-main/lib/gxm/runtime_shader.cpp
+@@ -368,9 +368,12 @@ const SceGxmProgram* runtime_shader_binary(uint64_t hash, RuntimeShaderStage sta
+                      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count());
+       return result;
+     };
+-    // These vertex programs triggered compiler faults at O3 on Vita.
+-    const bool safeVertex = stage == RuntimeShaderStage::Vertex &&
+-        (hash == 0x2a4f5a80355c9dd3ULL || hash == 0x423e4a681fc7ae43ULL || hash == 0xaa6a00a9790047faULL);
++    // GX vertex programs fault the Vita compiler at O3 ("fatal internal error",
++    // which takes the process down before any fallback runs): 2a4f5a80355c9dd3,
++    // 423e4a681fc7ae43, aa6a00a9790047fa and 23c61c0e983692c9 so far. A list of
++    // hashes breaks whenever the generator changes a source, so every vertex
++    // program uses the settings that compiled all of them.
++    const bool safeVertex = stage == RuntimeShaderStage::Vertex;
+     const SceGxmProgram* compiled = safeVertex
+         ? compile("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE)
+         : compile("O3", SHARK_OPT_FAST, SHARK_ENABLE);
