@@ -16,6 +16,8 @@ extern void (*volatile aurora_vita_overlay_hook)(void* address, unsigned stride,
 void aurora_vita_set_efb_scale(unsigned percent);
 void aurora_vita_apply_efb_scale(unsigned percent);
 void aurora_vita_set_float_tev(int enabled);
+void aurora_vita_set_gx_thread(int enabled);
+extern int tww_vita_fast_grass_enabled; // d_grass.cpp (switchwaker-vita-fast-grass.patch)
 unsigned aurora_vita_efb_width();
 unsigned aurora_vita_efb_height();
 void pc_milestone(const char* name);
@@ -31,6 +33,7 @@ volatile int g_showFps = 1;
 volatile int g_resolution = 0;   // percent of the GX frame in each dimension (live); 0: AUTO
 volatile int g_autoPercent = 100; // AUTO's current choice
 volatile int g_floatTev = 1;     // read at start-up
+volatile int g_gxThread = 0;     // read at start-up (experimental)
 int g_appliedResolution = -1;
 
 // RESOLUTION AUTO: lowers the render size only while the game waits for the
@@ -64,6 +67,8 @@ const Item kItems[] = {
     {"show_fps", "SHOW FPS", &g_showFps, kOnOff, 2, ON_OFF, 1},
     {"resolution", "RESOLUTION", &g_resolution, kScales, 7, PERCENT, 0},
     {"float_tev", "FAST COLOUR MIXING (NEXT START)", &g_floatTev, kOnOff, 2, ON_OFF, 1},
+    {"fast_grass", "FAST GRASS", &tww_vita_fast_grass_enabled, kOnOff, 2, ON_OFF, 1},
+    {"gx_thread", "GX THREAD (NEXT START)", &g_gxThread, kOnOff, 2, ON_OFF, 0},
 };
 constexpr int kCount = int(sizeof kItems / sizeof kItems[0]);
 
@@ -242,9 +247,10 @@ extern "C" void tww_vita_settings_load()
     aurora_vita_show_fps = g_showFps;
     aurora_vita_set_efb_scale(unsigned(g_resolution ? g_resolution : g_autoPercent));
     aurora_vita_set_float_tev(g_floatTev);
+    aurora_vita_set_gx_thread(g_gxThread);
     g_appliedResolution = g_resolution ? g_resolution : g_autoPercent;
     aurora_vita_overlay_hook = draw_menu;
-    pc::writef(2, "vita-settings resolution=%d float_tev=%d show_fps=%d\n", g_resolution, g_floatTev, g_showFps);
+    pc::writef(2, "vita-settings resolution=%d float_tev=%d gx_thread=%d show_fps=%d\n", g_resolution, g_floatTev, g_gxThread, g_showFps);
 }
 
 // Each frame's wait for a free GPU slot (game thread, after admission).

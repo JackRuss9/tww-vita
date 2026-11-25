@@ -16,6 +16,9 @@ extern "C" unsigned int aurora_vita_presented_frames();
 extern "C" void tww_vita_gxm_wait_totals(uint64_t* staging, uint64_t* finish);
 extern "C" void tww_vita_perf_totals(unsigned long long *out, unsigned int count);
 extern "C" unsigned long long aurora_vita_fifo_drain_us();
+extern "C" int aurora_vita_gx_thread();
+extern "C" void aurora_vita_gx_thread_totals(unsigned long long* workerUs, unsigned long long* waitUs,
+                                             unsigned long long* publishes);
 extern "C" void tww_vita_settings_frame();
 extern "C" void tww_vita_autores_note(uint64_t now_us, uint64_t wait_us);
 
@@ -185,6 +188,19 @@ extern "C" void pc_frame_end()
                   per_frame(2), per_frame(3), per_frame(6), per_frame(1), per_frame(0),
                   static_cast<unsigned long>((drain_us - previous_drain_us) / submitted),
                   stats ? static_cast<unsigned int>(stats->drawCallCount) : 0u);
+        if (aurora_vita_gx_thread()) {
+            // Worker busy time, the game thread's waits for it, and hand-offs per frame.
+            static unsigned long long previous_worker, previous_wait, previous_publishes;
+            unsigned long long worker, wait, publishes;
+            aurora_vita_gx_thread_totals(&worker, &wait, &publishes);
+            probe_log(boot_log, "vita-gx-thread-0.1ms worker=%lu game_wait=%lu publishes=%lu\n",
+                      static_cast<unsigned long>((worker - previous_worker) / submitted / 100),
+                      static_cast<unsigned long>((wait - previous_wait) / submitted / 100),
+                      static_cast<unsigned long>((publishes - previous_publishes) / submitted));
+            previous_worker = worker;
+            previous_wait = wait;
+            previous_publishes = publishes;
+        }
         for (unsigned i = 0; i < 7; ++i)
             previous_phase[i] = phase[i];
         previous_drain_us = drain_us;

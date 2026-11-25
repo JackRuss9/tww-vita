@@ -1,0 +1,450 @@
+diff --git a/aurora-main/lib/aurora.cpp b/aurora-main/lib/aurora.cpp
+index a5cbe2a..8cfe75f 100644
+--- a/aurora-main/lib/aurora.cpp
++++ b/aurora-main/lib/aurora.cpp
+@@ -490,6 +490,7 @@ bool begin_frame() noexcept {
+     return false;
+   }
+ 
++  gx::fifo::producer_acquire();
+   std::lock_guard gpuLock(g_rendererGpuMutex);
+ 
+   if (window::native_resize_pending() ||
+@@ -586,6 +587,7 @@ void end_frame() {
+ #ifdef AURORA_ENABLE_GX
+   gx::fifo::drain();
+   window::pump_events();
++  gx::fifo::producer_acquire();
+   std::lock_guard gpuLock(g_rendererGpuMutex);
+ 
+   // Probe-sized CPU-consumed copies read back after the frame renders. Their downscale blits push
+@@ -644,6 +646,7 @@ void end_frame() {
+ // resumes the same frame without clearing the EFB.
+ bool flush_and_resume(void* dest, bool download) {
+   gx::mark_frame_interpolation_replay_unsafe();
++  gx::fifo::producer_acquire();
+   std::lock_guard gpuLock(g_rendererGpuMutex);
+ 
+   if (download && !gfx::efb_ram::prepare_downloads(dest)) return false;
+@@ -668,7 +671,11 @@ void wait_for_frame_worker() noexcept {}
+ std::chrono::nanoseconds wait_for_frame_worker_sealed() noexcept { return std::chrono::nanoseconds::zero(); }
+ bool wait_for_frame_worker_for(std::chrono::microseconds) noexcept { return true; }
+ #ifdef AURORA_ENABLE_GX
+-std::recursive_mutex& renderer_gpu_mutex() noexcept { return g_rendererGpuMutex; }
++std::recursive_mutex& renderer_gpu_mutex() noexcept {
++  // GX THREAD: the game thread may only take the GPU mutex while it owns the renderer.
++  if (gx::fifo::threaded()) gx::fifo::producer_acquire();
++  return g_rendererGpuMutex;
++}
+ #endif
+ } // namespace aurora
+ 
+diff --git a/aurora-main/lib/dolphin/gx/GXCpu2Efb.cpp b/aurora-main/lib/dolphin/gx/GXCpu2Efb.cpp
+index 9815bd4..9aece84 100644
+--- a/aurora-main/lib/dolphin/gx/GXCpu2Efb.cpp
++++ b/aurora-main/lib/dolphin/gx/GXCpu2Efb.cpp
+@@ -1,10 +1,12 @@
+ #include "gx.hpp"
+ 
+ #include "../../gfx/depth_peek.hpp"
++#include "../../gx/fifo.hpp"
+ 
+ #include <dolphin/gx/GXCpu2Efb.h>
+ 
+ void GXPeekZ(u16 x, u16 y, u32* z) {
++  aurora::gx::fifo::producer_acquire();
+   aurora::gfx::depth_peek::poll();
+ 
+   if (z != nullptr) {
+diff --git a/aurora-main/lib/dolphin/gx/GXDispList.cpp b/aurora-main/lib/dolphin/gx/GXDispList.cpp
+index bf22212..04072a3 100644
+--- a/aurora-main/lib/dolphin/gx/GXDispList.cpp
++++ b/aurora-main/lib/dolphin/gx/GXDispList.cpp
+@@ -64,6 +64,13 @@ void GXCallDisplayList(const void* data, u32 nbytes) {
+     return;
+   }
+ 
++  // GX THREAD: the list is copied into the FIFO for the worker, as upstream Aurora does.
++  if (aurora::gx::fifo::threaded()) {
++    aurora::gx::fifo::write_data(data, nbytes);
++    aurora::gx::fifo::publish();
++    return;
++  }
++
+   // Decode the display list immediately while its borrowed resources are valid.
+   aurora::gx::fifo::drain();
+   aurora::gx::fifo::process(static_cast<const u8*>(data), nbytes, true);
+diff --git a/aurora-main/lib/dolphin/gx/GXGeometry.cpp b/aurora-main/lib/dolphin/gx/GXGeometry.cpp
+index df0105f..79266b0 100644
+--- a/aurora-main/lib/dolphin/gx/GXGeometry.cpp
++++ b/aurora-main/lib/dolphin/gx/GXGeometry.cpp
+@@ -160,10 +160,13 @@ static inline void SETVAT(u32* va, u32* vb, u32* vc, GXAttr attr, GXCompCnt cnt,
+ }
+ 
+ static inline bool AuroraVtxDescDiffers(GXAttr attr, GXAttrType type) {
++  // GX THREAD: the decoded state lags behind the game; assume it differs.
++  if (aurora::gx::fifo::threaded()) return true;
+   return attr >= GX_VA_PNMTXIDX && attr < GX_VA_MAX_ATTR && g_gxState.vtxDesc[attr] != type;
+ }
+ 
+ static inline bool AuroraVtxAttrFmtDiffers(GXVtxFmt vtxfmt, GXAttr attr, GXCompCnt cnt, GXCompType type, u8 frac) {
++  if (aurora::gx::fifo::threaded()) return true;
+   if (vtxfmt < GX_VTXFMT0 || vtxfmt >= GX_MAX_VTXFMT || attr < GX_VA_POS || attr >= GX_VA_MAX_ATTR) {
+     return true;
+   }
+@@ -197,6 +200,7 @@ void GXSetVtxDesc(GXAttr attr, GXAttrType type) {
+ 
+ void GXSetSourceVtxDesc(GXAttr attr, GXAttrType type) {
+   if (attr >= GX_VA_PNMTXIDX && attr < GX_VA_MAX_ATTR) {
++    if (aurora::gx::fifo::threaded()) aurora::gx::fifo::drain();
+     g_gxState.sourceVtxDesc[attr] = type;
+   }
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXTexture.cpp b/aurora-main/lib/dolphin/gx/GXTexture.cpp
+index 43a224b..6da10f5 100644
+--- a/aurora-main/lib/dolphin/gx/GXTexture.cpp
++++ b/aurora-main/lib/dolphin/gx/GXTexture.cpp
+@@ -1,5 +1,6 @@
+ #include "gx.hpp"
+ #include "__gx.h"
++#include "../../gx/fifo.hpp"
+ 
+ #include "../../gfx/texture.hpp"
+ #include "../../gfx/texture_replacement.hpp"
+@@ -428,6 +429,7 @@ void GXInitTlutObj(GXTlutObj* obj_, const void* data, GXTlutFmt format, u16 entr
+ 
+   SET_REG_FIELD(0, obj->tlut, 2, 10, format);
+   SET_REG_FIELD(0, obj->loadTlut0, 8, 24, 0x64);
++  if (aurora::g_config.allowTextureReplacements) aurora::gx::fifo::producer_acquire();
+   aurora::gfx::texture_replacement::register_tlut(obj_, data, format, entries);
+ }
+ 
+@@ -452,6 +454,7 @@ void GXLoadTlut(const GXTlutObj* obj_, u32 idx) {
+   GX_WRITE_RAS_REG(loadTlut1);
+   __GXFlushTextureState();
+ 
++  if (aurora::g_config.allowTextureReplacements) aurora::gx::fifo::producer_acquire();
+   aurora::gfx::texture_replacement::load_tlut(obj_, idx);
+   emit_loaded_tlut_metadata(*obj, idx);
+ }
+diff --git a/aurora-main/lib/dolphin/gx/GXTransform.cpp b/aurora-main/lib/dolphin/gx/GXTransform.cpp
+index e3fca99..7633ec8 100644
+--- a/aurora-main/lib/dolphin/gx/GXTransform.cpp
++++ b/aurora-main/lib/dolphin/gx/GXTransform.cpp
+@@ -1,5 +1,6 @@
+ #include "gx.hpp"
+ #include "__gx.h"
++#include "../../gx/fifo.hpp"
+ #include "dolphin/mtx/GeoTypes.h"
+ 
+ static inline void CacheProjectionVector(const f32* ptr, GXProjectionType type) {
+@@ -191,6 +192,7 @@ void GXProject(f32 x, f32 y, f32 z, const f32 mtx[3][4], const f32* pm, const f3
+ // TODO GXLoadNrmMtxIndx3x3
+ // TODO GXLoadTexMtxIndx
+ void GXSetZScaleOffset(f32 scale, f32 offset) {
++  if (aurora::gx::fifo::threaded()) aurora::gx::fifo::drain();
+   g_gxState.zScale = scale;
+   g_gxState.zOffset = offset;
+   constexpr f32 z24Scale = 16777215.0f;
+@@ -207,6 +209,7 @@ void GXSetZScaleOffset(f32 scale, f32 offset) {
+ }
+ 
+ void GXSetScissorBoxOffset(s32 x_off, s32 y_off) {
++  if (aurora::gx::fifo::threaded()) aurora::gx::fifo::drain();
+   g_gxState.scissorOffsetX = x_off;
+   g_gxState.scissorOffsetY = y_off;
+ 
+diff --git a/aurora-main/lib/dolphin/gx/GXVert.cpp b/aurora-main/lib/dolphin/gx/GXVert.cpp
+index 9a79dad..0f75960 100644
+--- a/aurora-main/lib/dolphin/gx/GXVert.cpp
++++ b/aurora-main/lib/dolphin/gx/GXVert.cpp
+@@ -612,7 +612,10 @@ void GXEnd() {
+     sWriteAttrComps = 0;
+   }
+   if (!aurora::gx::fifo::in_display_list()) {
+-    aurora::gx::fifo::drain();
++    if (aurora::gx::fifo::threaded())
++      aurora::gx::fifo::publish();
++    else
++      aurora::gx::fifo::drain();
+   }
+ }
+ 
+diff --git a/aurora-main/lib/gx/fifo.cpp b/aurora-main/lib/gx/fifo.cpp
+index c7fd176..f438786 100644
+--- a/aurora-main/lib/gx/fifo.cpp
++++ b/aurora-main/lib/gx/fifo.cpp
+@@ -7,10 +7,18 @@
+ #include "../gfx/common.hpp"
+ #include "../internal.hpp"
+ 
++#include <atomic>
+ #include <chrono>
++#include <condition_variable>
+ #include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
++#include <mutex>
++#ifdef __vita__
++#include <psp2/kernel/threadmgr.h>
++#include <psp2/kernel/processmgr.h>
++#include <pthread.h>
++#endif
+ 
+ namespace aurora::gx::fifo {
+ static Module Log("aurora::gx::fifo");
+@@ -28,8 +36,154 @@ uint32_t sDlSize = 0;
+ uint32_t sDlWritePos = 0;
+ } // namespace detail
+ 
+-void init() {
++// ---- Experimental GX worker (tww-vita "GX THREAD"): the game thread appends
++// GX commands and display-list copies; a thread on another core runs the
++// command processor and owns the renderer while it does. Ownership: the game
++// thread owns the renderer from every drain until its next publish; the worker
++// owns it only while it processes published bytes. Any renderer access from
++// the game thread (gl::on_render_thread, renderer_gpu_mutex) first waits until
++// the worker has caught up, so the order of work is the same as the sync path.
++namespace {
++bool sThreaded = false;
++bool sWorkerStarted = false;
++bool sProducerOwns = false; // game thread only: it holds sOwner
++bool sInWorker = false;    // set on the worker while it owns the renderer
++std::atomic<uint32_t> sPublished{0};
++std::atomic<uint32_t> sProcessed{0};
++std::atomic<bool> sWorkerSleeping{false};
++std::mutex sOwner;
++std::condition_variable sIdle;
++uintptr_t sWorkerStackLow = 0, sWorkerStackHigh = 0;
++#ifdef __vita__
++SceUID sWake = -1;
++int sWorkerPriority = 0x10000100;
++#endif
++std::atomic<uint64_t> sWorkerUs{0};
++std::atomic<uint64_t> sProducerWaitUs{0};
++std::atomic<uint64_t> sPublishes{0};
++
++uint64_t now_us() {
++#ifdef __vita__
++  return sceKernelGetProcessTimeWide();
++#else
++  return 0;
++#endif
++}
++
++// Processes [from, to) of the FIFO buffer; partial batches split the staging set.
++uint32_t process_range(uint32_t from, uint32_t to, std::atomic<uint32_t>* progress) {
++  bool retried = false;
++  while (from < to) {
++    const auto count = process(detail::sBufferData + from, to - from, true);
++    if (count == 0 && retried)
++      AURORA_THROW(gfx::StagingCapacityError("FIFO draw does not fit after capacity submission"));
++    from += count;
++    if (progress) progress->store(from, std::memory_order_release);
++    if (from == to) break;
++    gfx::split_staging_batch();
++    retried = true;
++  }
++  return from;
++}
++
++#ifdef __vita__
++void* worker_main(void*) {
++  VitaHostAllocScope hostAlloc; // the worker never allocates from game heaps
++  SceKernelThreadInfo info{};
++  info.size = sizeof(info);
++  if (sceKernelGetThreadInfo(sceKernelGetThreadId(), &info) >= 0) {
++    sWorkerStackLow = reinterpret_cast<uintptr_t>(info.stack);
++    sWorkerStackHigh = sWorkerStackLow + info.stackSize;
++  }
++  sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1);
++  sceKernelChangeThreadPriority(sceKernelGetThreadId(), sWorkerPriority);
++  for (;;) {
++    sWorkerSleeping.store(true);
++    if (sPublished.load() == sProcessed.load()) {
++      sceKernelWaitSema(sWake, 1, nullptr);
++      sWorkerSleeping.store(false);
++      continue;
++    }
++    sWorkerSleeping.store(false);
++    {
++      std::unique_lock lock{sOwner};
++      const uint64_t start = now_us();
++      sInWorker = true;
++      uint32_t done = sProcessed.load(std::memory_order_acquire);
++      uint32_t target;
++      while (done < (target = sPublished.load(std::memory_order_acquire)))
++        done = process_range(done, target, &sProcessed);
++      sInWorker = false;
++      sWorkerUs.fetch_add(now_us() - start, std::memory_order_relaxed);
++    }
++    sIdle.notify_all();
++  }
++  return nullptr;
++}
++
++void start_worker() {
++  sWorkerStarted = true;
++  sWorkerPriority = sceKernelGetThreadCurrentPriority();
++  sWake = sceKernelCreateSema("aurora_gx_wake", 0, 0, 0x7fffffff, nullptr);
++  // The game thread stays on core 0; the worker takes core 1.
++  sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0);
++  pthread_attr_t attr;
++  pthread_attr_init(&attr);
++  pthread_attr_setstacksize(&attr, 2 * 1024 * 1024); // runtime Cg compiles run here
++  pthread_t thread;
++  if (pthread_create(&thread, &attr, worker_main, nullptr) != 0) {
++    Log.warn("GX worker thread could not start; staying synchronous");
++    sThreaded = false;
++  }
++  pthread_attr_destroy(&attr);
++}
++#endif
++} // namespace
+ 
++bool on_worker() {
++  const char probe = 0;
++  return sWorkerStackHigh != 0 &&
++         reinterpret_cast<uintptr_t>(&probe) - sWorkerStackLow < sWorkerStackHigh - sWorkerStackLow;
++}
++
++void set_threaded(bool enabled) { sThreaded = enabled; }
++bool threaded() { return sThreaded; }
++
++void producer_acquire() {
++  if (!sThreaded || sProducerOwns || on_worker()) return;
++  const uint64_t start = now_us();
++  std::unique_lock lock{sOwner};
++  sIdle.wait(lock, [] { return sProcessed.load(std::memory_order_acquire) == sPublished.load(std::memory_order_acquire); });
++  lock.release();
++  sProducerOwns = true;
++  sProducerWaitUs.fetch_add(now_us() - start, std::memory_order_relaxed);
++}
++
++bool worker_owns(uintptr_t sp) {
++  return sInWorker && sp - sWorkerStackLow < sWorkerStackHigh - sWorkerStackLow;
++}
++
++void publish() {
++  if (!sThreaded || detail::sInDisplayList || on_worker()) return;
++  if (detail::sBufferSize == sPublished.load(std::memory_order_relaxed)) return;
++#ifdef __vita__
++  if (!sWorkerStarted) {
++    start_worker();
++    if (!sThreaded) { drain(); return; }
++  }
++#endif
++  sPublished.store(detail::sBufferSize);
++  sPublishes.fetch_add(1, std::memory_order_relaxed);
++  if (sProducerOwns) {
++    sProducerOwns = false;
++    sOwner.unlock();
++  }
++#ifdef __vita__
++  if (sWorkerSleeping.load()) sceKernelSignalSema(sWake, 1);
++#endif
++}
++
++void init() {
+   constexpr uint32_t initialCapacity = 64 * 1024;
+   reset_cp_register_cache();
+   free(detail::sBufferData);
+@@ -43,6 +197,8 @@ void init() {
+ }
+ 
+ void write_data_grow(const void* data, uint32_t length) {
++  // The worker may be reading published bytes: own the buffer before moving it.
++  producer_acquire();
+ 
+   uint32_t needed = detail::sBufferSize + length;
+   uint32_t newCap = std::max(detail::sBufferCapacity * 2, needed);
+@@ -88,6 +244,18 @@ void drain() {
+   // SEALED, not DONE.
+   (void)aurora::wait_for_frame_worker_sealed();
+ 
++  if (sThreaded) {
++    if (on_worker()) return;
++    producer_acquire();
++    if (detail::sBufferSize == 0) return;
++    ++sDrainCalls;
++    process_range(sProcessed.load(std::memory_order_acquire), detail::sBufferSize, nullptr);
++    detail::sBufferSize = 0;
++    sPublished.store(0);
++    sProcessed.store(0);
++    return;
++  }
++
+   if (detail::sBufferSize == 0) {
+     return;
+   }
+@@ -119,6 +287,11 @@ void drain() {
+ const uint8_t* get_buffer_data() { return detail::sBufferData; }
+ uint32_t get_buffer_size() { return detail::sBufferSize; }
+ void clear_buffer() {
++  if (sThreaded) {
++    producer_acquire();
++    sPublished.store(0);
++    sProcessed.store(0);
++  }
+   detail::sBufferSize = 0;
+ }
+ 
+@@ -128,3 +301,14 @@ void clear_buffer() {
+ // FIFO drains so far (the timer of 01.42-01.45 cost ~5% of the game thread).
+ extern "C" unsigned long long aurora_vita_fifo_drain_us() { return aurora::gx::fifo::sDrainCalls; }
+ #endif
++
++#ifdef TWW_GXM_RUNTIME_SHADERS
++extern "C" void aurora_vita_set_gx_thread(int enabled) { aurora::gx::fifo::set_threaded(enabled != 0); }
++extern "C" int aurora_vita_gx_thread() { return aurora::gx::fifo::threaded() ? 1 : 0; }
++extern "C" void aurora_vita_gx_thread_totals(unsigned long long* workerUs, unsigned long long* waitUs,
++                                             unsigned long long* publishes) {
++  *workerUs = aurora::gx::fifo::sWorkerUs.load();
++  *waitUs = aurora::gx::fifo::sProducerWaitUs.load();
++  *publishes = aurora::gx::fifo::sPublishes.load();
++}
++#endif
+diff --git a/aurora-main/lib/gx/fifo.hpp b/aurora-main/lib/gx/fifo.hpp
+index 1ab6169..a777f82 100644
+--- a/aurora-main/lib/gx/fifo.hpp
++++ b/aurora-main/lib/gx/fifo.hpp
+@@ -85,6 +85,15 @@ bool in_display_list();
+ // Drain the internal FIFO buffer through the command processor
+ void drain();
+ 
++// Experimental GX worker thread (tww-vita). publish() hands the bytes written so far
++// to the worker; producer_acquire() waits for it and gives the renderer back to the
++// game thread (drain() does both and processes the rest inline).
++void set_threaded(bool enabled);
++bool threaded();
++void publish();
++void producer_acquire();
++bool worker_owns(uintptr_t sp);
++
+ // Internal buffer inspection
+ const uint8_t* get_buffer_data();
+ uint32_t get_buffer_size();
+diff --git a/aurora-main/lib/gxm/renderer.cpp b/aurora-main/lib/gxm/renderer.cpp
+index 3219bb3..959baa7 100644
+--- a/aurora-main/lib/gxm/renderer.cpp
++++ b/aurora-main/lib/gxm/renderer.cpp
+@@ -1,3 +1,4 @@
++#include "../gx/fifo.hpp"
+ #include "../gl/gl.hpp"
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+ #include "../gl/device.hpp"
+@@ -1231,7 +1232,13 @@ bool initialized() noexcept {
+ 
+ bool on_render_thread() noexcept {
+   const char probe = 0;
+-  return g_context && reinterpret_cast<uintptr_t>(&probe) - g_context->stackLow < g_context->stackHigh - g_context->stackLow;
++  const auto sp = reinterpret_cast<uintptr_t>(&probe);
++  if (g_context && sp - g_context->stackLow < g_context->stackHigh - g_context->stackLow) {
++    // GX THREAD: the game thread waits for the worker before it touches the renderer.
++    if (gx::fifo::threaded()) gx::fifo::producer_acquire();
++    return true;
++  }
++  return g_context && gx::fifo::worker_owns(sp);
+ }
+ 
+ // The libgxm context has one owner at a time: the game thread until the
