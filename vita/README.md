@@ -422,6 +422,19 @@ The 01.46 profile put 40-48% of the game thread in GX translation
   positions are transformed on the CPU. Tuft lists it cannot read fall back to
   the original path.
 
+## 01.50: GX THREAD fixes
+
+01.49 with GX THREAD stayed black at the logo: JFW's GP-hang alarm (one second
+of `GXDrawDone`) called `GXSetDrawDone` from the OS timer thread while it held
+the OS lock, and that thread then waited for the worker. Draw-done calls from
+threads other than the game thread and the worker no longer touch the FIFO.
+Thread roles are thread-local flags instead of stack ranges, the game thread
+keeps its own core, and a wait for the worker longer than 3 s logs
+`GX worker stall` with the worker's state.
+
+FAST GRASS (01.49 log, Outset): about 700 fewer draws a frame and 25-30 ms
+less game thread time (160-227 ms to 133-145 ms).
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)

@@ -171,7 +171,7 @@ index 9a79dad..0f75960 100644
  }
  
 diff --git a/aurora-main/lib/gx/fifo.cpp b/aurora-main/lib/gx/fifo.cpp
-index c7fd176..f438786 100644
+index c7fd176..f877e9d 100644
 --- a/aurora-main/lib/gx/fifo.cpp
 +++ b/aurora-main/lib/gx/fifo.cpp
 @@ -7,10 +7,18 @@
@@ -193,7 +193,7 @@ index c7fd176..f438786 100644
  
  namespace aurora::gx::fifo {
  static Module Log("aurora::gx::fifo");
-@@ -28,8 +36,154 @@ uint32_t sDlSize = 0;
+@@ -28,8 +36,166 @@ uint32_t sDlSize = 0;
  uint32_t sDlWritePos = 0;
  } // namespace detail
  
@@ -215,7 +215,12 @@ index c7fd176..f438786 100644
 +std::atomic<bool> sWorkerSleeping{false};
 +std::mutex sOwner;
 +std::condition_variable sIdle;
-+uintptr_t sWorkerStackLow = 0, sWorkerStackHigh = 0;
++// Thread roles by thread-local flags (01.49 used stack ranges).
++thread_local bool tWorker = false;
++thread_local bool tGame = false;
++bool sGameKnown = false;
++std::atomic<int> sWorkerStage{0}; // 0 sleeping, 1 locking, 2 processing, 3 splitting, 9 not started
++std::atomic<uint32_t> sWorkerAt{0};
 +#ifdef __vita__
 +SceUID sWake = -1;
 +int sWorkerPriority = 0x10000100;
@@ -242,7 +247,9 @@ index c7fd176..f438786 100644
 +    from += count;
 +    if (progress) progress->store(from, std::memory_order_release);
 +    if (from == to) break;
++    if (progress) sWorkerStage.store(3);
 +    gfx::split_staging_batch();
++    if (progress) sWorkerStage.store(2);
 +    retried = true;
 +  }
 +  return from;
@@ -251,15 +258,12 @@ index c7fd176..f438786 100644
 +#ifdef __vita__
 +void* worker_main(void*) {
 +  VitaHostAllocScope hostAlloc; // the worker never allocates from game heaps
-+  SceKernelThreadInfo info{};
-+  info.size = sizeof(info);
-+  if (sceKernelGetThreadInfo(sceKernelGetThreadId(), &info) >= 0) {
-+    sWorkerStackLow = reinterpret_cast<uintptr_t>(info.stack);
-+    sWorkerStackHigh = sWorkerStackLow + info.stackSize;
-+  }
++  tWorker = true;
 +  sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1);
 +  sceKernelChangeThreadPriority(sceKernelGetThreadId(), sWorkerPriority);
++  Log.info("GX worker started");
 +  for (;;) {
++    sWorkerStage.store(0);
 +    sWorkerSleeping.store(true);
 +    if (sPublished.load() == sProcessed.load()) {
 +      sceKernelWaitSema(sWake, 1, nullptr);
@@ -267,8 +271,10 @@ index c7fd176..f438786 100644
 +      continue;
 +    }
 +    sWorkerSleeping.store(false);
++    sWorkerStage.store(1);
 +    {
 +      std::unique_lock lock{sOwner};
++      sWorkerStage.store(2);
 +      const uint64_t start = now_us();
 +      sInWorker = true;
 +      uint32_t done = sProcessed.load(std::memory_order_acquire);
@@ -287,8 +293,7 @@ index c7fd176..f438786 100644
 +  sWorkerStarted = true;
 +  sWorkerPriority = sceKernelGetThreadCurrentPriority();
 +  sWake = sceKernelCreateSema("aurora_gx_wake", 0, 0, 0x7fffffff, nullptr);
-+  // The game thread stays on core 0; the worker takes core 1.
-+  sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0);
++  // The worker takes core 1; the game thread keeps its own affinity.
 +  pthread_attr_t attr;
 +  pthread_attr_init(&attr);
 +  pthread_attr_setstacksize(&attr, 2 * 1024 * 1024); // runtime Cg compiles run here
@@ -302,31 +307,36 @@ index c7fd176..f438786 100644
 +#endif
 +} // namespace
  
-+bool on_worker() {
-+  const char probe = 0;
-+  return sWorkerStackHigh != 0 &&
-+         reinterpret_cast<uintptr_t>(&probe) - sWorkerStackLow < sWorkerStackHigh - sWorkerStackLow;
-+}
++bool on_worker() { return tWorker; }
++// Neither the game thread nor the worker (the OS alarm thread: JFW's GP-hang alarm
++// calls GXSetDrawDone after a second, holding the OS lock).
++bool foreign() { return sGameKnown && !tGame && !tWorker; }
 +
 +void set_threaded(bool enabled) { sThreaded = enabled; }
 +bool threaded() { return sThreaded; }
 +
 +void producer_acquire() {
-+  if (!sThreaded || sProducerOwns || on_worker()) return;
++  if (!sThreaded || tWorker || sProducerOwns || foreign()) return;
 +  const uint64_t start = now_us();
 +  std::unique_lock lock{sOwner};
-+  sIdle.wait(lock, [] { return sProcessed.load(std::memory_order_acquire) == sPublished.load(std::memory_order_acquire); });
++  const auto caughtUp = [] { return sProcessed.load(std::memory_order_acquire) == sPublished.load(std::memory_order_acquire); };
++  static int stallReports = 0;
++  while (!sIdle.wait_for(lock, std::chrono::seconds(3), caughtUp)) {
++    if (stallReports < 20) {
++      ++stallReports;
++      Log.warn("GX worker stall: published={} processed={} stage={} sleeping={} waited_ms={}", sPublished.load(),
++               sProcessed.load(), sWorkerStage.load(), sWorkerSleeping.load() ? 1 : 0, (now_us() - start) / 1000);
++    }
++  }
 +  lock.release();
 +  sProducerOwns = true;
 +  sProducerWaitUs.fetch_add(now_us() - start, std::memory_order_relaxed);
 +}
 +
-+bool worker_owns(uintptr_t sp) {
-+  return sInWorker && sp - sWorkerStackLow < sWorkerStackHigh - sWorkerStackLow;
-+}
++bool worker_owns(uintptr_t) { return tWorker && sInWorker; }
 +
 +void publish() {
-+  if (!sThreaded || detail::sInDisplayList || on_worker()) return;
++  if (!sThreaded || detail::sInDisplayList || tWorker || foreign()) return;
 +  if (detail::sBufferSize == sPublished.load(std::memory_order_relaxed)) return;
 +#ifdef __vita__
 +  if (!sWorkerStarted) {
@@ -346,10 +356,12 @@ index c7fd176..f438786 100644
 +}
 +
 +void init() {
++  tGame = true; // GXInit runs on the game thread
++  sGameKnown = true;
    constexpr uint32_t initialCapacity = 64 * 1024;
    reset_cp_register_cache();
    free(detail::sBufferData);
-@@ -43,6 +197,8 @@ void init() {
+@@ -43,6 +209,8 @@ void init() {
  }
  
  void write_data_grow(const void* data, uint32_t length) {
@@ -358,12 +370,12 @@ index c7fd176..f438786 100644
  
    uint32_t needed = detail::sBufferSize + length;
    uint32_t newCap = std::max(detail::sBufferCapacity * 2, needed);
-@@ -88,6 +244,18 @@ void drain() {
+@@ -88,6 +256,18 @@ void drain() {
    // SEALED, not DONE.
    (void)aurora::wait_for_frame_worker_sealed();
  
 +  if (sThreaded) {
-+    if (on_worker()) return;
++    if (tWorker || foreign()) return;
 +    producer_acquire();
 +    if (detail::sBufferSize == 0) return;
 +    ++sDrainCalls;
@@ -377,7 +389,7 @@ index c7fd176..f438786 100644
    if (detail::sBufferSize == 0) {
      return;
    }
-@@ -119,6 +287,11 @@ void drain() {
+@@ -119,6 +299,11 @@ void drain() {
  const uint8_t* get_buffer_data() { return detail::sBufferData; }
  uint32_t get_buffer_size() { return detail::sBufferSize; }
  void clear_buffer() {
@@ -389,7 +401,7 @@ index c7fd176..f438786 100644
    detail::sBufferSize = 0;
  }
  
-@@ -128,3 +301,14 @@ void clear_buffer() {
+@@ -128,3 +313,14 @@ void clear_buffer() {
  // FIFO drains so far (the timer of 01.42-01.45 cost ~5% of the game thread).
  extern "C" unsigned long long aurora_vita_fifo_drain_us() { return aurora::gx::fifo::sDrainCalls; }
  #endif
