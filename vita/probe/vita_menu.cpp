@@ -39,8 +39,13 @@ int g_appliedResolution = -1;
 constexpr int kAutoSteps[] = {100, 87, 75, 62, 50};
 struct AutoRes {
     uint64_t waitUs = 0, frameUs = 0, windowStart = 0;
-    int calmWindows = 0;
+    int calmWindows = 0, busyWindows = 0;
     bool settle = false;
+    // A size AUTO stepped down from stays out of reach for a while: 01.47
+    // went back and forth between 62% and 75% every few seconds, and each
+    // change rebuilds the render targets.
+    int blockedPercent = 0;
+    uint64_t blockedUntil = 0;
 } g_auto;
 
 enum Shown { ON_OFF, PERCENT };
@@ -265,18 +270,29 @@ extern "C" void tww_vita_autores_note(uint64_t now_us, uint64_t wait_us)
     int step = 0;
     while (step < 4 && kAutoSteps[step] > g_autoPercent)
         ++step;
-    if (frame && wait * 100 > frame * 12 && step < 4) {
-        g_autoPercent = kAutoSteps[step + 1];  // the GPU holds frames back: smaller
+    const bool busy = frame && wait * 100 > frame * 12;
+    const bool veryBusy = frame && wait * 100 > frame * 30;
+    if (busy && step < 4) {
+        // Two busy windows in a row (or one very busy one): smaller.
+        if (veryBusy || ++g_auto.busyWindows >= 2) {
+            g_auto.blockedPercent = g_autoPercent;
+            g_auto.blockedUntil = now_us + 20000000;
+            g_autoPercent = kAutoSteps[step + 1];
+            g_auto.busyWindows = 0;
+            g_auto.settle = true;
+        }
         g_auto.calmWindows = 0;
-        g_auto.settle = true;
     } else if (frame && wait * 100 < frame * 2) {
-        if (++g_auto.calmWindows >= 3 && step > 0) {  // ~4.5 s with the GPU idle: larger
+        g_auto.busyWindows = 0;
+        const bool blocked = step > 0 && kAutoSteps[step - 1] >= g_auto.blockedPercent && now_us < g_auto.blockedUntil;
+        if (++g_auto.calmWindows >= 4 && step > 0 && !blocked) {  // ~6 s with the GPU idle: larger
             g_autoPercent = kAutoSteps[step - 1];
             g_auto.calmWindows = 0;
             g_auto.settle = true;
         }
     } else {
         g_auto.calmWindows = 0;
+        g_auto.busyWindows = 0;
     }
 }
 
