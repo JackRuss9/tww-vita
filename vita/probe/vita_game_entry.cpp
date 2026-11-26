@@ -115,8 +115,14 @@ extern "C" void probe_scheduler_diagnostic(const char *message, bool fatal)
         sceIoSyncByFd(game_log, 0);
 }
 
+extern "C" void tww_vita_settings_load();
+extern "C" void tww_vita_aspect_setup();
+
 extern "C" void pc_harness_init(int, char **)
 {
+    // Settings first: COS_ASPECT must be set before the game reads it.
+    tww_vita_settings_load();
+    tww_vita_aspect_setup();
     pc::gConfig.disc = DiscPath;
     pc::gConfig.audio = false;
     pc_qol_set("COS_QOL_SKIP_INTRO", "1");
@@ -130,7 +136,6 @@ extern "C" OSThread *pc_main_thread()
 
 extern "C" void pc_aurora_init(int argc, char **argv)
 {
-    tww_vita_settings_load();
     if (tww_vita_gxm_init(game_log, argc, argv) != 0)
         pc_exit(PC_EXIT_USAGE);
     tww_vita_set_dvd_log(game_log);

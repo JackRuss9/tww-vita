@@ -3,6 +3,8 @@
 // The menu takes the pad while open and is drawn by the GXM display callback
 // into each finished frame, so it costs the game and GPU nothing.
 
+#include <dolphin/gx/GXAurora.h>
+#include <cstdlib>
 #include <psp2/ctrl.h>
 #include <psp2/io/fcntl.h>
 
@@ -33,6 +35,7 @@ volatile int g_showFps = 1;
 volatile int g_resolution = 0;   // percent of the GX frame in each dimension (live); 0: AUTO
 volatile int g_autoPercent = 100; // AUTO's current choice
 volatile int g_floatTev = 1;     // read at start-up
+volatile int g_aspect = 1;       // read at start-up: 0 4:3, 1 16:9
 volatile int g_gxThread = 1;     // read at start-up: 0 off, 1 on, 2 full
 int g_appliedResolution = -1;
 
@@ -51,7 +54,7 @@ struct AutoRes {
     uint64_t blockedUntil = 0;
 } g_auto;
 
-enum Shown { ON_OFF, PERCENT, GX_MODE };
+enum Shown { ON_OFF, PERCENT, GX_MODE, ASPECT };
 struct Item {
     const char* key;
     const char* label;
@@ -68,6 +71,7 @@ const Item kItems[] = {
     {"show_fps", "SHOW FPS", &g_showFps, kOnOff, 2, ON_OFF, 1},
     {"resolution", "RESOLUTION", &g_resolution, kScales, 7, PERCENT, 0},
     {"float_tev", "FAST COLOUR MIXING (NEXT START)", &g_floatTev, kOnOff, 2, ON_OFF, 1},
+    {"aspect", "SCREEN (NEXT START)", &g_aspect, kOnOff, 2, ASPECT, 1},
     {"fast_grass", "FAST GRASS", &tww_vita_fast_grass_enabled, kOnOff, 2, ON_OFF, 1},
     {"gx_thread", "GX THREAD (NEXT START)", &g_gxThread, kGxThread, 3, GX_MODE, 1},
 };
@@ -215,6 +219,8 @@ void draw_menu(void* address, unsigned stride, unsigned width, unsigned height)
         char v[16];
         if (it.shown == ON_OFF)
             std::snprintf(v, sizeof v, "%s", *it.value ? "ON" : "OFF");
+        else if (it.shown == ASPECT)
+            std::snprintf(v, sizeof v, "%s", *it.value ? "16:9" : "4:3");
         else if (it.shown == GX_MODE)
             std::snprintf(v, sizeof v, "%s", *it.value == 2 ? "FULL" : *it.value ? "ON" : "OFF");
         else if (*it.value == 0)
@@ -271,7 +277,7 @@ extern "C" void tww_vita_settings_load()
     aurora_vita_set_gx_thread(g_gxThread);
     g_appliedResolution = g_resolution ? g_resolution : g_autoPercent;
     aurora_vita_overlay_hook = draw_menu;
-    pc::writef(2, "vita-settings resolution=%d float_tev=%d gx_thread=%d show_fps=%d\n", g_resolution, g_floatTev, g_gxThread, g_showFps);
+    pc::writef(2, "vita-settings resolution=%d aspect=%s float_tev=%d gx_thread=%d show_fps=%d\n", g_resolution, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_showFps);
 }
 
 // Each frame's wait for a free GPU slot (game thread, after admission).
@@ -324,8 +330,22 @@ extern "C" void tww_vita_autores_note(uint64_t now_us, uint64_t wait_us)
 }
 
 // Between frames (game thread): a new resolution rebuilds the render targets.
+// 16:9: SwitchWaker's widescreen code (COS_ASPECT, pc_aspect.h) draws an anamorphic
+// picture into the 640x480 EFB; Aurora's 16:9 policy renders it into a 16:9 target
+// and presents it across the whole screen.
+extern "C" void tww_vita_aspect_setup()
+{
+    setenv("COS_ASPECT", g_aspect ? "16:9" : "4:3", 1);
+}
+
 extern "C" void tww_vita_settings_frame()
 {
+    static bool policySet;
+    if (!policySet) {
+        policySet = true;
+        if (g_aspect)
+            AuroraSetViewportPolicy(static_cast<AuroraViewportPolicy>(3)); // mh3 Aurora: AURORA_VIEWPORT_16_9
+    }
     const int resolution = g_resolution ? g_resolution : g_autoPercent;
     if (resolution == g_appliedResolution)
         return;

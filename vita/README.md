@@ -502,6 +502,17 @@ falling back to the thread id if the kernel gives no range.
 - Palette textures (C4/C8/C14X2) use the per-frame texture identity cache; the
   identity now includes the TLUT loaded in the texture's slot.
 
+## 01.58 results and 01.59: 16:9
+
+01.58 log: houses 38 ms a frame (26 fps, was 42 ms), Outset 59-96 ms at 50-62%
+(was 67-85 ms), the worker 37 ms and 52-87 ms.
+
+01.59 adds `SCREEN (NEXT START)`, 16:9 by default: `COS_ASPECT` is set from
+settings.txt in `pc_harness_init` (SwitchWaker's widescreen code, see its
+docs/WIDESCREEN.md: wider camera, HUD at the edges, anamorphic 640x480 EFB), and
+the first frame sets Aurora's `AURORA_VIEWPORT_16_9` policy, which renders into
+a 16:9 target (960x540 at 100%) and presents it across the screen.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)
