@@ -539,6 +539,19 @@ a 16:9 target (960x540 at 100%) and presents it across the screen.
   last milestone when no frame ends for 15 s, so a log tells a hang from a slow
   load.
 
+## 01.63: background shader compiles
+
+- A GX program that no cache holds is translated and compiled on a thread of
+  its own (core 2, below the game, GX worker and audio). Until it is ready,
+  draws that use it are skipped instead of freezing the game (a vertex program
+  took 18.6 s at the first roll). The FPS line shows `SHADERS` meanwhile.
+  Settings: BACKGROUND SHADERS (live); OFF compiles in place as before.
+- `ux0:data/tww/shaders/glsl.index` maps each program's GLSL to its
+  translated Cg's hash, so a program in `cache.pack` loads without the
+  regex-based GLSL-to-Cg translation, which took seconds per program and
+  caused the multi-second frames of the title screen. The first start of this
+  version builds the index, so graphics may appear gradually that once.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)

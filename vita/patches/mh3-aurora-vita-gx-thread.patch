@@ -540,6 +540,21 @@ index 9a79dad..0f75960 100644
    }
  }
  
+diff --git a/aurora-main/lib/gl/gl.hpp b/aurora-main/lib/gl/gl.hpp
+index dbb8aec..8f28927 100644
+--- a/aurora-main/lib/gl/gl.hpp
++++ b/aurora-main/lib/gl/gl.hpp
+@@ -227,6 +227,10 @@ struct ProgramDesc {
+   // conversion); blocks name BUFFER indices, vertex attributes bind per draw.
+   bool cg = false;
+ 
++  // GXM development builds: a program no cache holds compiles in the
++  // background; until it is ready get() returns 0 and its draws are skipped.
++  bool deferredCompile = false;
++
+   // Fixed fragment computes original discard first, then outputs A=1. GXM
+   // may expand RGB-only writes only while its target is certified A=1.
+   bool preservesTargetAlphaOne = false;
 diff --git a/aurora-main/lib/gx/command_processor.cpp b/aurora-main/lib/gx/command_processor.cpp
 index 665e528..e9c9632 100644
 --- a/aurora-main/lib/gx/command_processor.cpp
@@ -1171,8 +1186,23 @@ index be3fee9..7110517 100644
      }
    }
  }
+diff --git a/aurora-main/lib/gx/shader.cpp b/aurora-main/lib/gx/shader.cpp
+index fe68417..8182ba5 100644
+--- a/aurora-main/lib/gx/shader.cpp
++++ b/aurora-main/lib/gx/shader.cpp
+@@ -2375,7 +2375,9 @@ void main() {{{4}
+ }
+ 
+ gl::ProgramPtr build_shader(const ShaderConfig& config) noexcept {
+-  return std::make_shared<gl::Program>(build_shader_description(config));
++  auto description = build_shader_description(config);
++  description.deferredCompile = true;
++  return std::make_shared<gl::Program>(std::move(description));
+ }
+ } // namespace aurora::gx
+ 
 diff --git a/aurora-main/lib/gxm/renderer.cpp b/aurora-main/lib/gxm/renderer.cpp
-index 3219bb3..959baa7 100644
+index 3219bb3..dc12ae8 100644
 --- a/aurora-main/lib/gxm/renderer.cpp
 +++ b/aurora-main/lib/gxm/renderer.cpp
 @@ -1,3 +1,4 @@
@@ -1195,3 +1225,660 @@ index 3219bb3..959baa7 100644
  }
  
  // The libgxm context has one owner at a time: the game thread until the
+@@ -1510,6 +1517,9 @@ GLuint Program::get() noexcept {
+ #ifdef MH3_DEVELOPMENT
+     // Sources for the development compiler, which serves only bank misses.
+     register_runtime_shader_sources(m_vertexHash, m_fragmentHash, m_desc.vertex, m_desc.fragment, m_desc.origin.empty() ? m_desc.label : m_desc.origin + "; " + m_desc.label, m_desc.cg);
++    // Both stages are asked for, so both compile in one wait.
++    if (m_desc.deferredCompile && (!runtime_shader_ready(m_vertexHash, ShaderStage::Vertex) | !runtime_shader_ready(m_fragmentHash, ShaderStage::Fragment)))
++      return GLuint(0);
+ #endif
+     const auto* binary = fragment_binary(m_fragmentHash);
+     m_usesDiscard = sceGxmProgramIsDiscardUsed(binary);
+diff --git a/aurora-main/lib/gxm/runtime_shader.cpp b/aurora-main/lib/gxm/runtime_shader.cpp
+index 6ae7459..be6459f 100644
+--- a/aurora-main/lib/gxm/runtime_shader.cpp
++++ b/aurora-main/lib/gxm/runtime_shader.cpp
+@@ -19,6 +19,13 @@
+ #include <stdexcept>
+ #include <string>
+ #include <vector>
++#include <condition_variable>
++#include <atomic>
++#include <deque>
++#include <mutex>
++#include <pthread.h>
++#include <psp2/kernel/threadmgr.h>
++#include <aurora/vita_host_alloc.hpp>
+ 
+ namespace aurora::gxm {
+ namespace {
+@@ -46,6 +53,7 @@ struct Entry {
+   bool cg = false;
+   std::unique_ptr<void, decltype(&std::free)> binary{nullptr, std::free};
+   size_t bytes = 0;
++  bool queued = false; // a compile of it is in flight
+ };
+ 
+ struct Store {
+@@ -54,6 +62,10 @@ struct Store {
+   bool compiler = false;
+   bool packLoaded = false;
+   shader_pack::Entries pack;
++  // XXH64 of a program's GLSL (with the cache version and stage) -> hash of
++  // its translated Cg, so a cached program loads without the regex-heavy
++  // GLSL-to-Cg translation (seconds per GX program on the Vita).
++  std::map<uint64_t, uint64_t> glslIndex;
+ };
+ 
+ Store& store() {
+@@ -158,6 +170,12 @@ void load_pack(Store& s) {
+   s.packLoaded = true;
+   const std::string bytes = read_text(pack_path(), 64u << 20);
+   s.pack = shader_pack::parse(bytes, uint32_t(RuntimeShaderStage::ScalarFragment), MaxProgramBytes);
++  const std::string index = read_text(std::string(Directory) + "/glsl.index", 16u << 20);
++  for (size_t i = 0; i + 16 <= index.size(); i += 16) {
++    uint64_t pair[2];
++    std::memcpy(pair, index.data() + i, 16);
++    s.glslIndex[pair[0]] = pair[1];
++  }
+   std::fprintf(stderr, "MH3 GXM shader cache pack: %lu programs (%lu bytes)\n", static_cast<unsigned long>(s.pack.size()), static_cast<unsigned long>(bytes.size()));
+ }
+ 
+@@ -172,6 +190,19 @@ void append_pack(Key key, uint64_t source, const void* program, size_t size) {
+   std::fclose(file);
+ }
+ 
++void append_index(Store& s, uint64_t glsl, uint64_t cg) {
++  if (auto [it, inserted] = s.glslIndex.try_emplace(glsl, cg); !inserted) {
++    if (it->second == cg)
++      return;
++    it->second = cg;
++  }
++  const uint64_t pair[2]{glsl, cg};
++  if (FILE* file = std::fopen((std::string(Directory) + "/glsl.index").c_str(), "ab")) {
++    std::fwrite(pair, 1, sizeof pair, file);
++    std::fclose(file);
++  }
++}
++
+ void compiler_log(const char* message, shark_log_level level, int line) {
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+   // Avoid allocations and logging while the compiler is reporting an internal error.
+@@ -225,8 +256,13 @@ void remember(Store& s, Key key, std::string_view source, std::string_view origi
+ }
+ } // namespace
+ 
++namespace {
++std::mutex& store_mutex();
++}
++
+ void register_runtime_shader_sources(uint64_t vertexHash, uint64_t fragmentHash, std::string_view vertex, std::string_view fragment, std::string_view origin, bool cg) {
+   auto& s = store();
++  std::lock_guard lock(store_mutex());
+   const std::string pair = id(vertexHash, RuntimeShaderStage::Vertex).substr(0, 16) + "-" + id(fragmentHash, RuntimeShaderStage::Fragment).substr(0, 16);
+   const std::string metadata = "{\"program\":" + json_string(origin) + ",\"source_pair\":" + json_string(pair) + "}";
+ 
+@@ -237,15 +273,37 @@ void register_runtime_shader_sources(uint64_t vertexHash, uint64_t fragmentHash,
+     remember(s, {fragmentHash, RuntimeShaderStage::Fragment}, fragment, metadata, cg);
+ }
+ 
+-const SceGxmProgram* runtime_shader_binary(uint64_t hash, RuntimeShaderStage stage) {
+-  auto& s = store();
+-  const Key key{hash, stage};
+-  auto found = s.entries.find(key);
++namespace {
++// Every store access holds this lock; the compiler runs without it so the
++// background compile never blocks the graphics thread's lookups.
++std::mutex& store_mutex() {
++  static std::mutex value;
++  return value;
++}
++std::condition_variable& store_changed() {
++  static std::condition_variable value;
++  return value;
++}
++// vitaShaRK and compilerError are single-user.
++std::mutex& compiler_mutex() {
++  static std::mutex value;
++  return value;
++}
++
++struct Prepared {
++  std::string cg, metadata, cacheVersion;
++  std::filesystem::path base;
++  uint64_t sourceHash = 0;
++};
++using Binary = std::unique_ptr<void, decltype(&std::free)>;
+ 
++// Store lock held.
++Entry* lookup(Store& s, Key key) {
++  auto found = s.entries.find(key);
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+-  if (found == s.entries.end() && stage != RuntimeShaderStage::ScalarFragment) {
++  if (found == s.entries.end() && key.second != RuntimeShaderStage::ScalarFragment) {
+     for (const auto& utility : UtilityShaders) {
+-      if (utility.key == hash && utility.stage == stage) {
++      if (utility.key == key.first && utility.stage == key.second) {
+         remember(s, key, utility.source, "\"Aurora GXM utility\"", true);
+         found = s.entries.find(key);
+         break;
+@@ -253,9 +311,8 @@ const SceGxmProgram* runtime_shader_binary(uint64_t hash, RuntimeShaderStage sta
+     }
+   }
+ #endif
+-
+-  if (stage == RuntimeShaderStage::ScalarFragment && found == s.entries.end()) {
+-    const auto fragment = s.entries.find({hash, RuntimeShaderStage::Fragment});
++  if (key.second == RuntimeShaderStage::ScalarFragment && found == s.entries.end()) {
++    const auto fragment = s.entries.find({key.first, RuntimeShaderStage::Fragment});
+ 
+     if (fragment != s.entries.end()) {
+       // The scalar entry shares source identity but has its own declared output.
+@@ -263,180 +320,343 @@ const SceGxmProgram* runtime_shader_binary(uint64_t hash, RuntimeShaderStage sta
+       found = s.entries.find(key);
+     }
+   }
++  return found == s.entries.end() ? nullptr : &found->second;
++}
+ 
+-  if (found == s.entries.end()) {
+-    std::fprintf(stderr, "MH3 GXM SHADER BANK MISS %s (no registered source)\n", id(hash, stage).c_str());
+-    AURORA_THROW(std::runtime_error("Missing runtime GLSL origin for GXM shader " + id(hash, stage)));
+-  }
++uint64_t glsl_key(const Entry& entry, Key key) {
++  const std::string version = std::string(CacheVersion) + "-translator" + std::to_string(gfx::cg::Version) + suffix(key.second);
++  return XXH64(entry.source.data(), entry.source.size(), XXH64(version.data(), version.size(), entry.cg ? 1 : 0));
++}
++
++bool adopt(std::unique_ptr<void, decltype(&std::free)>& candidate, const std::string& bytes, RuntimeShaderStage stage);
++
++// Store lock held. Only the pack, through the GLSL index: no translation.
++bool load_indexed(Store& s, const Entry& entry, Key key, std::unique_ptr<void, decltype(&std::free)>& candidate, size_t& size) {
++  load_pack(s);
++  const auto indexed = s.glslIndex.find(glsl_key(entry, key));
++
++  if (indexed == s.glslIndex.end())
++    return false;
++
++  const auto packed = s.pack.find({key.first, uint32_t(key.second)});
+ 
+-  auto& entry = found->second;
++  if (packed == s.pack.end() || packed->second.first != indexed->second || !adopt(candidate, packed->second.second, key.second))
++    return false;
++
++  size = packed->second.second.size();
++  s.pack.erase(packed);
++  return true;
++}
+ 
+-  if (entry.binary)
+-    return static_cast<const SceGxmProgram*>(entry.binary.get());
+-  // Once per stage. Retail cannot compile: the offline bank must hold every
+-  // program (docs/optimizations/rendering/offline-shader-bank.md), so any miss is a bank defect.
+-  std::fprintf(stderr, "MH3 GXM SHADER BANK MISS %s (%s): development runtime compile\n", id(hash, stage).c_str(), entry.origin.c_str());
+-  std::string cg = entry.cg ? entry.source : gfx::cg::convert(entry.source, stage == RuntimeShaderStage::Vertex ? gfx::cg::Stage::Vertex : gfx::cg::Stage::Fragment);
++Prepared prepare(const Entry& entry, Key key) {
++  const auto [hash, stage] = key;
++  Prepared p;
++  p.cg = entry.cg ? entry.source : gfx::cg::convert(entry.source, stage == RuntimeShaderStage::Vertex ? gfx::cg::Stage::Vertex : gfx::cg::Stage::Fragment);
+ 
+   if (stage == RuntimeShaderStage::ScalarFragment)
+-    cg = gfx::cg::scalar_fragment(cg);
++    p.cg = gfx::cg::scalar_fragment(p.cg);
+ 
+-  const auto base = std::filesystem::path(Directory) / id(hash, stage);
+-  const auto cgPath = base.string() + ".cg", binaryPath = base.string() + ".gxp";
+-  const std::string cacheVersion = std::string(CacheVersion) + "-translator" + std::to_string(gfx::cg::Version);
+-  const std::string metadata = "{\"cache_version\":" + json_string(cacheVersion) + ",\"stage\":" + json_string(std::string(1, suffix(stage))) + ",\"origin\":" + entry.origin + "}\n";
+-  const uint64_t sourceHash = XXH64(cg.data(), cg.size(), XXH64(cacheVersion.data(), cacheVersion.size(), 0));
+-  std::unique_ptr<void, decltype(&std::free)> candidate(nullptr, std::free);
+-  const auto adopt = [&](const std::string& bytes) {
+-    if (bytes.empty() || bytes.size() > MaxResidentBytes - s.residentBytes)
+-      return false;
++  p.base = std::filesystem::path(Directory) / id(hash, stage);
++  p.cacheVersion = std::string(CacheVersion) + "-translator" + std::to_string(gfx::cg::Version);
++  p.metadata = "{\"cache_version\":" + json_string(p.cacheVersion) + ",\"stage\":" + json_string(std::string(1, suffix(stage))) + ",\"origin\":" + entry.origin + "}\n";
++  p.sourceHash = XXH64(p.cg.data(), p.cg.size(), XXH64(p.cacheVersion.data(), p.cacheVersion.size(), 0));
++  return p;
++}
+ 
+-    candidate.reset(memalign(64, bytes.size()));
++bool adopt(Binary& candidate, const std::string& bytes, RuntimeShaderStage stage) {
++  if (bytes.empty() || bytes.size() > MaxProgramBytes)
++    return false;
+ 
+-    if (!candidate)
+-      AURORA_THROW(std::bad_alloc());
++  candidate.reset(memalign(64, bytes.size()));
+ 
+-    std::memcpy(candidate.get(), bytes.data(), bytes.size());
++  if (!candidate)
++    AURORA_THROW(std::bad_alloc());
+ 
+-    if (!valid_program(candidate.get(), bytes.size(), stage)) {
+-      candidate.reset();
+-      return false;
+-    }
++  std::memcpy(candidate.get(), bytes.data(), bytes.size());
+ 
+-    return true;
+-  };
++  if (!valid_program(candidate.get(), bytes.size(), stage)) {
++    candidate.reset();
++    return false;
++  }
++
++  return true;
++}
+ 
+-  // The pack holds every program compiled or loaded since it was created.
++// Store lock held. The pack holds every program compiled or loaded since it
++// was created; per-program files of earlier builds join it on a match.
++bool load_cached(Store& s, Key key, const Prepared& p, Binary& candidate, size_t& size) {
+   load_pack(s);
+-  size_t size = 0;
+ 
+   if (const auto packed = s.pack.find({key.first, uint32_t(key.second)}); packed != s.pack.end()) {
+-    if (packed->second.first == sourceHash && adopt(packed->second.second))
++    if (packed->second.first == p.sourceHash && adopt(candidate, packed->second.second, key.second))
+       size = packed->second.second.size();
+ 
+     s.pack.erase(packed);
+   }
+ 
+-  if (!candidate) {
+-    // Per-program files of earlier builds; a match joins the pack. Only a
+-    // matching translator output/options cache can bypass compilation.
+-    const bool matching = read_text(base.string() + ".version", 256) == cacheVersion && read_text(cgPath, MaxProgramBytes) == cg;
+-    const std::string cached = matching ? read_text(binaryPath, MaxProgramBytes) : std::string{};
++  if (candidate)
++    return true;
+ 
+-    if (adopt(cached)) {
+-      size = cached.size();
+-      append_pack(key, sourceHash, candidate.get(), size);
+-    }
++  const bool matching = read_text(p.base.string() + ".version", 256) == p.cacheVersion && read_text(p.base.string() + ".cg", MaxProgramBytes) == p.cg;
++  const std::string cached = matching ? read_text(p.base.string() + ".gxp", MaxProgramBytes) : std::string{};
++
++  if (adopt(candidate, cached, key.second)) {
++    size = cached.size();
++    append_pack(key, p.sourceHash, candidate.get(), size);
++    return true;
+   }
++  return false;
++}
+ 
+-  if (!candidate) {
+-    std::error_code error;
+-    std::filesystem::create_directories(Directory, error);
+-
+-    if (error)
+-      AURORA_THROW(std::runtime_error("Cannot create ux0:/data/mh3-wii/shaders/"));
+-    // Invalidate the old transaction before publishing changed source. A
+-    // failed compilation must never make an old GXP appear to match new Cg.
+-    write_text(base.string() + ".version", "incomplete");
+-    write_text(cgPath, cg);
+-    write_text(base.string() + ".origin.json", metadata);
+-    start_compiler(s);
+-    std::fprintf(stderr, "MH3 compiling missing GXM shader %s (%s)\n", id(hash, stage).c_str(), entry.origin.c_str());
+-
+-    if (cg.size() > MaxProgramBytes)
+-      AURORA_THROW(std::runtime_error("Runtime Cg source exceeds 1 MiB"));
+-    // vitaShaRK takes source length through size, then replaces it with GXP
+-    // length. Its returned program borrows the compiler output; never free it.
+-    uint32_t compiledSize = static_cast<uint32_t>(cg.size());
+-    struct CompilerOutput {
+-      ~CompilerOutput() { shark_clear_output(); }
+-    } output;
+-    const auto shaderType = stage == RuntimeShaderStage::Vertex ? SHARK_VERTEX_SHADER : SHARK_FRAGMENT_SHADER;
++// Compiler lock held, store lock not. Writes the per-program files.
++void compile(Key key, const Prepared& p, const std::string& origin, Binary& candidate, size_t& size) {
++  const auto [hash, stage] = key;
++  const auto& cg = p.cg;
++  const auto base = p.base;
++  const auto cgPath = base.string() + ".cg", binaryPath = base.string() + ".gxp";
++  std::error_code error;
++  std::filesystem::create_directories(Directory, error);
++
++  if (error)
++    AURORA_THROW(std::runtime_error("Cannot create the shader cache directory"));
++  // Invalidate the old transaction before publishing changed source. A
++  // failed compilation must never make an old GXP appear to match new Cg.
++  write_text(base.string() + ".version", "incomplete");
++  write_text(cgPath, cg);
++  write_text(base.string() + ".origin.json", p.metadata);
++  start_compiler(store());
++
++  if (cg.size() > MaxProgramBytes)
++    AURORA_THROW(std::runtime_error("Runtime Cg source exceeds 1 MiB"));
++  // vitaShaRK takes source length through size, then replaces it with GXP
++  // length. Its returned program borrows the compiler output; never free it.
++  uint32_t compiledSize = static_cast<uint32_t>(cg.size());
++  struct CompilerOutput {
++    ~CompilerOutput() { shark_clear_output(); }
++  } output;
++  const auto shaderType = stage == RuntimeShaderStage::Vertex ? SHARK_VERTEX_SHADER : SHARK_FRAGMENT_SHADER;
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+-    const auto shaderId = id(hash, stage);
+-    const auto compile = [&](const char* options, shark_opt optimization, int fastMath) {
+-      ShaderLog.info("Compile {} ({}) {} ({} bytes)", shaderId, entry.origin, options, cg.size());
+-      compiledSize = static_cast<uint32_t>(cg.size());
+-      const auto begin = std::chrono::steady_clock::now();
+-      compilerError[0] = '\0';
+-      const auto* result = shark_compile_shader_extended(cg.c_str(), &compiledSize, shaderType, optimization,
+-                                                         fastMath, SHARK_DISABLE, SHARK_ENABLE);
+-      if (compilerError[0] != '\0')
+-        ShaderLog.report(LOG_ERROR, "Cg compiler error: {}", compilerError);
+-      ShaderLog.info("Compiler returned {} {} ok={} bytes={} elapsed_ms={}", shaderId, options,
+-                     result != nullptr, compiledSize,
+-                     std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count());
+-      return result;
+-    };
+-    // GX vertex programs fault the Vita compiler at O3 ("fatal internal error",
+-    // which takes the process down before any fallback runs): 2a4f5a80355c9dd3,
+-    // 423e4a681fc7ae43, aa6a00a9790047fa and 23c61c0e983692c9 so far. A list of
+-    // hashes breaks whenever the generator changes a source, so every vertex
+-    // program uses the settings that compiled all of them.
+-    const bool safeVertex = stage == RuntimeShaderStage::Vertex;
+-    const SceGxmProgram* compiled = safeVertex
+-        ? compile("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE)
+-        : compile("O3", SHARK_OPT_FAST, SHARK_ENABLE);
+-    if (!compiled && !safeVertex) {
+-      shark_clear_output();
+-      compiled = compile("O2", SHARK_OPT_DEFAULT, SHARK_ENABLE);
+-    }
+-    if (!compiled) {
+-      shark_clear_output();
+-      compiled = safeVertex ? compile("O0 without fast math", SHARK_OPT_SLOW, SHARK_DISABLE)
+-                            : compile("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE);
+-    }
++  const auto shaderId = id(hash, stage);
++  const auto run = [&](const char* options, shark_opt optimization, int fastMath) {
++    ShaderLog.info("Compile {} ({}) {} ({} bytes)", shaderId, origin, options, cg.size());
++    compiledSize = static_cast<uint32_t>(cg.size());
++    const auto begin = std::chrono::steady_clock::now();
++    compilerError[0] = '\0';
++    const auto* result = shark_compile_shader_extended(cg.c_str(), &compiledSize, shaderType, optimization,
++                                                       fastMath, SHARK_DISABLE, SHARK_ENABLE);
++    if (compilerError[0] != '\0')
++      ShaderLog.report(LOG_ERROR, "Cg compiler error: {}", compilerError);
++    ShaderLog.info("Compiler returned {} {} ok={} bytes={} elapsed_ms={}", shaderId, options,
++                   result != nullptr, compiledSize,
++                   std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count());
++    return result;
++  };
++  // GX vertex programs fault the Vita compiler at O3 ("fatal internal error",
++  // which takes the process down before any fallback runs): 2a4f5a80355c9dd3,
++  // 423e4a681fc7ae43, aa6a00a9790047fa and 23c61c0e983692c9 so far. A list of
++  // hashes breaks whenever the generator changes a source, so every vertex
++  // program uses the settings that compiled all of them.
++  const bool safeVertex = stage == RuntimeShaderStage::Vertex;
++  const SceGxmProgram* compiled = safeVertex
++      ? run("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE)
++      : run("O3", SHARK_OPT_FAST, SHARK_ENABLE);
++  if (!compiled && !safeVertex) {
++    shark_clear_output();
++    compiled = run("O2", SHARK_OPT_DEFAULT, SHARK_ENABLE);
++  }
++  if (!compiled) {
++    shark_clear_output();
++    compiled = safeVertex ? run("O0 without fast math", SHARK_OPT_SLOW, SHARK_DISABLE)
++                          : run("O1 without fast math", SHARK_OPT_SAFE, SHARK_DISABLE);
++  }
+ #else
+-    const SceGxmProgram* compiled = shark_compile_shader_extended(cg.c_str(), &compiledSize, shaderType, SHARK_OPT_FAST,
+-                                                                  SHARK_ENABLE, SHARK_DISABLE, SHARK_ENABLE);
++  (void)origin;
++  const SceGxmProgram* compiled = shark_compile_shader_extended(cg.c_str(), &compiledSize, shaderType, SHARK_OPT_FAST,
++                                                                SHARK_ENABLE, SHARK_DISABLE, SHARK_ENABLE);
+ #endif
+-    std::fprintf(stderr, "MH3 shader compiler output %s pointer=%p alignment=%u bytes=%u\n", id(hash, stage).c_str(), static_cast<const void*>(compiled),
+-                 unsigned(reinterpret_cast<uintptr_t>(compiled) & 63), compiledSize);
+-    if (!compiled || compiledSize < 64 || compiledSize > MaxProgramBytes)
+-      AURORA_THROW(std::runtime_error("Runtime GXM compile failed; Cg/origin saved for " + id(hash, stage)));
+-
+-    size = compiledSize;
+-
+-    if (size > MaxResidentBytes - s.residentBytes)
+-      AURORA_THROW(std::runtime_error("Runtime shader source/cache budget exhausted (16 MiB)"));
+-
+-    candidate.reset(memalign(64, size));
+-
+-    if (!candidate)
+-      AURORA_THROW(std::bad_alloc());
+-
+-    std::memcpy(candidate.get(), compiled, size);
+-    const auto* program = static_cast<const SceGxmProgram*>(candidate.get());
+-    std::fprintf(stderr, "MH3 shader compiler GXP %s magic=%02x%02x%02x%02x declared=%u check=%08x type=%d\n", id(hash, stage).c_str(), static_cast<const uint8_t*>(candidate.get())[0],
+-                 static_cast<const uint8_t*>(candidate.get())[1], static_cast<const uint8_t*>(candidate.get())[2], static_cast<const uint8_t*>(candidate.get())[3], sceGxmProgramGetSize(program),
+-                 unsigned(sceGxmProgramCheck(program)), int(sceGxmProgramGetType(program)));
+-    if (!valid_program(candidate.get(), size, stage))
+-      AURORA_THROW(std::runtime_error("Runtime GXM compiler returned invalid GXP; Cg/origin saved for " + id(hash, stage)));
+-
+-    write_file(binaryPath, candidate.get(), size);
+-    write_text(base.string() + ".version", cacheVersion);
+-    append_pack(key, sourceHash, candidate.get(), size);
+-  } else
+-    std::fprintf(stderr, "MH3 loaded cached GXM shader %s\n", id(hash, stage).c_str());
++  if (!compiled || compiledSize < 64 || compiledSize > MaxProgramBytes)
++    AURORA_THROW(std::runtime_error("Runtime GXM compile failed; Cg/origin saved for " + id(hash, stage)));
++
++  size = compiledSize;
++  candidate.reset(memalign(64, size));
++
++  if (!candidate)
++    AURORA_THROW(std::bad_alloc());
++
++  std::memcpy(candidate.get(), compiled, size);
++
++  if (!valid_program(candidate.get(), size, stage))
++    AURORA_THROW(std::runtime_error("Runtime GXM compiler returned invalid GXP; Cg/origin saved for " + id(hash, stage)));
++
++  write_file(binaryPath, candidate.get(), size);
++  write_text(base.string() + ".version", p.cacheVersion);
++}
++
++// Store lock held.
++const SceGxmProgram* install(Store& s, Entry& entry, Binary& candidate, size_t size) {
++  if (size > MaxResidentBytes - s.residentBytes)
++    AURORA_THROW(std::runtime_error("Runtime shader source/cache budget exhausted (16 MiB)"));
++
++  entry.binary = std::move(candidate);
++  entry.bytes = size;
++  entry.queued = false;
++  s.residentBytes += size;
++  store_changed().notify_all();
++  return static_cast<const SceGxmProgram*>(entry.binary.get());
++}
++
++[[noreturn]] void missing(Key key) {
++  std::fprintf(stderr, "MH3 GXM SHADER BANK MISS %s (no registered source)\n", id(key.first, key.second).c_str());
++  AURORA_THROW(std::runtime_error("Missing runtime GLSL origin for GXM shader " + id(key.first, key.second)));
++}
++
++// Background compiles: one thread, oldest request first.
++struct Job {
++  Key key;
++  Entry* entry; // std::map nodes stay put; source and origin never change
++};
++std::deque<Job>& jobs() {
++  static std::deque<Job> value;
++  return value;
++}
++bool g_async = true;
++std::atomic<int> g_inFlight{0}; // background jobs queued or compiling
++
++// Store lock held on entry and exit. Translates (unless `p` is given),
++// tries the per-program files, then compiles without the store lock.
++const SceGxmProgram* resolve(Store& s, std::unique_lock<std::mutex>& lock, Entry& entry, Key key) {
++  lock.unlock();
++  const Prepared p = prepare(entry, key); // the slow GLSL-to-Cg translation
++  lock.lock();
++  Binary candidate(nullptr, std::free);
++  size_t size = 0;
++
++  if (!load_cached(s, key, p, candidate, size)) {
++    lock.unlock();
++    {
++      std::lock_guard compiler(compiler_mutex());
++      compile(key, p, entry.origin, candidate, size);
++    }
++    lock.lock();
++    append_pack(key, p.sourceHash, candidate.get(), size);
++  }
++  append_index(s, glsl_key(entry, key), p.sourceHash);
+   // Retain the actual runtime compiler output for offline ABI/USSE diagnosis.
+-  // The normal cache stays on ux0; this opt-in mirror goes anywhere.
+   if (const char* dump = std::getenv("MH3_GXM_SHADER_DUMP"); dump && *dump) {
+     const std::filesystem::path directory(dump);
+     std::filesystem::create_directories(directory);
+-    const auto captured = directory / id(hash, stage);
++    const auto captured = directory / id(key.first, key.second);
+     write_file(captured.string() + ".gxp", candidate.get(), size);
+-    write_text(captured.string() + ".cg", cg);
+-    write_text(captured.string() + ".origin.json", metadata);
++    write_text(captured.string() + ".cg", p.cg);
++    write_text(captured.string() + ".origin.json", p.metadata);
+   }
++  return install(s, entry, candidate, size);
++}
+ 
+-  entry.binary = std::move(candidate);
+-  entry.bytes = size;
+-  s.residentBytes += size;
+-  return static_cast<const SceGxmProgram*>(entry.binary.get());
++void* compile_thread(void*) {
++  VitaHostAllocScope hostAlloc; // never allocate from the game's heaps
++  // The third core, below the game, GX worker and audio threads.
++  sceKernelChangeThreadCpuAffinityMask(SCE_KERNEL_THREAD_ID_SELF, SCE_KERNEL_CPU_MASK_USER_2);
++  sceKernelChangeThreadPriority(SCE_KERNEL_THREAD_ID_SELF, sceKernelGetThreadCurrentPriority() + 16);
++  auto& s = store();
++  std::unique_lock lock(store_mutex());
++
++  for (;;) {
++    store_changed().wait(lock, [] { return !jobs().empty(); });
++    const Job job = jobs().front();
++    jobs().pop_front();
++    resolve(s, lock, *job.entry, job.key);
++    g_inFlight.fetch_sub(1, std::memory_order_relaxed);
++  }
++  return nullptr;
++}
++
++void start_compile_thread() {
++  static bool started;
++
++  if (started)
++    return;
++
++  started = true;
++  pthread_attr_t attr;
++  pthread_attr_init(&attr);
++  // libshacccg recurses deeply on long GX programs.
++  pthread_attr_setstacksize(&attr, 1024 * 1024);
++  pthread_t thread;
++  if (pthread_create(&thread, &attr, compile_thread, nullptr) != 0)
++    AURORA_THROW(std::runtime_error("Cannot start the shader compile thread"));
++  pthread_attr_destroy(&attr);
++}
++} // namespace
++
++const SceGxmProgram* runtime_shader_binary(uint64_t hash, RuntimeShaderStage stage) {
++  auto& s = store();
++  const Key key{hash, stage};
++  std::unique_lock lock(store_mutex());
++  Entry* entry = lookup(s, key);
++
++  if (!entry)
++    missing(key);
++
++  // A background compile of this program finishes first.
++  store_changed().wait(lock, [&] { return !entry->queued; });
++
++  if (entry->binary)
++    return static_cast<const SceGxmProgram*>(entry->binary.get());
++
++  Binary candidate(nullptr, std::free);
++  size_t size = 0;
++
++  if (load_indexed(s, *entry, key, candidate, size))
++    return install(s, *entry, candidate, size);
++
++  std::fprintf(stderr, "MH3 GXM SHADER BANK MISS %s (%s): development runtime compile\n", id(hash, stage).c_str(), entry->origin.c_str());
++  entry->queued = true; // no second translation or compile of it meanwhile
++  return resolve(s, lock, *entry, key);
++}
++
++bool runtime_shader_ready(uint64_t hash, RuntimeShaderStage stage) {
++  if (shader_bank::contains(hash, stage))
++    return true;
++
++  auto& s = store();
++  const Key key{hash, stage};
++  std::unique_lock lock(store_mutex());
++  Entry* entry = lookup(s, key);
++
++  // Unknown programs fail in runtime_shader_binary, as before.
++  if (!entry || entry->binary)
++    return true;
++
++  if (entry->queued)
++    return false;
++
++  Binary candidate(nullptr, std::free);
++  size_t size = 0;
++
++  if (load_indexed(s, *entry, key, candidate, size)) {
++    install(s, *entry, candidate, size);
++    return true;
++  }
++
++  if (!g_async)
++    return true; // runtime_shader_binary translates and compiles it in place
++
++  entry->queued = true;
++  g_inFlight.fetch_add(1, std::memory_order_relaxed);
++  jobs().push_back({key, entry});
++  start_compile_thread();
++  store_changed().notify_all();
++  return false;
+ }
+ 
++void set_async_runtime_shaders(bool enabled) { g_async = enabled; }
++
++bool runtime_shaders_compiling() { return g_inFlight.load(std::memory_order_relaxed) > 0; }
++
+ void clear_runtime_shaders() noexcept {
+   auto& s = store();
++  std::lock_guard lock(store_mutex());
+   s.entries.clear();
+   s.residentBytes = 0;
+ 
+@@ -446,3 +666,8 @@ void clear_runtime_shaders() noexcept {
+   }
+ }
+ } // namespace aurora::gxm
++
++#ifdef TWW_GXM_RUNTIME_SHADERS
++extern "C" void aurora_vita_set_async_shaders(int enabled) { aurora::gxm::set_async_runtime_shaders(enabled != 0); }
++extern "C" int aurora_vita_shaders_compiling() { return aurora::gxm::runtime_shaders_compiling() ? 1 : 0; }
++#endif
+diff --git a/aurora-main/lib/gxm/runtime_shader.hpp b/aurora-main/lib/gxm/runtime_shader.hpp
+index 4bf050c..b2e95bb 100644
+--- a/aurora-main/lib/gxm/runtime_shader.hpp
++++ b/aurora-main/lib/gxm/runtime_shader.hpp
+@@ -16,6 +16,12 @@ using RuntimeShaderStage = ShaderStage;
+ void register_runtime_shader_sources(uint64_t vertexHash, uint64_t fragmentHash, std::string_view vertex, std::string_view fragment, std::string_view origin, bool cg = false);
+ const SceGxmProgram* runtime_shader_binary(uint64_t hash, RuntimeShaderStage stage);
+ 
++// False while the program is being compiled in the background (started by
++// this call when no cache holds it); drawing with it waits for it.
++bool runtime_shader_ready(uint64_t hash, RuntimeShaderStage stage);
++void set_async_runtime_shaders(bool enabled);
++bool runtime_shaders_compiling();
++
+ // Only after all patched programs and the GXM device have been destroyed.
+ void clear_runtime_shaders() noexcept;
+ } // namespace aurora::gxm

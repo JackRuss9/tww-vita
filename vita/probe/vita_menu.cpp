@@ -19,6 +19,8 @@ void aurora_vita_set_efb_scale(unsigned percent);
 void aurora_vita_apply_efb_scale(unsigned percent);
 void aurora_vita_set_float_tev(int enabled);
 void aurora_vita_set_gx_thread(int enabled);
+void aurora_vita_set_async_shaders(int enabled);
+int aurora_vita_shaders_compiling();
 extern int tww_vita_fast_grass_enabled; // d_grass.cpp (switchwaker-vita-fast-grass.patch)
 unsigned aurora_vita_efb_width();
 unsigned aurora_vita_efb_height();
@@ -38,6 +40,7 @@ volatile int g_floatTev = 1;     // read at start-up
 volatile int g_audio = 1;        // read at start-up
 volatile int g_titleSparkle = 1; // live
 volatile int g_aspect = 1;       // read at start-up: 0 4:3, 1 16:9
+volatile int g_asyncShaders = 1; // live: 1 new shaders compile in the background
 volatile int g_gxThread = 1;     // read at start-up: 0 off, 1 on, 2 full
 int g_appliedResolution = -1;
 
@@ -77,6 +80,7 @@ const Item kItems[] = {
     {"title_sparkle", "TITLE SPARKLE", &g_titleSparkle, kOnOff, 2, ON_OFF, 1},
     {"aspect", "SCREEN (NEXT START)", &g_aspect, kOnOff, 2, ASPECT, 1},
     {"fast_grass", "FAST GRASS", &tww_vita_fast_grass_enabled, kOnOff, 2, ON_OFF, 1},
+    {"async_shaders", "BACKGROUND SHADERS", &g_asyncShaders, kOnOff, 2, ON_OFF, 1},
     {"gx_thread", "GX THREAD (NEXT START)", &g_gxThread, kGxThread, 3, GX_MODE, 1},
 };
 constexpr int kCount = int(sizeof kItems / sizeof kItems[0]);
@@ -112,6 +116,8 @@ void step(const Item& it, int dir)
     pc::writef(2, "vita-menu %s=%d\n", it.key, *it.value);
     if (it.value == &g_showFps)
         aurora_vita_show_fps = g_showFps;
+    if (it.value == &g_asyncShaders)
+        aurora_vita_set_async_shaders(g_asyncShaders);
     save();
 }
 
@@ -191,9 +197,10 @@ void draw_menu(void* address, unsigned stride, unsigned width, unsigned height)
         // Under Aurora's FPS counter: the render size in use (with AUTO, its current step).
         if (g_showFps) {
             Canvas c{static_cast<volatile uint32_t*>(address), stride, width, height, 0};
-            char res[24];
+            char res[32];
             const int percent = g_resolution ? g_resolution : g_autoPercent;
-            std::snprintf(res, sizeof res, "%d%% %uX%u", percent, aurora_vita_efb_width(), aurora_vita_efb_height());
+            std::snprintf(res, sizeof res, "%d%% %uX%u%s", percent, aurora_vita_efb_width(), aurora_vita_efb_height(),
+                          aurora_vita_shaders_compiling() ? " SHADERS" : "");
             const int tw = int(std::strlen(res)) * kCellW + 8;
             const int x = (int(width) - tw) / 2;
             c.color = 0xff181818;
@@ -279,9 +286,10 @@ extern "C" void tww_vita_settings_load()
     aurora_vita_set_efb_scale(unsigned(g_resolution ? g_resolution : g_autoPercent));
     aurora_vita_set_float_tev(g_floatTev);
     aurora_vita_set_gx_thread(g_gxThread);
+    aurora_vita_set_async_shaders(g_asyncShaders);
     g_appliedResolution = g_resolution ? g_resolution : g_autoPercent;
     aurora_vita_overlay_hook = draw_menu;
-    pc::writef(2, "vita-settings resolution=%d audio=%d aspect=%s float_tev=%d gx_thread=%d show_fps=%d\n", g_resolution, g_audio, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_showFps);
+    pc::writef(2, "vita-settings resolution=%d audio=%d aspect=%s float_tev=%d gx_thread=%d async_shaders=%d show_fps=%d\n", g_resolution, g_audio, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_asyncShaders, g_showFps);
 }
 
 // Each frame's wait for a free GPU slot (game thread, after admission).
