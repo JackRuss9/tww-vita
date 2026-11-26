@@ -481,6 +481,19 @@ seals, renders and presents, and it was already the longer of the two threads
 (Outset at 62%: FULL 97-120 ms a frame, ON 67-85 ms; houses 49-52 ms vs 42 ms).
 ON stays the default until the worker is cheaper.
 
+## 01.56-01.57: worker profile
+
+01.56 profile (Outset, GX THREAD on, worker thread): command processing 88% of
+the worker, of which draws 63% (unmerged draw setup 26%: sampled texture
+resolution 11%, uniforms 5%, bind groups 4%; index pushes 15%; pipeline state
+8%), BP 7%, XF 6%, CP 3%. The profile build now leaves tiny accessors
+(`read_u32`, `bswap`, staging size helpers...) uninstrumented, as their probes
+dwarfed their bodies. With GX THREAD the game thread is pinned to core 0.
+
+01.57: the worker/game thread role checks use the threads' stack ranges
+instead of `thread_local` (each access was a call to `__emutls_get_address`),
+falling back to the thread id if the kernel gives no range.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)

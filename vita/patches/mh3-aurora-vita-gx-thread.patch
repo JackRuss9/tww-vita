@@ -562,7 +562,7 @@ index 665e528..d90749e 100644
      auto label = read_string(data, pos, size, bigEndian);
      gfx::push_debug_group(std::move(label));
 diff --git a/aurora-main/lib/gx/fifo.cpp b/aurora-main/lib/gx/fifo.cpp
-index c7fd176..873728a 100644
+index c7fd176..1961034 100644
 --- a/aurora-main/lib/gx/fifo.cpp
 +++ b/aurora-main/lib/gx/fifo.cpp
 @@ -6,11 +6,23 @@
@@ -589,7 +589,7 @@ index c7fd176..873728a 100644
  
  namespace aurora::gx::fifo {
  static Module Log("aurora::gx::fifo");
-@@ -28,8 +40,221 @@ uint32_t sDlSize = 0;
+@@ -28,8 +40,270 @@ uint32_t sDlSize = 0;
  uint32_t sDlWritePos = 0;
  } // namespace detail
  
@@ -612,9 +612,50 @@ index c7fd176..873728a 100644
 +std::mutex sOwner;
 +std::condition_variable sIdle;
 +// Thread roles by thread-local flags (01.49 used stack ranges).
-+thread_local bool tWorker = false;
-+thread_local bool tGame = false;
++// Thread roles by stack range: thread_local goes through __emutls_get_address on
++// the Vita, and these checks run on every renderer access and every GXEnd.
++struct StackRange {
++  uintptr_t low = 0, high = 0;
++  bool contains(uintptr_t sp) const { return sp - low < high - low; }
++};
++StackRange sWorkerStack, sGameStack;
 +bool sGameKnown = false;
++
++inline uintptr_t current_sp() {
++  const char probe = 0;
++  return reinterpret_cast<uintptr_t>(&probe);
++}
++
++StackRange thread_stack() {
++  StackRange range;
++#ifdef __vita__
++  SceKernelThreadInfo info{};
++  info.size = sizeof(info);
++  if (sceKernelGetThreadInfo(sceKernelGetThreadId(), &info) >= 0) {
++    range.low = reinterpret_cast<uintptr_t>(info.stack);
++    range.high = range.low + info.stackSize;
++  }
++#endif
++  if (!range.contains(current_sp())) {
++    Log.warn("GX thread: no stack range for this thread");
++    range = {};
++  }
++  return range;
++}
++
++#ifdef __vita__
++SceUID sWorkerThid = -1;
++// If the kernel gave no stack range for the worker, fall back to its thread id.
++inline bool tWorkerFn() {
++  if (sWorkerStack.high != 0) return sWorkerStack.contains(current_sp());
++  return sWorkerThid >= 0 && sceKernelGetThreadId() == sWorkerThid;
++}
++#else
++inline bool tWorkerFn() { return false; }
++#endif
++inline bool tGameFn() { return sGameStack.contains(current_sp()); }
++#define tWorker tWorkerFn()
++#define tGame tGameFn()
 +std::atomic<int> sWorkerStage{0}; // 0 sleeping, 1 locking, 2 processing, 3 splitting, 9 not started
 +std::atomic<uint32_t> sWorkerAt{0};
 +#ifdef __vita__
@@ -632,7 +673,7 @@ index c7fd176..873728a 100644
 +  return 0;
 +#endif
 +}
- 
++
 +// Processes [from, to) of the FIFO buffer; partial batches split the staging set.
 +uint32_t process_range(uint32_t from, uint32_t to, std::atomic<uint32_t>* progress) {
 +  bool retried = false;
@@ -654,7 +695,8 @@ index c7fd176..873728a 100644
 +#ifdef __vita__
 +void* worker_main(void*) {
 +  VitaHostAllocScope hostAlloc; // the worker never allocates from game heaps
-+  tWorker = true;
++  sWorkerThid = sceKernelGetThreadId();
++  sWorkerStack = thread_stack();
 +  sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1);
 +  sceKernelChangeThreadPriority(sceKernelGetThreadId(), sWorkerPriority);
 +  Log.info("GX worker started");
@@ -721,7 +763,7 @@ index c7fd176..873728a 100644
 +void set_pipelined(bool enabled) { sPipelined = enabled; }
 +bool pipelined() { return sThreaded && sPipelined; }
 +bool threaded() { return sThreaded; }
-+
+ 
 +void producer_acquire() {
 +  if (!sThreaded || tWorker || sProducerOwns || foreign()) return;
 +  const uint64_t start = now_us();
@@ -807,12 +849,19 @@ index c7fd176..873728a 100644
 +}
 +
 +void init() {
-+  tGame = true; // GXInit runs on the game thread
-+  sGameKnown = true;
++  // GXInit runs on the game thread.
++  if (!sGameKnown) {
++    sGameStack = thread_stack();
++    sGameKnown = sGameStack.high != 0;
++    if (!sGameKnown && sThreaded) {
++      Log.warn("GX thread: game thread stack unknown; staying synchronous");
++      sThreaded = false;
++    }
++  }
    constexpr uint32_t initialCapacity = 64 * 1024;
    reset_cp_register_cache();
    free(detail::sBufferData);
-@@ -43,6 +268,8 @@ void init() {
+@@ -43,6 +317,8 @@ void init() {
  }
  
  void write_data_grow(const void* data, uint32_t length) {
@@ -821,7 +870,7 @@ index c7fd176..873728a 100644
  
    uint32_t needed = detail::sBufferSize + length;
    uint32_t newCap = std::max(detail::sBufferCapacity * 2, needed);
-@@ -88,6 +315,18 @@ void drain() {
+@@ -88,6 +364,18 @@ void drain() {
    // SEALED, not DONE.
    (void)aurora::wait_for_frame_worker_sealed();
  
@@ -840,7 +889,7 @@ index c7fd176..873728a 100644
    if (detail::sBufferSize == 0) {
      return;
    }
-@@ -119,6 +358,11 @@ void drain() {
+@@ -119,6 +407,11 @@ void drain() {
  const uint8_t* get_buffer_data() { return detail::sBufferData; }
  uint32_t get_buffer_size() { return detail::sBufferSize; }
  void clear_buffer() {
@@ -852,7 +901,7 @@ index c7fd176..873728a 100644
    detail::sBufferSize = 0;
  }
  
-@@ -128,3 +372,25 @@ void clear_buffer() {
+@@ -128,3 +421,25 @@ void clear_buffer() {
  // FIFO drains so far (the timer of 01.42-01.45 cost ~5% of the game thread).
  extern "C" unsigned long long aurora_vita_fifo_drain_us() { return aurora::gx::fifo::sDrainCalls; }
  #endif
