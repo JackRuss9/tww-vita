@@ -353,7 +353,16 @@ extern "C" void tww_vita_autores_note(uint64_t now_us, uint64_t wait_us)
 extern "C" bool tww_vita_audio_muted() { return g_audio == 0; }
 extern "C" bool tww_vita_title_sparkle() { return g_titleSparkle != 0; }
 extern "C" bool tww_vita_skip_intro() { return g_skipIntro != 0; }
-extern "C" int tww_vita_icon_single_texture() { return g_iconFix; }
+// Called only for pictures the fix applies to: the first ones are logged.
+extern "C" int tww_vita_icon_single_texture()
+{
+    static int logged;
+    if (logged < 3) {
+        ++logged;
+        pc::writef(2, "vita-icon-fix picture %d (fix %s)\n", logged, g_iconFix ? "on" : "off");
+    }
+    return g_iconFix;
+}
 
 extern "C" void tww_vita_aspect_setup()
 {

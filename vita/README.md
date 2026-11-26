@@ -570,6 +570,15 @@ a 16:9 target (960x540 at 100%) and presents it across the screen.
   Whether it shows the icons tells if the fault is in sampling a palette
   texture on texmap 1 or in the texture itself.
 
+## 01.66: icon trace
+
+01.65's BUTTON ICON FIX did not bring the icons back. 01.66 applies it whenever
+the colour blend gives the second texture all the weight, logs the first
+pictures it applies to (`vita-icon-fix`), and logs the whole GX draw state
+(TEV stages, konstant and register colours, blending, alpha test, textures)
+of the first draws that sample a 24x24 C4 texture with two or more TEV
+stages (`icon-draw`).
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)
