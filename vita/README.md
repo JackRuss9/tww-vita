@@ -494,6 +494,14 @@ dwarfed their bodies. With GX THREAD the game thread is pinned to core 0.
 instead of `thread_local` (each access was a call to `__emutls_get_address`),
 falling back to the thread id if the kernel gives no range.
 
+## 01.58: worker round 1
+
+- Matrix loads (position, normal, texture, post-transform) that rewrite the
+  same bits no longer mark the draw state dirty, so J3D's repeated matrix loads
+  between shapes stop ending merged draws.
+- Palette textures (C4/C8/C14X2) use the per-frame texture identity cache; the
+  identity now includes the TLUT loaded in the texture's slot.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)
