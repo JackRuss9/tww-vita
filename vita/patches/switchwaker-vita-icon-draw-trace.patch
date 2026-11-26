@@ -1,0 +1,63 @@
+diff --git a/game/include/JSystem/J2DGraph/J2DPicture.h b/game/include/JSystem/J2DGraph/J2DPicture.h
+index a8af95ad..81f0acac 100644
+--- a/game/include/JSystem/J2DGraph/J2DPicture.h
++++ b/game/include/JSystem/J2DGraph/J2DPicture.h
+@@ -99,6 +99,13 @@ public:
+         setBlendColorRatio(f1, f2, f3, f4);
+         setBlendAlphaRatio(f1, f2, f3, f4);
+     }
++#if defined(TWW_VITA_BOOT)
++    // Vita icon trace (vita_runtime_hooks.cpp).
++    u8 vitaNumTexture() const { return mNumTexture; }
++    u32 vitaBlendKonst() const { return u32(mBlendKonstColor); }
++    u32 vitaBlendKonstAlpha() const { return u32(mBlendKonstAlpha); }
++    u8 vitaAlpha() const { return mAlpha; }
++#endif
+     const JUtility::TColor& getWhite() const { return mColorWhite; }
+     bool setWhite(JUtility::TColor white) { mColorWhite = white; return true; }
+     const JUtility::TColor& getBlack() const { return mColorBlack; }
+diff --git a/game/src/f_op/f_op_msg_mng.cpp b/game/src/f_op/f_op_msg_mng.cpp
+index 58641352..4968c431 100644
+--- a/game/src/f_op/f_op_msg_mng.cpp
++++ b/game/src/f_op/f_op_msg_mng.cpp
+@@ -1005,6 +1005,14 @@ GXColor fopMsgM_outFontColorWhite(int i_no) {
+ }
+ 
+ /* 8002C6D8-8002C9B0       .text fopMsgM_outFontSet__FP10J2DPictureP10J2DPicturePsUlUc */
++#if defined(TWW_VITA_BOOT) && defined(TARGET_PC)
++extern "C" void tww_vita_icon_log(int icon, const char* name, J2DPicture* pic);
++extern "C" void tww_vita_icon_draw_log(int icon, J2DPicture* pic, int x, int y, int size);
++#define TWW_VITA_ICON_LOG(icon, pic) tww_vita_icon_log(icon, fopMsgM_buttonTex[icon], pic)
++#else
++#define TWW_VITA_ICON_LOG(icon, pic)
++#endif
++
+ void fopMsgM_outFontSet(J2DPicture* i_iconPic, J2DPicture* i_sdwPic, s16* i_timer, u32 i_color, u8 i_iconNo) {
+     // Convert special icon numbers to indexes into fopMsgM_buttonTex/fopMsgM_buttonW.
+     if (i_iconNo == fopMsgM_Icon_FLASHING_A_BUTTON_2_e) {
+@@ -1045,6 +1053,7 @@ void fopMsgM_outFontSet(J2DPicture* i_iconPic, J2DPicture* i_sdwPic, s16* i_time
+     i_sdwPic->setBlack(0x00000000);
+     i_iconPic->setBlendRatio(0.0f, 1.0f, 1.0f, 1.0f);
+     i_sdwPic->setBlendRatio(0.0f, 1.0f, 1.0f, 1.0f);
++    TWW_VITA_ICON_LOG(i_iconNo, i_iconPic);
+ 
+     *i_timer = 0;
+ }
+@@ -1085,6 +1094,7 @@ void fopMsgM_outFontSet(J2DPicture* i_iconPic, s16* i_timer, u32 i_color, u8 i_i
+     }
+ 
+     i_iconPic->setBlendRatio(0.0f, 1.0f, 1.0f, 1.0f);
++    TWW_VITA_ICON_LOG(i_iconNo, i_iconPic);
+ 
+     *i_timer = 0;
+ }
+@@ -1415,6 +1425,9 @@ void fopMsgM_outFontDraw(J2DPicture* i_iconPic, J2DPicture* i_sdwPic, int param_
+         break;
+     }
+ 
++#if defined(TWW_VITA_BOOT) && defined(TARGET_PC)
++    tww_vita_icon_draw_log(i_iconNo, i_iconPic, param_3, param_4 - 1 + g_msgHIO.field_0x6a, param_5);
++#endif
+     i_sdwPic->draw(param_3 + 2, param_4 + 1 + g_msgHIO.field_0x6a, param_5, param_5, false, false, false);
+     i_iconPic->draw(param_3, param_4 - 1 + g_msgHIO.field_0x6a, param_5, param_5, false, false, false);
+ 

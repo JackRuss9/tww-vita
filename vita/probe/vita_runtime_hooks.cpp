@@ -288,3 +288,19 @@ extern "C" void tww_vita_icon_log(int icon, const char *name, J2DPicture *pic)
                    info->indexTexture, info->colorFormat, unsigned(u16(info->numColors)), info->mipmapCount);
     }
 }
+
+// What a message icon picture holds when it is drawn, once per icon number;
+// it also arms the renderer's trace of the draws that follow.
+extern "C" void aurora_vita_arm_icon_trace();
+extern "C" void tww_vita_icon_draw_log(int icon, J2DPicture *pic, int x, int y, int size)
+{
+    static uint64_t logged[2];
+    if (!pic || icon < 0 || icon >= 128 || (logged[icon / 64] & (1ull << (icon % 64))))
+        return;
+    logged[icon / 64] |= 1ull << (icon % 64);
+    pc::writef(2, "vita-icon-draw %d textures=%u konst=%08x konstA=%08x alpha=%u visible=%d at %d,%d size %d white=%08x black=%08x\n",
+               icon, unsigned(pic->vitaNumTexture()), unsigned(pic->vitaBlendKonst()), unsigned(pic->vitaBlendKonstAlpha()),
+               unsigned(pic->vitaAlpha()), pic->isVisible() ? 1 : 0, x, y, size, unsigned(u32(pic->getWhite())),
+               unsigned(u32(pic->getBlack())));
+    aurora_vita_arm_icon_trace();
+}
