@@ -41,9 +41,10 @@ void *thread_launch(OSThread *) { return JKRHeap::getCurrentHeap(); }
 void thread_start(OSThread *, void *heap)
 {
     JKRHeap::sCurrentHeap = static_cast<JKRHeap *>(heap);
-    // The game's own threads (audio, DVD, decompression, card) share core 2, so
-    // core 0 stays the game thread's and core 1 the GX worker's.
-    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_2);
+    // The game's own threads (audio, DVD, decompression, card) may run on any core:
+    // they would otherwise inherit the game thread's core 0. Pinned to one core
+    // together (01.60) the audio threads' DSP boot hung.
+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_ALL);
 }
 
 void logv(SceUID log, const char *format, va_list arguments)
@@ -105,8 +106,11 @@ void discMessage(const char *format, ...)
 [[noreturn]] void exitDisc() { pc_exit(PC_EXIT_DISC); }
 }
 
+extern "C" void tww_vita_watchdog_note(const char *milestone);
+
 extern "C" void pc_milestone(const char *name)
 {
+    tww_vita_watchdog_note(name);
     probe_log(game_log, "%s\n", name);
     if (game_log >= 0)
         sceIoSyncByFd(game_log, 0);

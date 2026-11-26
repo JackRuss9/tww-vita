@@ -481,7 +481,7 @@ index 937ebeb3..a96db80e 100644
      if (aram == nullptr) {
          Fatal("ARStartDMA(type %u, main 0x%08x, aram 0x%08x, length 0x%x): the ARAM range is not "
 diff --git a/native/sdk/src/audio/AI.cpp b/native/sdk/src/audio/AI.cpp
-index 0f7bcdbf..069a1ad8 100644
+index 0f7bcdbf..66cf2208 100644
 --- a/native/sdk/src/audio/AI.cpp
 +++ b/native/sdk/src/audio/AI.cpp
 @@ -76,6 +76,9 @@
@@ -519,19 +519,20 @@ index 0f7bcdbf..069a1ad8 100644
      if (OSBaseAddress != 0 && u64(address) + size <= mem1Size) {
          return static_cast<const u8*>(OSPhysicalToCached(u32(address)));
      }
-@@ -293,6 +305,10 @@ void StepLocked(std::vector<s16>& out) {
+@@ -293,6 +305,11 @@ void StepLocked(std::vector<s16>& out) {
  }
  
  void* DmaThreadMain(void*) {
 +#if defined(__vita__)
-+    // tww-vita: audio runs on core 2 (the game thread has core 0, the GX worker core 1).
-+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_2);
++    // tww-vita: any core. Pinned to one core with the game's audio threads (01.60) the
++    // DSP boot hung: a thread waiting on another one of the same core never let it run.
++    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_ALL);
 +#endif
      u32 hz;
      u32 dumpInitCount = 0; // AIInit's count the dump was opened for
      {
 diff --git a/native/sdk/src/audio/DSP.cpp b/native/sdk/src/audio/DSP.cpp
-index 5dd3f8a3..c04432c7 100644
+index 5dd3f8a3..efe4fa7b 100644
 --- a/native/sdk/src/audio/DSP.cpp
 +++ b/native/sdk/src/audio/DSP.cpp
 @@ -52,6 +52,9 @@
@@ -578,13 +579,14 @@ index 5dd3f8a3..c04432c7 100644
  }
  
  u16 ReadControlLocked() {
-@@ -215,6 +227,10 @@ unsigned IntGapUs() {
+@@ -215,6 +227,11 @@ unsigned IntGapUs() {
  }
  
  void* InterruptThreadMain(void*) {
 +#if defined(__vita__)
-+    // tww-vita: audio runs on core 2 (the game thread has core 0, the GX worker core 1).
-+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_2);
++    // tww-vita: any core. Pinned to one core with the game's audio threads (01.60) the
++    // DSP boot hung: a thread waiting on another one of the same core never let it run.
++    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_ALL);
 +#endif
      {
          std::lock_guard<std::mutex> os(Lock());

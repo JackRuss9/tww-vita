@@ -526,6 +526,19 @@ a 16:9 target (960x540 at 100%) and presents it across the screen.
 - `TITLE SPARKLE`: the logo's sparkle (particle and `mModel_kirari`), cut by an
   earlier build because it crashed, is back as a live option.
 
+## 01.61 / 01.62: audio boot fixes
+
+- 01.61: the SDK audio code read MEM1 size from aurora-up's `AuroraConfig`, whose
+  layout differs from the mh3 Aurora the game links; `tww_vita_mem1_size()` now
+  supplies 128 MiB.
+- 01.62: the DSP interrupt and AI DMA threads, and every game thread started
+  through the thread_start hook, may run on any user core
+  (`SCE_KERNEL_CPU_MASK_USER_ALL`). Pinned together on one core, the DSPHLE boot
+  hung with a black screen.
+- 01.62: a watchdog thread logs `vita-watchdog no frame ended for N s` with the
+  last milestone when no frame ends for 15 s, so a log tells a hang from a slow
+  load.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)

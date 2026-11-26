@@ -1,3 +1,7 @@
+#include <pthread.h>
+#include <atomic>
+#include <psp2/io/fcntl.h>
+#include <psp2/kernel/threadmgr.h>
 #include "gpu.h"
 #include "pc/pc_harness.h"
 
@@ -143,8 +147,54 @@ extern "C" void pc_frame_begin()
     pc_exit(1);
 }
 
+// Watchdog: a frame that does not end within 15 s is logged, so a black screen
+// in a log tells a hang (no lines) from slow work (shader compiles, loads).
+static std::atomic<unsigned> g_framesEnded{0};
+static std::atomic<const char*> g_lastMilestone{"start"};
+
+extern "C" void tww_vita_watchdog_note(const char* milestone) { g_lastMilestone.store(milestone); }
+
+static void* watchdog_main(void*)
+{
+    unsigned last = g_framesEnded.load();
+    unsigned stalled = 0;
+    for (;;) {
+        sceKernelDelayThread(5 * 1000 * 1000);
+        const unsigned now = g_framesEnded.load();
+        if (now != last) {
+            last = now;
+            stalled = 0;
+            continue;
+        }
+        stalled += 5;
+        if (stalled >= 15 && stalled % 15 == 0) {
+            probe_log(boot_log, "vita-watchdog no frame ended for %u s (frames=%u, last milestone %s)\n", stalled, now,
+                      g_lastMilestone.load());
+            if (boot_log >= 0)
+                sceIoSyncByFd(boot_log, 0);
+        }
+    }
+    return nullptr;
+}
+
+static void start_watchdog()
+{
+    static bool started;
+    if (started)
+        return;
+    started = true;
+    pthread_t thread;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, 16 * 1024);
+    pthread_create(&thread, &attr, watchdog_main, nullptr);
+    pthread_attr_destroy(&attr);
+}
+
 extern "C" void pc_frame_end()
 {
+    g_framesEnded.fetch_add(1);
+    start_watchdog();
     aurora::VitaHostAllocScope host_alloc;
     if (!first_frame_submitted)
         pc_milestone("vita-first-frame-submit-begin");
