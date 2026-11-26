@@ -1,0 +1,50 @@
+diff --git a/game/src/JSystem/J2DGraph/J2DPicture.cpp b/game/src/JSystem/J2DGraph/J2DPicture.cpp
+index b5e0d994..e1f98a6c 100644
+--- a/game/src/JSystem/J2DGraph/J2DPicture.cpp
++++ b/game/src/JSystem/J2DGraph/J2DPicture.cpp
+@@ -237,8 +237,29 @@ void J2DPicture::drawSelf(f32 x, f32 y, Mtx* mtx) {
+     drawFullSet(mGlobalBounds.i.x + x, mGlobalBounds.i.y + y, mBounds.getWidth(), mBounds.getHeight(), J2DBinding(mBinding), getMirror(), isTumble(), mtx);
+ }
+ 
++#if defined(TWW_VITA_BOOT) && defined(TARGET_PC)
++// Vita: a picture whose blend puts all weight on its second texture (the
++// message button icons) draws as a gap there. Such a picture looks the same
++// with that texture alone, so it is drawn that way: the texture on texmap 0.
++extern "C" int tww_vita_icon_single_texture();
++#define TWW_VITA_DRAW_LAST_TEXTURE_ALONE(call)                                                             \
++    if (mNumTexture == 2 && mBlendKonstColor.a == 0xff && mBlendKonstAlpha.a == 0xff &&                   \
++        tww_vita_icon_single_texture()) {                                                                  \
++        JUTTexture* first = mpTexture[0];                                                                  \
++        mpTexture[0] = mpTexture[1];                                                                       \
++        mNumTexture = 1;                                                                                   \
++        call;                                                                                              \
++        mpTexture[0] = first;                                                                              \
++        mNumTexture = 2;                                                                                   \
++        return;                                                                                            \
++    }
++#else
++#define TWW_VITA_DRAW_LAST_TEXTURE_ALONE(call)
++#endif
++
+ /* 802D3D54-802D4074       .text drawFullSet__10J2DPictureFffff10J2DBinding9J2DMirrorbPA3_A4_f */
+ void J2DPicture::drawFullSet(f32 x, f32 y, f32 width, f32 height, J2DBinding binding, J2DMirror mirror, bool rotate90, Mtx* mtx) {
++    TWW_VITA_DRAW_LAST_TEXTURE_ALONE(drawFullSet(x, y, width, height, binding, mirror, rotate90, mtx))
+     bool bindLeft;
+     bool bindRight;
+     bool bindTop;
+@@ -336,6 +357,7 @@ void J2DPicture::draw(f32 x, f32 y, f32 width, f32 height, bool mirrorX, bool mi
+     if (!mVisible) {
+         return;
+     }
++    TWW_VITA_DRAW_LAST_TEXTURE_ALONE(draw(x, y, width, height, mirrorX, mirrorY, rotate90))
+     for (u8 i = 0; i < mNumTexture; i++) {
+         if (i < mNumTexture) {
+             load(i);
+@@ -400,6 +422,7 @@ void J2DPicture::drawOut(const JGeometry::TBox2<f32>& posBox, const JGeometry::T
+     if (!mVisible) {
+         return;
+     }
++    TWW_VITA_DRAW_LAST_TEXTURE_ALONE(drawOut(posBox, texRect))
+     for (u8 i = 0; i < mNumTexture; i++) {
+         if (i < mNumTexture) {
+             load(i);

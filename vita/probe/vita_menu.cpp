@@ -39,6 +39,8 @@ volatile int g_autoPercent = 100; // AUTO's current choice
 volatile int g_floatTev = 1;     // read at start-up
 volatile int g_audio = 1;        // read at start-up
 volatile int g_titleSparkle = 1; // live
+volatile int g_iconFix = 1;      // live: J2DPicture draws a fully blended second texture alone
+volatile int g_skipIntro = 0;    // read at start-up: 1 skips the legend and the prologue
 volatile int g_aspect = 1;       // read at start-up: 0 4:3, 1 16:9
 volatile int g_asyncShaders = 1; // live: 1 new shaders compile in the background
 volatile int g_gxThread = 1;     // read at start-up: 0 off, 1 on, 2 full
@@ -77,6 +79,8 @@ const Item kItems[] = {
     {"resolution", "RESOLUTION", &g_resolution, kScales, 7, PERCENT, 0},
     {"float_tev", "FAST COLOUR MIXING (NEXT START)", &g_floatTev, kOnOff, 2, ON_OFF, 1},
     {"audio", "AUDIO (NEXT START)", &g_audio, kOnOff, 2, ON_OFF, 1},
+    {"icon_fix", "BUTTON ICON FIX", &g_iconFix, kOnOff, 2, ON_OFF, 1},
+    {"skip_intro", "SKIP INTRO (NEXT START)", &g_skipIntro, kOnOff, 2, ON_OFF, 0},
     {"title_sparkle", "TITLE SPARKLE", &g_titleSparkle, kOnOff, 2, ON_OFF, 1},
     {"aspect", "SCREEN (NEXT START)", &g_aspect, kOnOff, 2, ASPECT, 1},
     {"fast_grass", "FAST GRASS", &tww_vita_fast_grass_enabled, kOnOff, 2, ON_OFF, 1},
@@ -289,7 +293,7 @@ extern "C" void tww_vita_settings_load()
     aurora_vita_set_async_shaders(g_asyncShaders);
     g_appliedResolution = g_resolution ? g_resolution : g_autoPercent;
     aurora_vita_overlay_hook = draw_menu;
-    pc::writef(2, "vita-settings resolution=%d audio=%d aspect=%s float_tev=%d gx_thread=%d async_shaders=%d show_fps=%d\n", g_resolution, g_audio, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_asyncShaders, g_showFps);
+    pc::writef(2, "vita-settings resolution=%d audio=%d aspect=%s float_tev=%d gx_thread=%d async_shaders=%d skip_intro=%d show_fps=%d\n", g_resolution, g_audio, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_asyncShaders, g_skipIntro, g_showFps);
 }
 
 // Each frame's wait for a free GPU slot (game thread, after admission).
@@ -348,6 +352,8 @@ extern "C" void tww_vita_autores_note(uint64_t now_us, uint64_t wait_us)
 // Read by the game's audio code (SwitchWaker patched so muting is a run-time choice).
 extern "C" bool tww_vita_audio_muted() { return g_audio == 0; }
 extern "C" bool tww_vita_title_sparkle() { return g_titleSparkle != 0; }
+extern "C" bool tww_vita_skip_intro() { return g_skipIntro != 0; }
+extern "C" int tww_vita_icon_single_texture() { return g_iconFix; }
 
 extern "C" void tww_vita_aspect_setup()
 {

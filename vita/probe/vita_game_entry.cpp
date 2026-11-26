@@ -126,6 +126,7 @@ extern "C" void probe_scheduler_diagnostic(const char *message, bool fatal)
 extern "C" void tww_vita_settings_load();
 extern "C" void tww_vita_aspect_setup();
 extern "C" bool tww_vita_audio_muted();
+extern "C" bool tww_vita_skip_intro();
 
 extern "C" void pc_harness_init(int, char **)
 {
@@ -134,8 +135,9 @@ extern "C" void pc_harness_init(int, char **)
     tww_vita_aspect_setup();
     pc::gConfig.audio = !tww_vita_audio_muted();
     pc::gConfig.disc = DiscPath;
-    pc_qol_set("COS_QOL_SKIP_INTRO", "1");
-    pc_milestone("vita-opening-legend-skip-enabled");
+    // The legend and the Outset prologue play unless SKIP INTRO is on.
+    pc_qol_set("COS_QOL_SKIP_INTRO", tww_vita_skip_intro() ? "1" : "0");
+    pc_milestone(tww_vita_skip_intro() ? "vita-opening-legend-skip-enabled" : "vita-opening-legend-plays");
 }
 
 extern "C" OSThread *pc_main_thread()
