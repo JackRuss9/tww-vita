@@ -552,6 +552,13 @@ a 16:9 target (960x540 at 100%) and presents it across the screen.
   caused the multi-second frames of the title screen. The first start of this
   version builds the index, so graphics may appear gradually that once.
 
+## 01.64: no black band at the bottom
+
+- Aurora keeps GX's 640x528 EFB (games use the rows under the picture as
+  scratch), but TWW shows 480 of them. The Vita presented the whole EFB, so
+  the bottom ~9% of the screen was black. The EFB target is now 528/480 taller
+  and presentation pushes the scratch rows below the screen.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)

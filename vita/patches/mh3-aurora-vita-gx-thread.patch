@@ -540,6 +540,21 @@ index 9a79dad..0f75960 100644
    }
  }
  
+diff --git a/aurora-main/lib/gl/device.cpp b/aurora-main/lib/gl/device.cpp
+index f274f82..e50da77 100644
+--- a/aurora-main/lib/gl/device.cpp
++++ b/aurora-main/lib/gl/device.cpp
+@@ -176,6 +176,10 @@ void resize_swapchain(uint32_t width, uint32_t height, uint32_t native_width, ui
+   }
+ 
+ #ifdef TWW_GXM_RUNTIME_SHADERS
++  // The EFB is 528 rows of which the game shows 480 (the rest is GX scratch):
++  // size the target so the shown rows, not the whole EFB, fill the screen.
++  if (const auto visible = vi::visible_fb_size(); visible.y != 0 && efbSize.y > visible.y)
++    render_height = std::max(render_height, uint32_t((uint64_t(height) * efbSize.y + visible.y - 1) / visible.y));
+   // GX coordinates still use the original EFB, including its scratch rows.
+   // Scale the backing targets here while keeping scanout at the native size.
+   render_width = std::max(1u, (render_width * g_vitaEfbScalePercent + 99) / 100);
 diff --git a/aurora-main/lib/gl/gl.hpp b/aurora-main/lib/gl/gl.hpp
 index dbb8aec..8f28927 100644
 --- a/aurora-main/lib/gl/gl.hpp
@@ -1202,7 +1217,7 @@ index fe68417..8182ba5 100644
  } // namespace aurora::gx
  
 diff --git a/aurora-main/lib/gxm/renderer.cpp b/aurora-main/lib/gxm/renderer.cpp
-index 3219bb3..dc12ae8 100644
+index 3219bb3..80e7552 100644
 --- a/aurora-main/lib/gxm/renderer.cpp
 +++ b/aurora-main/lib/gxm/renderer.cpp
 @@ -1,3 +1,4 @@
@@ -1210,7 +1225,15 @@ index 3219bb3..dc12ae8 100644
  #include "../gl/gl.hpp"
  #ifdef TWW_GXM_RUNTIME_SHADERS
  #include "../gl/device.hpp"
-@@ -1231,7 +1232,13 @@ bool initialized() noexcept {
+@@ -14,6 +15,7 @@
+ #include "device.hpp"
+ #ifdef MH3_DEVELOPMENT
+ #include "runtime_shader.hpp"
++#include "../dolphin/vi/vi_internal.hpp"
+ #endif
+ #include <aurora/native_frame_gate.hpp>
+ #include "draw_memory.hpp"
+@@ -1231,7 +1233,13 @@ bool initialized() noexcept {
  
  bool on_render_thread() noexcept {
    const char probe = 0;
@@ -1225,7 +1248,7 @@ index 3219bb3..dc12ae8 100644
  }
  
  // The libgxm context has one owner at a time: the game thread until the
-@@ -1510,6 +1517,9 @@ GLuint Program::get() noexcept {
+@@ -1510,6 +1518,9 @@ GLuint Program::get() noexcept {
  #ifdef MH3_DEVELOPMENT
      // Sources for the development compiler, which serves only bank misses.
      register_runtime_shader_sources(m_vertexHash, m_fragmentHash, m_desc.vertex, m_desc.fragment, m_desc.origin.empty() ? m_desc.label : m_desc.origin + "; " + m_desc.label, m_desc.cg);
@@ -1235,6 +1258,19 @@ index 3219bb3..dc12ae8 100644
  #endif
      const auto* binary = fragment_binary(m_fragmentHash);
      m_usesDiscard = sceGxmProgramIsDiscardUsed(binary);
+@@ -2223,7 +2234,11 @@ void present(const TexturePtr& source, int32_t x, int32_t y, int32_t width, int3
+       apply_raster({}, r.device.context());
+       r.plain();
+       r.presentProgram.bind(blend_info({}, {}));
+-      const float region[4]{-1.f, 1.f, 2.f, -2.f}, depth = 0.f;
++      // The EFB's GX scratch rows under the shown 480 fall below the viewport.
++      float shown = 1.f;
++      if (const auto efb = vi::configured_fb_size(), visible = vi::visible_fb_size(); visible.y != 0 && efb.y > visible.y)
++        shown = float(visible.y) / float(efb.y);
++      const float region[4]{-1.f, 1.f, 2.f, -2.f / shown}, depth = 0.f;
+       r.presentProgram.set_vertex_uniform("region", region, 4);
+       r.presentProgram.set_vertex_uniform("depth", &depth, 1);
+       r.texture(source->gl()).note_gpu_use();
 diff --git a/aurora-main/lib/gxm/runtime_shader.cpp b/aurora-main/lib/gxm/runtime_shader.cpp
 index 6ae7459..be6459f 100644
 --- a/aurora-main/lib/gxm/runtime_shader.cpp
