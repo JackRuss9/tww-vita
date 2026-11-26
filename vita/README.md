@@ -597,6 +597,14 @@ sampled one transparent corner texel. Integer writes now keep their low bits
 as the hardware does. The 01.65 single-texture workaround and its menu entry
 are gone.
 
+## 01.69: GPU pass counters and a profiling build
+
+GX THREAD FULL (01.68 test) gained nothing: the worker's translation is the
+limit outside (~100-140 ms a frame for ~800 draws) and close to it inside.
+01.69 adds `vita-gpu-per-frame-x10` (GPU scenes, their pixels, depth
+loads/stores, EFB-to-texture copies, all per frame times ten) to the 10 s
+lines, and ships with a profiling build of the same version.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)

@@ -168,10 +168,16 @@ index bf22212..04072a3 100644
    aurora::gx::fifo::drain();
    aurora::gx::fifo::process(static_cast<const u8*>(data), nbytes, true);
 diff --git a/aurora-main/lib/dolphin/gx/GXFrameBuffer.cpp b/aurora-main/lib/dolphin/gx/GXFrameBuffer.cpp
-index c69079c..c409c2a 100644
+index c69079c..82ed5da 100644
 --- a/aurora-main/lib/dolphin/gx/GXFrameBuffer.cpp
 +++ b/aurora-main/lib/dolphin/gx/GXFrameBuffer.cpp
-@@ -19,6 +19,62 @@
+@@ -1,4 +1,5 @@
+ #ifdef TWW_GXM_RUNTIME_SHADERS
++#include <atomic>
+ #include <aurora/vita_host_alloc.hpp>
+ #endif
+ #include "gx.hpp"
+@@ -19,6 +20,62 @@
  #include <cstdlib>
  
  namespace {
@@ -234,7 +240,7 @@ index c69079c..c409c2a 100644
  struct CopyClearState {
    bool clearColor = false;
    bool clearAlpha = false;
-@@ -335,44 +391,61 @@ void GXAdjustForOverscan(GXRenderModeObj* rmin, GXRenderModeObj* rmout, u16 hor,
+@@ -335,44 +392,61 @@ void GXAdjustForOverscan(GXRenderModeObj* rmin, GXRenderModeObj* rmout, u16 hor,
  }
  
  void GXSetDispCopySrc(u16 left, u16 top, u16 wd, u16 ht) {
@@ -309,7 +315,7 @@ index c69079c..c409c2a 100644
  }
  
  void GXSetCopyClear(GXColor color, u32 depth) {
-@@ -399,54 +472,72 @@ void GXSetCopyClear(GXColor color, u32 depth) {
+@@ -399,54 +473,74 @@ void GXSetCopyClear(GXColor color, u32 depth) {
  }
  
  void GXSetCopyFilter(GXBool aa, u8 sample_pattern[12][2], GXBool vf, u8 vfilter[7]) {
@@ -374,6 +380,8 @@ index c69079c..c409c2a 100644
  
 +static void copy_disp_impl(void* dest, GXBool clear);
 +static void copy_tex_impl(void* dest, GXBool clear);
++static std::atomic<unsigned long long> g_vitaTexCopies{0}; // tww-vita frame statistics
++extern "C" unsigned long long aurora_vita_tex_copies() { return g_vitaTexCopies.load(); }
 +
  void GXCopyDisp(void* dest, GXBool clear) {
 +  if (queue_copies()) {
@@ -401,7 +409,7 @@ index c69079c..c409c2a 100644
    const auto rect = aurora::gx::map_logical_scissor(g_gxState.dispCopySrc);
    const auto logicalDstWidth =
        std::max<u32>(g_gxState.dispCopyDstWidth != 0 ? g_gxState.dispCopyDstWidth : static_cast<u32>(g_gxState.dispCopySrc.width), 1);
-@@ -476,6 +567,13 @@ void GXCopyDisp(void* dest, GXBool clear) {
+@@ -476,6 +570,13 @@ void GXCopyDisp(void* dest, GXBool clear) {
  }
  
  void GXCopyTex(void* dest, GXBool clear) {
@@ -415,7 +423,7 @@ index c69079c..c409c2a 100644
  #ifdef TWW_GXM_RUNTIME_SHADERS
    // The sealed frame and copy caches can retain these allocations after a scene heap is destroyed.
    aurora::VitaHostAllocScope hostAlloc;
-@@ -484,6 +582,10 @@ void GXCopyTex(void* dest, GXBool clear) {
+@@ -484,6 +585,11 @@ void GXCopyTex(void* dest, GXBool clear) {
    if (aurora::gx::fifo::get_buffer_size() != 0) {
      aurora::gx::fifo::drain();
    }
@@ -423,6 +431,7 @@ index c69079c..c409c2a 100644
 +}
 +
 +static void copy_tex_impl(void* dest, GXBool clear) {
++  g_vitaTexCopies.fetch_add(1, std::memory_order_relaxed);
    const auto sourceRect = map_texture_copy_source(g_gxState.texCopySrc, g_gxState.texCopySrcRenderSpace);
    const auto rect = sourceRect.clearRect;
    // Keep guest dimensions for cache identity while preserving scaled GPU detail.
@@ -1322,6 +1331,38 @@ index fe68417..8182ba5 100644
  }
  } // namespace aurora::gx
  
+diff --git a/aurora-main/lib/gxm/device.cpp b/aurora-main/lib/gxm/device.cpp
+index 26af41f..4059bf1 100644
+--- a/aurora-main/lib/gxm/device.cpp
++++ b/aurora-main/lib/gxm/device.cpp
+@@ -444,9 +444,17 @@ void Device::release() noexcept {
+ #endif
+ }
+ 
++// tww-vita frame statistics: GPU scenes, their pixels, and those whose
++// depth is loaded or stored (each costs a full-target memory pass).
++std::atomic<unsigned long long> g_vitaScenes{0}, g_vitaScenePixels{0}, g_vitaDepthPasses{0};
++
+ void Device::begin(uint32_t width, uint32_t height, const SceGxmColorSurface* color, const SceGxmDepthStencilSurface* depth, SceGxmSyncObject* sync,
+                    DepthScene depthScene, SceGxmMultisampleMode multisample) {
+   end();
++  g_vitaScenes.fetch_add(1, std::memory_order_relaxed);
++  g_vitaScenePixels.fetch_add(uint64_t(width) * height, std::memory_order_relaxed);
++  if (depth)
++    g_vitaDepthPasses.fetch_add(uint64_t(depthScene.load) + uint64_t(depthScene.store), std::memory_order_relaxed);
+   const auto key = std::make_tuple(width, height, multisample);
+   auto found = m_targets.find(key);
+ 
+@@ -847,3 +855,9 @@ void PatchedProgram::set_fragment_uniform(const char* name, const float* values,
+   check(sceGxmSetUniformDataF(m_fragmentDefault, parameter, 0, count, values), "set fragment default");
+ }
+ } // namespace aurora::gxm
++
++extern "C" void aurora_vita_scene_totals(unsigned long long* scenes, unsigned long long* pixels, unsigned long long* depthPasses) {
++  *scenes = aurora::gxm::g_vitaScenes.load();
++  *pixels = aurora::gxm::g_vitaScenePixels.load();
++  *depthPasses = aurora::gxm::g_vitaDepthPasses.load();
++}
 diff --git a/aurora-main/lib/gxm/renderer.cpp b/aurora-main/lib/gxm/renderer.cpp
 index 3219bb3..80e7552 100644
 --- a/aurora-main/lib/gxm/renderer.cpp

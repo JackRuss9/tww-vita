@@ -191,6 +191,10 @@ static void start_watchdog()
     pthread_attr_destroy(&attr);
 }
 
+extern "C" void aurora_vita_scene_totals(unsigned long long *scenes, unsigned long long *pixels,
+                                         unsigned long long *depthPasses);
+extern "C" unsigned long long aurora_vita_tex_copies();
+
 extern "C" void pc_frame_end()
 {
     g_framesEnded.fetch_add(1);
@@ -256,6 +260,24 @@ extern "C" void pc_frame_end()
             previous_worker = worker;
             previous_wait = wait;
             previous_publishes = publishes;
+        }
+        {
+            // GPU passes per frame: scenes (each a full tile-memory load/store of
+            // its target), their size in thousands of pixels, depth loads and
+            // stores, and EFB-to-texture copies.
+            static unsigned long long previous_scenes, previous_pixels, previous_depth, previous_copies;
+            unsigned long long scenes, pixels, depth;
+            aurora_vita_scene_totals(&scenes, &pixels, &depth);
+            const unsigned long long copies = aurora_vita_tex_copies();
+            probe_log(boot_log, "vita-gpu-per-frame-x10 scenes=%lu kpixels=%lu depth_passes=%lu copies=%lu\n",
+                      static_cast<unsigned long>((scenes - previous_scenes) * 10 / submitted),
+                      static_cast<unsigned long>((pixels - previous_pixels) / submitted / 100),
+                      static_cast<unsigned long>((depth - previous_depth) * 10 / submitted),
+                      static_cast<unsigned long>((copies - previous_copies) * 10 / submitted));
+            previous_scenes = scenes;
+            previous_pixels = pixels;
+            previous_depth = depth;
+            previous_copies = copies;
         }
         for (unsigned i = 0; i < 7; ++i)
             previous_phase[i] = phase[i];
