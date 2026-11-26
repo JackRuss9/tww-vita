@@ -41,7 +41,7 @@ target_include_directories(switchwaker_assets PUBLIC
   "${TWW_SWITCHWAKER_ASSETS}/include"
   "${TWW_AURORA_DIR}/include")
 
-set(TWW_VITA_GAME_VERSION 01.59)
+set(TWW_VITA_GAME_VERSION 01.60)
 set(sw_game "${TWW_SWITCHWAKER_DIR}/game")
 set(sw_native "${TWW_SWITCHWAKER_DIR}/native")
 set(aurora_os "${TWW_AURORA_DIR}/lib/dolphin/os")
@@ -49,6 +49,9 @@ option(TWW_BUILD_GAME_OBJECTS "Enable ARM compilation of the SwitchWaker game mo
 option(TWW_BUILD_RUNTIME_DVD "Build Aurora's runtime DVD service on the Vita CISO reader" OFF)
 set(TWW_GXM_AURORA_DIR "" CACHE PATH "Aurora GXM checkout used to build against its GX ABI")
 set(TWW_GXM_BUILD_DIR "" CACHE PATH "Built static GXM Aurora and dependency archives")
+set(TWW_FMT_INCLUDE_DIR "/home/claude/fmt/include" CACHE PATH "fmt headers (Aurora's fmt)")
+set(TWW_ZLIB_INCLUDE_DIR "" CACHE STRING "zlib header directories (Aurora's zlib)")
+set(TWW_SDL_INCLUDE_DIR "" CACHE STRING "SDL3 header directories (Aurora's SDL)")
 set(TWW_VITASHARK_PREFIX "" CACHE PATH "VitaShaRK dependency prefix (optional if in VitaSDK)")
 
 if(TWW_BUILD_RUNTIME_DVD)
@@ -118,11 +121,32 @@ if(TWW_BUILD_GAME_OBJECTS)
   target_link_libraries(tww_vita_card PRIVATE tww_game_headers)
   file(GLOB_RECURSE runtime_sdk_sources CONFIGURE_DEPENDS
     "${sw_native}/sdk/src/*.c" "${sw_native}/sdk/src/*.cpp")
-  # This boot build uses the muted Vita audio adapter.
-  list(FILTER runtime_sdk_sources EXCLUDE REGEX "/sdk/src/audio/")
+  # Audio: cos_sdk's AI/DSP/DTK over Dolphin's DSP HLE (RecompCore, fetched by
+  # SwitchWaker's native/tools/fetch_recompcore.sh into ref/recompcore). Whether the
+  # game starts it is the AUDIO option of the Vita menu (tww_vita_audio_muted).
+  set(TWW_RECOMPCORE_DIR "${TWW_SWITCHWAKER_DIR}/ref/recompcore" CACHE PATH "RecompCore checkout (Dolphin DSP HLE)")
+  if(NOT EXISTS "${TWW_RECOMPCORE_DIR}/Source/Core/Core/HW/DSPHLE/UCodes/UCodes.cpp")
+    message(FATAL_ERROR "Fetch RecompCore first: ${TWW_SWITCHWAKER_DIR}/native/tools/fetch_recompcore.sh")
+  endif()
+  set(_dsphle "${TWW_RECOMPCORE_DIR}/Source/Core/Core/HW/DSPHLE")
+  file(GLOB _ucodes "${_dsphle}/UCodes/*.cpp")
+  add_library(tww_vita_dsp_hle STATIC
+    "${TWW_RECOMPCORE_DIR}/Source/Core/Core/DSP/DSPAccelerator.cpp"
+    "${_dsphle}/DSPHLE.cpp" "${_dsphle}/MailHandler.cpp" ${_ucodes}
+    "${sw_native}/dsp_hle/dsp_hle_backend.cpp" vita_dsp_common_shim.cpp)
+  target_include_directories(tww_vita_dsp_hle PUBLIC "${sw_native}/dsp_hle")
+  target_include_directories(tww_vita_dsp_hle PRIVATE
+    "${TWW_RECOMPCORE_DIR}/Source/Core" "${TWW_RECOMPCORE_DIR}/Source"
+    "${TWW_RECOMPCORE_DIR}/Externals" "${sw_native}/dsp_hle/generated"
+    "${TWW_FMT_INCLUDE_DIR}" ${TWW_ZLIB_INCLUDE_DIR})
+  target_compile_definitions(tww_vita_dsp_hle PRIVATE
+    _M_GENERIC=1 _DEFAULT_SOURCE __STDC_CONSTANT_MACROS __STDC_LIMIT_MACROS)
+  target_compile_features(tww_vita_dsp_hle PRIVATE cxx_std_23)
+  target_compile_options(tww_vita_dsp_hle PRIVATE -fno-strict-aliasing -fno-short-enums -w)
+
   add_library(tww_vita_sdk STATIC ${runtime_sdk_sources})
   target_sources(tww_vita_sdk PRIVATE
-    vita_pad.cpp vita_menu.cpp vita_runtime_hooks.cpp vita_muted_audio.cpp
+    vita_pad.cpp vita_menu.cpp vita_runtime_hooks.cpp
     $<$<BOOL:${TWW_VITA_PROFILE}>:${CMAKE_CURRENT_SOURCE_DIR}/vita_prof.cpp>
     "${aurora_os}/OSCache.cpp"
     "${sw_game}/src/dolphin/pad/Padclamp.c"
@@ -146,7 +170,8 @@ if(TWW_BUILD_GAME_OBJECTS)
     "${sw_native}/src/pc/features/pc_qol.cpp")
   target_include_directories(tww_vita_sdk PRIVATE "${sw_native}/src/pc")
   set_source_files_properties(vita_prof.cpp PROPERTIES COMPILE_OPTIONS -fno-instrument-functions)
-  target_link_libraries(tww_vita_sdk PRIVATE tww_game_headers PUBLIC pthread)
+  target_link_libraries(tww_vita_sdk PRIVATE tww_game_headers tww_vita_dsp_hle PUBLIC pthread)
+  target_include_directories(tww_vita_sdk PRIVATE ${TWW_SDL_INCLUDE_DIR})
   target_compile_definitions(tww_vita_sdk PRIVATE
     TWW_VITA_RUNTIME_SDK=1
     COS_AURORA_COMMIT_STR="3227d76c60e1e782ca576610bce61c9e7744d8be")
@@ -282,7 +307,7 @@ if(TWW_GXM_BUILD_DIR)
   target_link_libraries(switchwaker-vita PRIVATE
     -Wl,--start-group
     tww_vita_game_entry switchwaker_assets tww_vita_gxm_frames tww_vita_dvd
-    tww_vita_sdk tww_vita_card ${renderer_archives}
+    tww_vita_sdk tww_vita_card tww_vita_dsp_hle ${renderer_archives}
     vitashark SceShaccCgExt SceShaccCg_stub_weak taihen_stub pthread
     SceGxm_stub SceDisplay_stub SceCtrl_stub SceAppMgr_stub SceAppUtil_stub
     SceAudio_stub SceAudioIn_stub SceSysmodule_stub SceIofilemgr_stub

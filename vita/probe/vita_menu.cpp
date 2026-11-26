@@ -35,6 +35,8 @@ volatile int g_showFps = 1;
 volatile int g_resolution = 0;   // percent of the GX frame in each dimension (live); 0: AUTO
 volatile int g_autoPercent = 100; // AUTO's current choice
 volatile int g_floatTev = 1;     // read at start-up
+volatile int g_audio = 1;        // read at start-up
+volatile int g_titleSparkle = 1; // live
 volatile int g_aspect = 1;       // read at start-up: 0 4:3, 1 16:9
 volatile int g_gxThread = 1;     // read at start-up: 0 off, 1 on, 2 full
 int g_appliedResolution = -1;
@@ -71,6 +73,8 @@ const Item kItems[] = {
     {"show_fps", "SHOW FPS", &g_showFps, kOnOff, 2, ON_OFF, 1},
     {"resolution", "RESOLUTION", &g_resolution, kScales, 7, PERCENT, 0},
     {"float_tev", "FAST COLOUR MIXING (NEXT START)", &g_floatTev, kOnOff, 2, ON_OFF, 1},
+    {"audio", "AUDIO (NEXT START)", &g_audio, kOnOff, 2, ON_OFF, 1},
+    {"title_sparkle", "TITLE SPARKLE", &g_titleSparkle, kOnOff, 2, ON_OFF, 1},
     {"aspect", "SCREEN (NEXT START)", &g_aspect, kOnOff, 2, ASPECT, 1},
     {"fast_grass", "FAST GRASS", &tww_vita_fast_grass_enabled, kOnOff, 2, ON_OFF, 1},
     {"gx_thread", "GX THREAD (NEXT START)", &g_gxThread, kGxThread, 3, GX_MODE, 1},
@@ -277,7 +281,7 @@ extern "C" void tww_vita_settings_load()
     aurora_vita_set_gx_thread(g_gxThread);
     g_appliedResolution = g_resolution ? g_resolution : g_autoPercent;
     aurora_vita_overlay_hook = draw_menu;
-    pc::writef(2, "vita-settings resolution=%d aspect=%s float_tev=%d gx_thread=%d show_fps=%d\n", g_resolution, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_showFps);
+    pc::writef(2, "vita-settings resolution=%d audio=%d aspect=%s float_tev=%d gx_thread=%d show_fps=%d\n", g_resolution, g_audio, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_showFps);
 }
 
 // Each frame's wait for a free GPU slot (game thread, after admission).
@@ -333,6 +337,10 @@ extern "C" void tww_vita_autores_note(uint64_t now_us, uint64_t wait_us)
 // 16:9: SwitchWaker's widescreen code (COS_ASPECT, pc_aspect.h) draws an anamorphic
 // picture into the 640x480 EFB; Aurora's 16:9 policy renders it into a 16:9 target
 // and presents it across the whole screen.
+// Read by the game's audio code (SwitchWaker patched so muting is a run-time choice).
+extern "C" bool tww_vita_audio_muted() { return g_audio == 0; }
+extern "C" bool tww_vita_title_sparkle() { return g_titleSparkle != 0; }
+
 extern "C" void tww_vita_aspect_setup()
 {
     setenv("COS_ASPECT", g_aspect ? "16:9" : "4:3", 1);

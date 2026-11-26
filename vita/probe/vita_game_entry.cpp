@@ -1,3 +1,4 @@
+#include <psp2/kernel/threadmgr.h>
 #include "gpu.h"
 #include "vita_dvd_platform.h"
 #include "pc_internal.h"
@@ -40,6 +41,9 @@ void *thread_launch(OSThread *) { return JKRHeap::getCurrentHeap(); }
 void thread_start(OSThread *, void *heap)
 {
     JKRHeap::sCurrentHeap = static_cast<JKRHeap *>(heap);
+    // The game's own threads (audio, DVD, decompression, card) share core 2, so
+    // core 0 stays the game thread's and core 1 the GX worker's.
+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_2);
 }
 
 void logv(SceUID log, const char *format, va_list arguments)
@@ -117,14 +121,15 @@ extern "C" void probe_scheduler_diagnostic(const char *message, bool fatal)
 
 extern "C" void tww_vita_settings_load();
 extern "C" void tww_vita_aspect_setup();
+extern "C" bool tww_vita_audio_muted();
 
 extern "C" void pc_harness_init(int, char **)
 {
     // Settings first: COS_ASPECT must be set before the game reads it.
     tww_vita_settings_load();
     tww_vita_aspect_setup();
+    pc::gConfig.audio = !tww_vita_audio_muted();
     pc::gConfig.disc = DiscPath;
-    pc::gConfig.audio = false;
     pc_qol_set("COS_QOL_SKIP_INTRO", "1");
     pc_milestone("vita-opening-legend-skip-enabled");
 }
@@ -147,7 +152,9 @@ extern "C" void pc_aurora_init(int argc, char **argv)
     OSInit();
     COSSdkSetThreadLaunchHook(thread_launch);
     COSSdkSetThreadStartHook(thread_start);
-    mDoAud_zelAudio_c::onInitFlag();
+    // Muted: the game sees its audio as ready and never starts JAudio.
+    if (tww_vita_audio_muted())
+        mDoAud_zelAudio_c::onInitFlag();
     pc_milestone("vita-platform-ready");
 }
 

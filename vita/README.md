@@ -111,7 +111,7 @@ SceShaccCgExt and taiHEN stubs. Use a VitaSDK with GNU ld support for
 `__sce_headroom`, such as the October 2026 VitaSDK.
 
 ```sh
-git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-gcc.patch" "$PWD/vita/patches/switchwaker-vita-gx-ownership.patch" "$PWD/vita/patches/switchwaker-vita-title-log.patch" "$PWD/vita/patches/switchwaker-vita-first-painter.patch" "$PWD/vita/patches/switchwaker-vita-frame-tail.patch" "$PWD/vita/patches/switchwaker-vita-muted-opening.patch" "$PWD/vita/patches/switchwaker-vita-muted-waves.patch" "$PWD/vita/patches/switchwaker-vita-muted-listener.patch" "$PWD/vita/patches/switchwaker-vita-muted-ambience.patch" "$PWD/vita/patches/switchwaker-vita-muted-playback.patch" "$PWD/vita/patches/switchwaker-vita-muted-animation.patch" "$PWD/vita/patches/switchwaker-vita-title-sparkle.patch" "$PWD/vita/patches/switchwaker-vita-name-heap-trace.patch" "$PWD/vita/patches/switchwaker-vita-card-commit.patch" "$PWD/vita/patches/switchwaker-vita-card-poll.patch" "$PWD/vita/patches/switchwaker-vita-minimap-alpha.patch" "$PWD/vita/patches/switchwaker-vita-icon-trace.patch" "$PWD/vita/patches/switchwaker-vita-fast-grass.patch" "$PWD/vita/patches/switchwaker-vita-gx-sync.patch"
+git -C "$SW" apply "$PWD/vita/patches/switchwaker-vita-gcc.patch" "$PWD/vita/patches/switchwaker-vita-gx-ownership.patch" "$PWD/vita/patches/switchwaker-vita-title-log.patch" "$PWD/vita/patches/switchwaker-vita-first-painter.patch" "$PWD/vita/patches/switchwaker-vita-frame-tail.patch" "$PWD/vita/patches/switchwaker-vita-muted-opening.patch" "$PWD/vita/patches/switchwaker-vita-muted-waves.patch" "$PWD/vita/patches/switchwaker-vita-muted-listener.patch" "$PWD/vita/patches/switchwaker-vita-muted-ambience.patch" "$PWD/vita/patches/switchwaker-vita-muted-playback.patch" "$PWD/vita/patches/switchwaker-vita-muted-animation.patch" "$PWD/vita/patches/switchwaker-vita-title-sparkle.patch" "$PWD/vita/patches/switchwaker-vita-name-heap-trace.patch" "$PWD/vita/patches/switchwaker-vita-card-commit.patch" "$PWD/vita/patches/switchwaker-vita-card-poll.patch" "$PWD/vita/patches/switchwaker-vita-minimap-alpha.patch" "$PWD/vita/patches/switchwaker-vita-icon-trace.patch" "$PWD/vita/patches/switchwaker-vita-fast-grass.patch" "$PWD/vita/patches/switchwaker-vita-gx-sync.patch" "$PWD/vita/patches/switchwaker-vita-audio-option.patch" "$PWD/vita/patches/switchwaker-vita-title-sparkle-option.patch"
 git -C "$AURORA" apply "$PWD/vita/patches/aurora-vita-dvd.patch"
 git -C "$GXM/.." apply "$PWD/vita/patches/mh3-aurora-vita-gxm.patch" "$PWD/vita/patches/mh3-aurora-public-gx.patch" "$PWD/vita/patches/mh3-aurora-public-gx-headers.patch" "$PWD/vita/patches/mh3-aurora-vita-fatal-log.patch" "$PWD/vita/patches/mh3-aurora-vita-recorded-gx.patch" "$PWD/vita/patches/mh3-aurora-vita-packed-shader-fetch.patch" "$PWD/vita/patches/mh3-aurora-vita-host-alloc.patch" "$PWD/vita/patches/mh3-aurora-vita-present-probe.patch" "$PWD/vita/patches/mh3-aurora-vita-present-efb.patch" "$PWD/vita/patches/mh3-aurora-vita-title-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-copy-host-alloc.patch" "$PWD/vita/patches/mh3-aurora-vita-outset-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-fractional-dst-alpha.patch" "$PWD/vita/patches/mh3-aurora-vita-fps-and-swim-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-palette-and-efb.patch" "$PWD/vita/patches/mh3-aurora-vita-toon-float-tev-and-scale.patch" "$PWD/vita/patches/mh3-aurora-vita-settings-menu.patch" "$PWD/vita/patches/mh3-aurora-vita-safe-vertex-compiler.patch" "$PWD/vita/patches/mh3-aurora-vita-param-cache-and-icon-trace.patch" "$PWD/vita/patches/mh3-aurora-vita-icon-palette-trace.patch" "$PWD/vita/patches/mh3-aurora-vita-gx-thread.patch"
 cmake -S "$GXM" -B build-vita-gxm -G Ninja -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-fno-short-enums -DCMAKE_CXX_FLAGS=-fno-short-enums -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_BZIP2=ON -DAURORA_ENABLE_CARD=OFF -DAURORA_ENABLE_DVD=OFF -DAURORA_SDL3_PROVIDER=vendor -DAURORA_SDL3_LINKAGE=static -DTWW_GXM_RUNTIME_SHADERS=ON -DTWW_VITASHARK_PREFIX="$SHARK"
@@ -512,6 +512,19 @@ settings.txt in `pc_harness_init` (SwitchWaker's widescreen code, see its
 docs/WIDESCREEN.md: wider camera, HUD at the edges, anamorphic 640x480 EFB), and
 the first frame sets Aurora's `AURORA_VIEWPORT_16_9` policy, which renders into
 a 16:9 target (960x540 at 100%) and presents it across the screen.
+
+## 01.60: audio, title sparkle
+
+- 01.59 log (16:9, 62%): Outset ~49 ms a frame, GPU-bound (42-45 ms waiting
+  for a staging set), worker 47 ms; houses 39 ms with ~24 ms staging waits.
+- `AUDIO (NEXT START)`, on by default: the muted Vita patches' early returns
+  are run-time checks (`tww_vita_audio_muted`, switchwaker-vita-audio-option.patch),
+  and the build links cos_sdk's AI/DSP/DTK with Dolphin's DSP HLE from
+  RecompCore (`native/tools/fetch_recompcore.sh`; `vita_dsp_common_shim.cpp`
+  replaces the shim's mmap). The DSP interrupt and AI DMA threads, and every
+  game OS thread, run on core 2.
+- `TITLE SPARKLE`: the logo's sparkle (particle and `mModel_kirari`), cut by an
+  earlier build because it crashed, is back as a live option.
 
 ## Integration points
 
