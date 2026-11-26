@@ -525,10 +525,39 @@ index e3fca99..7633ec8 100644
    g_gxState.scissorOffsetY = y_off;
  
 diff --git a/aurora-main/lib/dolphin/gx/GXVert.cpp b/aurora-main/lib/dolphin/gx/GXVert.cpp
-index 9a79dad..0f75960 100644
+index 9a79dad..1f02df5 100644
 --- a/aurora-main/lib/dolphin/gx/GXVert.cpp
 +++ b/aurora-main/lib/dolphin/gx/GXVert.cpp
-@@ -612,7 +612,10 @@ void GXEnd() {
+@@ -383,10 +383,11 @@ static int64_t scalar_to_signed_raw(const Scalar& value, u8 bits, u8 frac) {
+     return encode_float_component(value.f, true, bits, frac);
+   }
+ 
+-  const int64_t raw = value.kind == ScalarKind::Signed ? value.s : static_cast<int64_t>(value.u);
+-  const int64_t minVal = -(int64_t{1} << (bits - 1));
+-  const int64_t maxVal = (int64_t{1} << (bits - 1)) - 1;
+-  return std::clamp(raw, minVal, maxVal);
++  // The FIFO takes an integer write's low bits as they are (tww-vita: J2D
++  // writes GXTexCoord2s16(0x8000) into a U16 attribute for 1.0).
++  const uint64_t mask = (uint64_t{1} << bits) - 1;
++  const uint64_t low = (value.kind == ScalarKind::Signed ? static_cast<uint64_t>(static_cast<int64_t>(value.s)) : value.u) & mask;
++  return (low & (uint64_t{1} << (bits - 1))) ? static_cast<int64_t>(low) - static_cast<int64_t>(mask + 1) : static_cast<int64_t>(low);
+ }
+ 
+ static uint64_t scalar_to_unsigned_raw(const Scalar& value, u8 bits, u8 frac) {
+@@ -394,9 +395,9 @@ static uint64_t scalar_to_unsigned_raw(const Scalar& value, u8 bits, u8 frac) {
+     return static_cast<uint64_t>(encode_float_component(value.f, false, bits, frac));
+   }
+ 
+-  const uint64_t raw = value.kind == ScalarKind::Signed ? static_cast<uint64_t>(std::max(value.s, int32_t{0})) : value.u;
+-  const uint64_t maxVal = (uint64_t{1} << bits) - 1;
+-  return std::min(raw, maxVal);
++  // Raw low bits, as the hardware FIFO takes them (see scalar_to_signed_raw).
++  const uint64_t raw = value.kind == ScalarKind::Signed ? static_cast<uint64_t>(static_cast<int64_t>(value.s)) : value.u;
++  return raw & ((uint64_t{1} << bits) - 1);
+ }
+ 
+ static float scalar_to_float(const Scalar& value) {
+@@ -612,7 +613,10 @@ void GXEnd() {
      sWriteAttrComps = 0;
    }
    if (!aurora::gx::fifo::in_display_list()) {

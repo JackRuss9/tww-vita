@@ -39,7 +39,6 @@ volatile int g_autoPercent = 100; // AUTO's current choice
 volatile int g_floatTev = 1;     // read at start-up
 volatile int g_audio = 1;        // read at start-up
 volatile int g_titleSparkle = 1; // live
-volatile int g_iconFix = 1;      // live: J2DPicture draws a fully blended second texture alone
 volatile int g_skipIntro = 0;    // read at start-up: 1 skips the legend and the prologue
 volatile int g_aspect = 1;       // read at start-up: 0 4:3, 1 16:9
 volatile int g_asyncShaders = 1; // live: 1 new shaders compile in the background
@@ -79,7 +78,6 @@ const Item kItems[] = {
     {"resolution", "RESOLUTION", &g_resolution, kScales, 7, PERCENT, 0},
     {"float_tev", "FAST COLOUR MIXING (NEXT START)", &g_floatTev, kOnOff, 2, ON_OFF, 1},
     {"audio", "AUDIO (NEXT START)", &g_audio, kOnOff, 2, ON_OFF, 1},
-    {"icon_fix", "BUTTON ICON FIX", &g_iconFix, kOnOff, 2, ON_OFF, 1},
     {"skip_intro", "SKIP INTRO (NEXT START)", &g_skipIntro, kOnOff, 2, ON_OFF, 0},
     {"title_sparkle", "TITLE SPARKLE", &g_titleSparkle, kOnOff, 2, ON_OFF, 1},
     {"aspect", "SCREEN (NEXT START)", &g_aspect, kOnOff, 2, ASPECT, 1},
@@ -353,16 +351,7 @@ extern "C" void tww_vita_autores_note(uint64_t now_us, uint64_t wait_us)
 extern "C" bool tww_vita_audio_muted() { return g_audio == 0; }
 extern "C" bool tww_vita_title_sparkle() { return g_titleSparkle != 0; }
 extern "C" bool tww_vita_skip_intro() { return g_skipIntro != 0; }
-// Called only for pictures the fix applies to: the first ones are logged.
-extern "C" int tww_vita_icon_single_texture()
-{
-    static int logged;
-    if (logged < 3) {
-        ++logged;
-        pc::writef(2, "vita-icon-fix picture %d (fix %s)\n", logged, g_iconFix ? "on" : "off");
-    }
-    return g_iconFix;
-}
+
 
 extern "C" void tww_vita_aspect_setup()
 {
