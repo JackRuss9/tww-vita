@@ -181,3 +181,7 @@ int main(int argc, char **argv)
         tww_vita_profiler_start();
     pc_exit(aurora_main(argc, argv));
 }
+
+// cos_sdk's AR/AI/DSP: MEM1's size as configured in tww_vita_gxm_init (mh3 Aurora's
+// AuroraConfig differs from the headers cos_sdk is compiled with).
+extern "C" uint32_t tww_vita_mem1_size() { return 128u * 1024u * 1024u; }

@@ -442,8 +442,46 @@ index f5065a09..558001cd 100644
      if (mDoAud_zelAudio_c::getLoadTimer() == 0) {
          mDoAud_zelAudio_c::getInterface()->setSceneName((char*)i_name, i_roomNo, i_layer);
          mDoAud_zelAudio_c::setLoadTimer(36);
+diff --git a/native/sdk/src/ar/AR.cpp b/native/sdk/src/ar/AR.cpp
+index 937ebeb3..a96db80e 100644
+--- a/native/sdk/src/ar/AR.cpp
++++ b/native/sdk/src/ar/AR.cpp
+@@ -57,6 +57,15 @@ namespace aurora {
+ extern AuroraConfig g_config;
+ } // namespace aurora
+ 
++#if defined(TWW_VITA_RUNTIME_SDK)
++// tww-vita: the Vita links mh3's Aurora, whose AuroraConfig has another layout than
++// the encounter headers this file is compiled with; ask the Vita host instead.
++extern "C" uint32_t tww_vita_mem1_size();
++static inline uint64_t cos_mem1_size() { return tww_vita_mem1_size(); }
++#else
++static inline uint64_t cos_mem1_size() { return aurora::g_config.mem1Size; }
++#endif
++
+ using namespace cos_sdk::os;
+ 
+ namespace {
+@@ -78,7 +87,7 @@ u8* AramRange(u32 aramAddr, u32 length) {
+ 
+ // Host address of `length` bytes of MEM1 at physical address `physAddr`, or null.
+ u8* Mem1Range(u32 physAddr, u32 length) {
+-    const u64 size = aurora::g_config.mem1Size;
++    const u64 size = cos_mem1_size();
+     if (OSBaseAddress == 0 || u64(physAddr) + length > size) {
+         return nullptr;
+     }
+@@ -115,7 +124,7 @@ void ARStartDMA(u32 type, u32 mainmem_addr, u32 aram_addr, u32 length) {
+         Fatal("ARStartDMA(type %u, main 0x%08x, aram 0x%08x, length 0x%x): the main-memory range "
+               "is not inside MEM1 (MEM1 size 0x%x; the address must be a MEM1 physical address, "
+               "see OSCachedToPhysical, and AuroraConfig.mem1Size must be set before OSInit)",
+-              type, mainmem_addr, aram_addr, length, aurora::g_config.mem1Size);
++              type, mainmem_addr, aram_addr, length, cos_mem1_size());
+     }
+     if (aram == nullptr) {
+         Fatal("ARStartDMA(type %u, main 0x%08x, aram 0x%08x, length 0x%x): the ARAM range is not "
 diff --git a/native/sdk/src/audio/AI.cpp b/native/sdk/src/audio/AI.cpp
-index 0f7bcdbf..dd23e247 100644
+index 0f7bcdbf..069a1ad8 100644
 --- a/native/sdk/src/audio/AI.cpp
 +++ b/native/sdk/src/audio/AI.cpp
 @@ -76,6 +76,9 @@
@@ -456,7 +494,32 @@ index 0f7bcdbf..dd23e247 100644
  
  #include <chrono>
  #include <cstdint>
-@@ -293,6 +296,10 @@ void StepLocked(std::vector<s16>& out) {
+@@ -91,6 +94,15 @@ namespace aurora {
+ extern AuroraConfig g_config;
+ } // namespace aurora
+ 
++#if defined(TWW_VITA_RUNTIME_SDK)
++// tww-vita: the Vita links mh3's Aurora, whose AuroraConfig has another layout than
++// the encounter headers this file is compiled with; ask the Vita host instead.
++extern "C" uint32_t tww_vita_mem1_size();
++static inline uint64_t cos_mem1_size() { return tww_vita_mem1_size(); }
++#else
++static inline uint64_t cos_mem1_size() { return aurora::g_config.mem1Size; }
++#endif
++
+ using namespace cos_sdk::os;
+ 
+ namespace {
+@@ -249,7 +261,7 @@ void PlayOutput(const std::vector<s16>& frames, u32 hz) {
+ }
+ 
+ const u8* Mem1Range(uintptr_t address, u32 size) {
+-    const u64 mem1Size = aurora::g_config.mem1Size;
++    const u64 mem1Size = cos_mem1_size();
+     if (OSBaseAddress != 0 && u64(address) + size <= mem1Size) {
+         return static_cast<const u8*>(OSPhysicalToCached(u32(address)));
+     }
+@@ -293,6 +305,10 @@ void StepLocked(std::vector<s16>& out) {
  }
  
  void* DmaThreadMain(void*) {
@@ -468,7 +531,7 @@ index 0f7bcdbf..dd23e247 100644
      u32 dumpInitCount = 0; // AIInit's count the dump was opened for
      {
 diff --git a/native/sdk/src/audio/DSP.cpp b/native/sdk/src/audio/DSP.cpp
-index 5dd3f8a3..c58e254f 100644
+index 5dd3f8a3..c04432c7 100644
 --- a/native/sdk/src/audio/DSP.cpp
 +++ b/native/sdk/src/audio/DSP.cpp
 @@ -52,6 +52,9 @@
@@ -481,7 +544,41 @@ index 5dd3f8a3..c58e254f 100644
  
  #include <atomic>
  #include <chrono>
-@@ -215,6 +218,10 @@ unsigned IntGapUs() {
+@@ -67,6 +70,15 @@ namespace aurora {
+ extern AuroraConfig g_config;
+ } // namespace aurora
+ 
++#if defined(TWW_VITA_RUNTIME_SDK)
++// tww-vita: the Vita links mh3's Aurora, whose AuroraConfig has another layout than
++// the encounter headers this file is compiled with; ask the Vita host instead.
++extern "C" uint32_t tww_vita_mem1_size();
++static inline uint64_t cos_mem1_size() { return tww_vita_mem1_size(); }
++#else
++static inline uint64_t cos_mem1_size() { return aurora::g_config.mem1Size; }
++#endif
++
+ using namespace cos_sdk::os;
+ 
+ extern "C" {
+@@ -137,7 +149,7 @@ HostThread sIntThreadHost;
+ // ---- the emulated DSP's view of the host ------------------------------------------------------
+ 
+ std::uint8_t* GuestPointer(std::uint32_t address, std::uint32_t size) {
+-    const u64 mem1Size = aurora::g_config.mem1Size;
++    const u64 mem1Size = cos_mem1_size();
+     if (OSBaseAddress != 0 && u64(address) + size <= mem1Size) {
+         return static_cast<std::uint8_t*>(OSPhysicalToCached(address));
+     }
+@@ -184,7 +196,7 @@ void EnsureDspLocked() {
+               static_cast<void*>(host.aram), host.aramSize);
+     }
+     Log("DSP: Dolphin's DSPHLE created (ARAM 0x%x bytes, MEM1 0x%x bytes)", host.aramSize,
+-        aurora::g_config.mem1Size);
++        cos_mem1_size());
+ }
+ 
+ u16 ReadControlLocked() {
+@@ -215,6 +227,10 @@ unsigned IntGapUs() {
  }
  
  void* InterruptThreadMain(void*) {
