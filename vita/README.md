@@ -762,3 +762,13 @@ GPU can reject hidden fragments before shading them).
 - CPU PROFILE also splits the GX worker (vita-worker line): draw decode and its
   parts, the GXM render and the present.
 
+### 01.83
+
+- 01.82 worker split (house, worker ~40 ms unprofiled): the draw commands ~22 ms
+  real, but an unmerged draw's own parts (pipeline, textures, uniforms...) only
+  ~8 ms of ~400 draws; the GXM render ~5.5 ms, present ~0.3 ms. The rest is the
+  merged primitives and the BP/CP/XF registers; 01.82's per-call timers cost
+  ~11 ms themselves.
+- The worker profile now times one GX command in eight, by kind (merged and
+  unmerged draws, BP, CP, XF, indexed XF), and counts every command.
+

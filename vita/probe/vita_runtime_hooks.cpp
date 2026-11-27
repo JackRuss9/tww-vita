@@ -249,14 +249,18 @@ void tww_vita_prof_report(int fd, unsigned int frames,
         }
         log(fd, "%s\n", line);
     }
-    // The GX worker (Aurora command_processor.cpp / aurora.cpp): draw decode in all, and of
-    // that the index/vertex arrays, pipeline, textures, bind groups, uniforms and draw record;
-    // then the frame's GXM render and its present.
-    unsigned long long w[10];
-    aurora_vita_worker_prof(w, 10);
-    log(fd, "vita-worker-0.1ms draws=%lu arrays=%lu pipeline=%lu textures=%lu bind_groups=%lu uniforms=%lu record=%lu render=%lu present=%lu draw_calls=%lu\n",
-        per(w[0]), per(w[1]), per(w[2]), per(w[3]), per(w[4]), per(w[5]), per(w[6]), per(w[7]), per(w[8]),
-        static_cast<unsigned long>(w[9] / frames));
+    // The GX worker (Aurora command_processor.cpp lists the slots): one command in eight is
+    // timed, so those times are scaled by 8; counts are per frame.
+    unsigned long long w[24];
+    aurora_vita_worker_prof(w, 24);
+    const auto s8 = [&](unsigned i) { return per(w[i] * 8); };
+    const auto cnt = [&](unsigned i) { return static_cast<unsigned long>(w[i] / frames); };
+    log(fd, "vita-worker-0.1ms merged=%lu unmerged=%lu bp=%lu cp=%lu xf=%lu xf_indexed=%lu other=%lu render=%lu present=%lu\n",
+        s8(0), s8(1), s8(2), s8(3), s8(4), s8(5), s8(6), per(w[19]), per(w[20]));
+    log(fd, "vita-worker-count merged=%lu unmerged=%lu bp=%lu cp=%lu xf=%lu xf_indexed=%lu\n",
+        cnt(7), cnt(8), cnt(9), cnt(10), cnt(11), cnt(12));
+    log(fd, "vita-worker-unmerged-0.1ms arrays=%lu pipeline=%lu textures=%lu bind_groups=%lu uniforms=%lu record=%lu\n",
+        s8(13), s8(14), s8(15), s8(16), s8(17), s8(18));
     std::memset(g_profProc, 0, sizeof g_profProc);
     std::memset(g_profCount, 0, sizeof g_profCount);
     std::memset(g_profSection, 0, sizeof g_profSection);
