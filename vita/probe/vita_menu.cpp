@@ -23,6 +23,7 @@ void aurora_vita_set_async_shaders(int enabled);
 void aurora_vita_set_cmpr_bc1(int enabled);
 void aurora_vita_set_gpu_timing(int enabled);
 void aurora_vita_set_shader_test(int mode);
+void aurora_vita_set_fast_texcoords(int enabled);
 int aurora_vita_shaders_compiling();
 extern int tww_vita_fast_grass_enabled; // d_grass.cpp (switchwaker-vita-fast-grass.patch)
 unsigned aurora_vita_efb_width();
@@ -45,6 +46,7 @@ volatile int g_titleSparkle = 1; // live
 volatile int g_skipIntro = 0;    // read at start-up: 1 skips the legend and the prologue
 volatile int g_shaderTest = 0;   // read at start-up, diagnostic: 1 flat grey shading, 2 no alpha test
 volatile int g_gpuTiming = 0;    // live diagnostic: GPU time of each scene (slow)
+volatile int g_fastTex = 1;      // read at start-up: float texture coordinates and fog (FAST TEXCOORDS)
 volatile int g_cmprBc1 = 1;      // read at start-up: CMPR textures stay compressed (UBC1)
 volatile int g_aspect = 1;       // read at start-up: 0 4:3, 1 16:9
 volatile int g_asyncShaders = 1; // live: 1 new shaders compile in the background
@@ -84,6 +86,7 @@ const Item kItems[] = {
     {"resolution", "RESOLUTION", &g_resolution, kScales, 7, PERCENT, 0},
     {"float_tev", "FAST COLOUR MIXING (NEXT START)", &g_floatTev, kOnOff, 2, ON_OFF, 1},
     {"audio", "AUDIO (NEXT START)", &g_audio, kOnOff, 2, ON_OFF, 1},
+    {"fast_tex", "FAST TEXCOORDS (NEXT START)", &g_fastTex, kOnOff, 2, ON_OFF, 1},
     {"shader_test", "SHADER TEST (NEXT START)", &g_shaderTest, kGxThread, 3, SHADER_TEST, 0},
     {"gpu_timing", "GPU TIMING (SLOW, LOG)", &g_gpuTiming, kOnOff, 2, ON_OFF, 0},
     {"cmpr_bc1", "CMPR AS DXT1 (NEXT START)", &g_cmprBc1, kOnOff, 2, ON_OFF, 1},
@@ -305,9 +308,10 @@ extern "C" void tww_vita_settings_load()
     aurora_vita_set_cmpr_bc1(g_cmprBc1);
     aurora_vita_set_gpu_timing(g_gpuTiming);
     aurora_vita_set_shader_test(g_shaderTest);
+    aurora_vita_set_fast_texcoords(g_fastTex);
     g_appliedResolution = g_resolution ? g_resolution : g_autoPercent;
     aurora_vita_overlay_hook = draw_menu;
-    pc::writef(2, "vita-settings resolution=%d audio=%d aspect=%s float_tev=%d gx_thread=%d async_shaders=%d skip_intro=%d cmpr_bc1=%d show_fps=%d\n", g_resolution, g_audio, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_asyncShaders, g_skipIntro, g_cmprBc1, g_showFps);
+    pc::writef(2, "vita-settings resolution=%d audio=%d aspect=%s float_tev=%d gx_thread=%d async_shaders=%d skip_intro=%d cmpr_bc1=%d fast_tex=%d shader_test=%d show_fps=%d\n", g_resolution, g_audio, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_asyncShaders, g_skipIntro, g_cmprBc1, g_fastTex, g_shaderTest, g_showFps);
 }
 
 // Each frame's wait for a free GPU slot (game thread, after admission).

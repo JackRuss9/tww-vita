@@ -1386,7 +1386,7 @@ index 1ab6169..e849c36 100644
  const uint8_t* get_buffer_data();
  uint32_t get_buffer_size();
 diff --git a/aurora-main/lib/gx/gx.cpp b/aurora-main/lib/gx/gx.cpp
-index be3fee9..7110517 100644
+index be3fee9..5521579 100644
 --- a/aurora-main/lib/gx/gx.cpp
 +++ b/aurora-main/lib/gx/gx.cpp
 @@ -78,12 +78,21 @@ struct TextureResolveIdentity {
@@ -1488,11 +1488,48 @@ index be3fee9..7110517 100644
      }
    }
  }
+@@ -2176,6 +2228,9 @@ static u16 gl_aniso(GXAnisotropy aniso) {
+   }
+ }
+ 
++#ifdef TWW_GXM_RUNTIME_SHADERS
++namespace aurora::gx { extern bool g_vitaFastTexcoords; }
++#endif
+ aurora::gl::SamplerDesc aurora::gfx::TextureBind::get_descriptor() const noexcept {
+   auto [minLinear, mipFilter] = gl_filter_mode(texObj.min_filter());
+   const auto [magLinear, _] = gl_filter_mode(texObj.mag_filter());
+@@ -2202,6 +2257,19 @@ aurora::gl::SamplerDesc aurora::gfx::TextureBind::get_descriptor() const noexcep
+ 
+   // Integer and float32 textures are not filterable in GLES 3.0.
+   const bool filterable = !ref || aurora::gl::format_info(ref->format).filterable;
++  float lodBias = 0.f;
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  // FAST TEXCOORDS: the GX shaders sample without a bias argument, so the
++  // texture's LOD bias goes to the sampler, in the GXM 1/8 steps.
++  if (aurora::gx::g_vitaFastTexcoords && filterable && mipFilter != MipFilter::None) {
++    float bias = texObj.lod_bias();
++    if (ref && ref->hasArbitraryMips)
++      bias += std::log2(std::min(aurora::gx::g_gxState.renderViewport.width / std::max(aurora::gx::g_gxState.logicalViewport.width, 1.f),
++                                 aurora::gx::g_gxState.renderViewport.height / std::max(aurora::gx::g_gxState.logicalViewport.height, 1.f)));
++    if (std::isfinite(bias))
++      lodBias = std::clamp(std::round(bias * 8.f) / 8.f, -3.875f, 4.f);
++  }
++#endif
+   return {
+       .wrapS = gl_wrap_mode(texObj.wrap_s()),
+       .wrapT = gl_wrap_mode(texObj.wrap_t()),
+@@ -2210,5 +2278,6 @@ aurora::gl::SamplerDesc aurora::gfx::TextureBind::get_descriptor() const noexcep
+       .minLod = minLod,
+       .maxLod = maxLod,
+       .maxAnisotropy = maxAnisotropy,
++      .lodBias = lodBias,
+   };
+ }
 diff --git a/aurora-main/lib/gx/shader.cpp b/aurora-main/lib/gx/shader.cpp
-index fe68417..eda7c73 100644
+index fe68417..41a5f8d 100644
 --- a/aurora-main/lib/gx/shader.cpp
 +++ b/aurora-main/lib/gx/shader.cpp
-@@ -1061,6 +1061,10 @@ static std::string native_float_op(const TevOp& op,std::string_view a,std::strin
+@@ -1061,6 +1061,15 @@ static std::string native_float_op(const TevOp& op,std::string_view a,std::strin
  
  #ifdef TWW_GXM_RUNTIME_SHADERS
  bool g_vitaFloatTev = true;
@@ -1500,10 +1537,98 @@ index fe68417..eda7c73 100644
 +// outputs flat grey (no TEV, no textures, no alpha test), 2 alpha tests are
 +// skipped (cut-outs draw as solid). Bounds what shading and discard cost.
 +int g_vitaShaderTest = 0;
++// tww-vita FAST TEXCOORDS (next start): direct GX texture samples take a float
++// UV the vertex shader already scaled (a non-dependent read the SGX can
++// prefetch), the LOD bias moves to the sampler and fog depth uses floats.
++// Skips the per-pixel s24 fixed-point emulation, which is integer work.
++bool g_vitaFastTexcoords = true;
  #endif
  
  gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeVertices,
-@@ -1968,8 +1972,10 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1079,6 +1088,11 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+   const bool nativeFloat=nativeVertices && approximateNative;
+ #endif
+   const bool compact = nativeMeshLayout != nullptr;
++#ifdef TWW_GXM_RUNTIME_SHADERS
++  const bool fastTex = g_vitaFastTexcoords;
++#else
++  const bool fastTex = false;
++#endif
+   CHECK(!(nativeZeroProjectiveMask & nativeNonzeroProjectiveMask),"Projective Q certificates overlap");
+   CHECK(!nativeZeroProjectiveMask || compact,"Zero projective Q requires a compact source certificate");
+ 
+@@ -1264,6 +1278,7 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+   const int zTexStage = tev_z_texture_stage(config);
+   const bool usesZTextureDepth = tev_z_texture_enabled(config);
+   std::array<bool, MaxTexCoord> emittedFixedTexCoord{};
++  std::array<u32, MaxTexCoord> emittedFastUv{};
+   const auto fixed_texcoord_name = [&](u32 texCoordId) {
+     if (!emittedFixedTexCoord[texCoordId]) {
+       fragmentFnPre += fmt::format(
+@@ -1612,9 +1627,10 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+         "\n    // Indirect stage {0}"
+         "\n    ivec2 ind{0}_sample_fixed = {5} >> vec2u({3}u, {4}u);"
+         "\n    ivec3 t_IndTexCoord{0} = tev_byte_vec3f(texture(tex{2}, "
+-        "vec2f(ind{0}_sample_fixed) / (ubuf.tex{2}_size_bias.xy * 128.0), ubuf.tex{2}_size_bias.z).abg);",
++        "vec2f(ind{0}_sample_fixed) / (ubuf.tex{2}_size_bias.xy * 128.0){6}).abg);",
+         i, effectiveIndTexCoord, underlying(indStage.texMapId), ind_scale_shift(indStage.scaleS),
+-        ind_scale_shift(indStage.scaleT), indFixedUv);
++        ind_scale_shift(indStage.scaleT), indFixedUv,
++        fastTex ? std::string{} : fmt::format(", ubuf.tex{}_size_bias.z", underlying(indStage.texMapId)));
+   }
+ 
+   const bool usesFixedTexcoordState = shader_uses_fixed_texcoord_state(config);
+@@ -1799,6 +1815,23 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+       // No indirect texturing
+       if(nativeVertices) {
+         uvIn=fmt::format("tex{}_uv",textureDependency.texCoordId);
++      } else if (fastTex) {
++        const u32 n = static_cast<u32>(textureDependency.texCoordId), m = static_cast<u32>(textureDependency.texMapId);
++        const std::string ratio = fmt::format("(ubuf.texcoord{0}_scale.xy / ubuf.tex{1}_size_bias.xy)", n, m);
++
++        if (config.tcgs[n].type == GX_TG_MTX3x4) {
++          uvIn = fmt::format("(tex{0}_uv * {1})", n, ratio);
++        } else {
++          const std::string name = fmt::format("tex{0}_m{1}_fuv", n, m);
++
++          if (!(emittedFastUv[n] & (1u << m))) {
++            emittedFastUv[n] |= 1u << m;
++            varying("vec2", name);
++            vtxXfrAttrs += fmt::format("\n    out.{0} = tc{1}_proj.xy * {2};", name, n, ratio);
++          }
++
++          uvIn = fmt::format("in.{}", name);
++        }
+       } else {
+         const auto fixedUv = fixed_texcoord_name(static_cast<u32>(textureDependency.texCoordId));
+         uvIn = fmt::format("vec2f(tev_s24_fixed_vec2i({0})) / (ubuf.tex{1}_size_bias.xy * 128.0)", fixedUv,
+@@ -1814,6 +1847,8 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+                                   i,textureDependency.texMapId,textureDependency.texCoordId);
+       } else fragmentFnPre += fmt::format("\n    vec4 sampled{0} = texture(tex{1}, {2});", i,
+                                          textureDependency.texMapId, uvIn);
++    } else if (fastTex) {
++      fragmentFnPre += fmt::format("\n    vec4 sampled{0} = texture(tex{1}, {2});", i, textureDependency.texMapId, uvIn);
+     } else {
+       fragmentFnPre +=
+           fmt::format("\n    vec4 sampled{0} = texture(tex{1}, {2}, ubuf.tex{1}_size_bias.z);", i,
+@@ -1886,7 +1921,15 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+         "};";
+     uniBufAttrs += "\n    Fog fog;";
+ 
+-    if ((config.fogType & 0x8u) == 0) {
++    if (fastTex && !usesZTextureDepth) {
++      // Float fog depth: the same terms without the 24-bit integer round trip.
++      fragmentFn += (config.fogType & 0x8u) == 0 ?
++          fmt::format("\n    // Fog"
++                      "\n    float fogZe = (ubuf.fog.a * 16777216.0) / (ubuf.fog.b - clamp({0}, 0.0, 1.0) * (16777216.0 * exp2(-ubuf.fog.pad)));",
++                      fogDepthExpr) :
++          fmt::format("\n    // Fog"
++                      "\n    float fogZe = ubuf.fog.a * clamp({0}, 0.0, 1.0);", fogDepthExpr);
++    } else if ((config.fogType & 0x8u) == 0) {
+       fragmentFn += fmt::format(
+           "\n    // Fog"
+           "\n    uint fogZCoord = {};"
+@@ -1968,8 +2011,10 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
    }
  
    if(!nativeFloat) fragmentFn += "\n    prev = tev_overflow_vec4f(prev);";
@@ -1515,7 +1640,7 @@ index fe68417..eda7c73 100644
      const auto comp0 = alpha_compare(config.alphaCompare.comp0, config.alphaCompare.ref0, nativeFloat);
      const auto comp1 = alpha_compare(config.alphaCompare.comp1, config.alphaCompare.ref1, nativeFloat);
      AlphaCompareExpr pass;
-@@ -2375,11 +2381,14 @@ void main() {{{4}
+@@ -2375,11 +2420,15 @@ void main() {{{4}
  }
  
  gl::ProgramPtr build_shader(const ShaderConfig& config) noexcept {
@@ -1530,6 +1655,7 @@ index fe68417..eda7c73 100644
  // Set before aurora_initialize: pipelines built afterwards use the choice.
  extern "C" void aurora_vita_set_float_tev(int enabled) { aurora::gx::g_vitaFloatTev = enabled != 0; }
 +extern "C" void aurora_vita_set_shader_test(int mode) { aurora::gx::g_vitaShaderTest = mode; }
++extern "C" void aurora_vita_set_fast_texcoords(int enabled) { aurora::gx::g_vitaFastTexcoords = enabled != 0; }
  #endif
 diff --git a/aurora-main/lib/gxm/device.cpp b/aurora-main/lib/gxm/device.cpp
 index 26af41f..71dc086 100644

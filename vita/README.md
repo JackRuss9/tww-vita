@@ -685,3 +685,14 @@ GPU can reject hidden fragments before shading them).
 - Use `sms-vita` as the reference for file paths, Vita input, logging and
   runtime shader compilation. Use the native game build to identify the next
   graphics compatibility work as it reaches the actual boot path.
+
+### 01.75
+
+- SHADER TEST results (exterior, 62%): GREY cut the main 3D scene from ~120 ms
+  to ~7.5 ms; NO ALPHA only to ~114 ms (house 91 -> 70 ms). Per-pixel shading is
+  the GPU cost, not discard.
+- FAST TEXCOORDS (NEXT START, default ON): direct GX texture samples no longer
+  emulate the s24 fixed-point texture coordinate per pixel (integer work on the
+  SGX). The vertex shader writes the normalised UV, so the fragment sample is a
+  non-dependent read; the LOD bias moves to the GXM sampler (1/8 steps) and fog
+  depth is computed in floats. Indirect stages keep the exact path.
