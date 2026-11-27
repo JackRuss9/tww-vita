@@ -1,3 +1,224 @@
+diff --git a/game/src/JSystem/J3DGraphBase/J3DDrawBuffer.cpp b/game/src/JSystem/J3DGraphBase/J3DDrawBuffer.cpp
+index cd153368..e62e8344 100644
+--- a/game/src/JSystem/J3DGraphBase/J3DDrawBuffer.cpp
++++ b/game/src/JSystem/J3DGraphBase/J3DDrawBuffer.cpp
+@@ -241,6 +241,12 @@ void J3DDrawBuffer::draw() const {
+     (this->*func)();
+ }
+ 
++#if defined(__vita__)
++// CPU PROFILE: each top-level packet's draw time by its vtable (vita_runtime_hooks.cpp).
++extern "C" int tww_vita_cpu_profile;
++extern "C" unsigned long long tww_vita_prof_now(void);
++extern "C" void tww_vita_prof_packet(void* vtable, unsigned long long us);
++#endif
+ /* 802ECD38-802ECDB0       .text drawHead__13J3DDrawBufferCFv */
+ void J3DDrawBuffer::drawHead() const {
+     u32 size = mEntryTableSize;
+@@ -252,6 +258,14 @@ void J3DDrawBuffer::drawHead() const {
+             if (pc_gpu_groups_level >= 2) {
+                 pc_gpu_group_packet(packet); // COS_GPU_GROUPS=2 / COS_DRAW_CENSUS
+             }
++#endif
++#if defined(__vita__)
++            if (tww_vita_cpu_profile) {
++                const unsigned long long t = tww_vita_prof_now();
++                packet->draw();
++                tww_vita_prof_packet(*(void**)packet, tww_vita_prof_now() - t);
++                continue;
++            }
+ #endif
+             packet->draw();
+         }
+@@ -268,6 +282,14 @@ void J3DDrawBuffer::drawTail() const {
+             if (pc_gpu_groups_level >= 2) {
+                 pc_gpu_group_packet(packet); // COS_GPU_GROUPS=2 / COS_DRAW_CENSUS
+             }
++#endif
++#if defined(__vita__)
++            if (tww_vita_cpu_profile) {
++                const unsigned long long t = tww_vita_prof_now();
++                packet->draw();
++                tww_vita_prof_packet(*(void**)packet, tww_vita_prof_now() - t);
++                continue;
++            }
+ #endif
+             packet->draw();
+         }
+diff --git a/game/src/JSystem/J3DGraphBase/J3DPacket.cpp b/game/src/JSystem/J3DGraphBase/J3DPacket.cpp
+index 9a9c526b..89460d08 100644
+--- a/game/src/JSystem/J3DGraphBase/J3DPacket.cpp
++++ b/game/src/JSystem/J3DGraphBase/J3DPacket.cpp
+@@ -220,7 +220,45 @@ void J3DMatPacket::endDiff() {
+ }
+ 
+ /* 802DB494-802DB524       .text draw__12J3DMatPacketFv */
++#if defined(__vita__)
++// CPU PROFILE (vita_runtime_hooks.cpp): a material packet's material load, and its shape
++// packets' matrix loads (prepareDraw) and shape display lists, with their counts.
++extern "C" int tww_vita_cpu_profile;
++extern "C" unsigned long long tww_vita_prof_now(void);
++extern "C" void tww_vita_prof_slot(int slot, unsigned long long value);
++#endif
+ void J3DMatPacket::draw() {
++#if defined(__vita__)
++    if (tww_vita_cpu_profile) {
++        unsigned long long t = tww_vita_prof_now();
++        j3dSys.setTexture(mpTexture);
++        j3dSys.setMatPacket(this);
++        mpMaterial->load();
++        J3DShapePacket* packet = getShapePacket();
++        J3DShape* shape = packet->getShape();
++        shape->loadPreDrawSetting();
++        unsigned long long t2 = tww_vita_prof_now();
++        tww_vita_prof_slot(0, t2 - t);
++        tww_vita_prof_slot(3, 1);
++        while (packet != NULL) {
++            if (packet->getDisplayListObj() != NULL)
++                packet->getDisplayListObj()->callDL();
++            if (!packet->checkFlag(J3DShpFlag_Hidden) && packet->getShape() != NULL) {
++                t = tww_vita_prof_now();
++                packet->prepareDraw();
++                t2 = tww_vita_prof_now();
++                packet->getShape()->drawFast();
++                const unsigned long long t3 = tww_vita_prof_now();
++                tww_vita_prof_slot(1, t2 - t);
++                tww_vita_prof_slot(2, t3 - t2);
++                tww_vita_prof_slot(4, 1);
++            }
++            packet = (J3DShapePacket*)packet->getNextPacket();
++        }
++        shape->resetVcdVatCache();
++        return;
++    }
++#endif
+     j3dSys.setTexture(mpTexture);
+     j3dSys.setMatPacket(this);
+ 
+diff --git a/game/src/d/d_s_play.cpp b/game/src/d/d_s_play.cpp
+index 59fabc4a..cfdf1df1 100644
+--- a/game/src/d/d_s_play.cpp
++++ b/game/src/d/d_s_play.cpp
+@@ -286,9 +286,21 @@ static request_of_phase_process_class dylPhase[PRELOAD_DYL_MAX];
+ static dScnPly_preLoad_HIO_c g_preLoadHIO;
+ 
+ /* 80234B9C-80234FD0       .text dScnPly_Draw__FP13dScnPly_ply_c */
++#if defined(__vita__)
++// CPU PROFILE (vita_runtime_hooks.cpp): the play scene's own work, between named marks.
++extern "C" void tww_vita_scn_begin(void);
++extern "C" void tww_vita_scn_mark(const char* name);
++#define VITA_SCN_BEGIN() tww_vita_scn_begin()
++#define VITA_SCN_MARK(n) tww_vita_scn_mark(n)
++#else
++#define VITA_SCN_BEGIN() ((void)0)
++#define VITA_SCN_MARK(n) ((void)0)
++#endif
+ static BOOL dScnPly_Draw(dScnPly_ply_c* i_this) {
++    VITA_SCN_BEGIN();
+     dComIfG_Ccsp()->Move();
+     dComIfG_Bgsp()->ClrMoveFlag();
++    VITA_SCN_MARK("d_ccsp_move");
+ 
+     if (!fopOvlpM_IsPeek() && !dComIfG_resetToOpening(i_this) && fpcM_GetName(i_this) == fpcNm_PLAY_SCENE_e) {
+         if (dComIfGp_isEnableNextStage()) {
+@@ -344,19 +356,25 @@ static BOOL dScnPly_Draw(dScnPly_ply_c* i_this) {
+         dComIfGp_getVibration().Run();
+         dMat_control_c::icePlay();
+         dComIfGp_executeMagma();
++        VITA_SCN_MARK("d_misc");
+ 
+         if (dComIfGp_getGrass() != NULL || dComIfGp_getTree() != NULL ||
+             dComIfGp_getWood() != NULL || dComIfGp_getFlower() != NULL || dKyr_poison_live_check())
+         {
+             dComIfG_Ccsp()->PrepareMass();
+         }
++        VITA_SCN_MARK("d_prepare_mass");
+ 
+         dComIfGp_executeGrass();
++        VITA_SCN_MARK("d_grass_exec");
+         dComIfGp_executeTree();
++        VITA_SCN_MARK("d_tree_exec");
+         dComIfGp_executeWood();
+         dComIfGp_executeFlower();
++        VITA_SCN_MARK("d_wood_flower_exec");
+         dKyr_poison_light_colision();
+         dComIfG_Bgsp()->Move();
++        VITA_SCN_MARK("d_bgsp_move");
+         dSnap_Execute();
+ 
+         if (daPy_getPlayerLinkActorClass() == NULL ||
+@@ -364,9 +382,11 @@ static BOOL dScnPly_Draw(dScnPly_ply_c* i_this) {
+         {
+             dComIfGp_particle_calc3D();
+         }
++        VITA_SCN_MARK("d_particle_3d");
+ 
+         dComIfGp_particle_calc2D();
+         cCt_execCounter();
++        VITA_SCN_MARK("d_particle_2d");
+     } else {
+         dComIfGp_getVibration().Pause();
+     }
+@@ -375,6 +395,7 @@ static BOOL dScnPly_Draw(dScnPly_ply_c* i_this) {
+     dComIfGp_particle_calcMenu();
+     g_msgDHIO.dScnPly_msg_HIO_messageProc();
+     dComIfGp_roomControl_checkDrawArea();
++    VITA_SCN_MARK("d_room_area");
+ 
+     for (create_tag_class* i = fopDwIt_Begin(); i != NULL; i = fopDwIt_Next(i)) {
+         fpcM_Draw(i->mpTagData);
+@@ -382,19 +403,25 @@ static BOOL dScnPly_Draw(dScnPly_ply_c* i_this) {
+ #if TARGET_PC
+     pc_play_draw();
+ #endif
++    VITA_SCN_MARK("d_children");
+ 
+     if (!dMenu_flag()) {
+         dComIfGp_particle_drawModelParticle();
+         dComIfGp_drawMagma();
++        VITA_SCN_MARK("d_model_particle");
+         dComIfGp_drawGrass();
++        VITA_SCN_MARK("d_grass_draw");
+         dComIfGp_drawTree();
++        VITA_SCN_MARK("d_tree_draw");
+         dComIfGp_drawWood();
+         dComIfGp_drawFlower();
++        VITA_SCN_MARK("d_wood_flower_draw");
+         dComIfG_Ccsp()->Draw();
+         dSnap_DebugDraw();
+         dComIfGp_getAttention().Draw();
+         dComIfGp_map_mapBufferSendAGB(3);
+     }
++    VITA_SCN_MARK("d_end");
+ 
+     return TRUE;
+ }
+@@ -1051,20 +1078,25 @@ static BOOL dScnPly_Execute(dScnPly_ply_c* i_this) {
+         }
+     }
+ 
++    VITA_SCN_BEGIN();
+     dKy_itudemo_se();
+     if (!dMenu_flag()) {
+         dComIfGp_demo_update();
+         // dComIfGp_jcame_update(); // Debug only
+         // dComIfGp_jprev_update(); // Debug only
++        VITA_SCN_MARK("e_demo");
+         dComIfGp_evmng_execute();
++        VITA_SCN_MARK("e_event");
+ 
+         if (dComIfGp_getAttention().Owner() != NULL) {
+             dComIfGp_getAttention().Run(-1);
+         } else {
+             dComIfGp_getAttention().Init(dComIfGp_getPlayer(0), 0);
+         }
++        VITA_SCN_MARK("e_attention");
+ 
+         dComIfGp_getDetect().proc();
++        VITA_SCN_MARK("e_detect");
+     }
+ 
+     return TRUE;
 diff --git a/game/src/f_pc/f_pc_manager.cpp b/game/src/f_pc/f_pc_manager.cpp
 index 8bad81c5..7fe0d507 100644
 --- a/game/src/f_pc/f_pc_manager.cpp

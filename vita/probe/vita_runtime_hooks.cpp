@@ -195,6 +195,55 @@ void bucket_close(unsigned long long now)
     g_buckets[i].us += now - g_bucketStart;
 }
 }
+// Play scene marks (d_s_play.cpp): the time since the previous mark goes to the mark's name.
+Bucket g_scn[40];
+int g_scnCount;
+unsigned long long g_scnLast;
+void tww_vita_scn_begin(void)
+{
+    if (tww_vita_cpu_profile)
+        g_scnLast = sceKernelGetProcessTimeWide();
+}
+void tww_vita_scn_mark(const char *name)
+{
+    if (!tww_vita_cpu_profile)
+        return;
+    const unsigned long long now = sceKernelGetProcessTimeWide();
+    int i = 0;
+    while (i < g_scnCount && g_scn[i].name != name && std::strcmp(g_scn[i].name, name) != 0)
+        ++i;
+    if (i == g_scnCount) {
+        if (g_scnCount == 40)
+            return;
+        g_scn[g_scnCount++] = {name, 0};
+    }
+    if (g_scnLast)
+        g_scn[i].us += now - g_scnLast;
+    g_scnLast = now;
+}
+// J3DMatPacket::draw (J3DPacket.cpp): 0 material load, 1 shape matrix loads, 2 shape lists,
+// 3 material packets, 4 shape packets.
+unsigned long long g_slots[8];
+void tww_vita_prof_slot(int slot, unsigned long long value)
+{
+    if (slot >= 0 && slot < 8)
+        g_slots[slot] += value;
+}
+// Top-level draw-buffer packets by vtable (J3DDrawBuffer.cpp).
+struct VtEntry { void *vt; unsigned long long us; unsigned count; };
+VtEntry g_vt[64];
+void tww_vita_prof_packet(void *vt, unsigned long long us)
+{
+    unsigned h = (reinterpret_cast<uintptr_t>(vt) >> 2) & 63;
+    for (unsigned k = 0; k < 64; ++k, h = (h + 1) & 63) {
+        if (g_vt[h].vt == vt || g_vt[h].vt == nullptr) {
+            g_vt[h].vt = vt;
+            g_vt[h].us += us;
+            ++g_vt[h].count;
+            return;
+        }
+    }
+}
 void aurora_vita_worker_prof(unsigned long long *out, unsigned count);
 void aurora_vita_set_worker_prof(int enabled);
 void tww_vita_prof_proc(int name, int draw, unsigned long long us)
@@ -261,6 +310,35 @@ void tww_vita_prof_report(int fd, unsigned int frames,
         cnt(7), cnt(8), cnt(9), cnt(10), cnt(11), cnt(12));
     log(fd, "vita-worker-unmerged-0.1ms arrays=%lu pipeline=%lu textures=%lu bind_groups=%lu uniforms=%lu record=%lu\n",
         s8(13), s8(14), s8(15), s8(16), s8(17), s8(18));
+    n = std::snprintf(line, sizeof line, "vita-cpu-scene-0.1ms");
+    for (int i = 0; i < g_scnCount && n < 480; ++i)
+        n += std::snprintf(line + n, sizeof line - n, " %s=%lu", g_scn[i].name, per(g_scn[i].us));
+    log(fd, "%s\n", line);
+    for (int i = 0; i < g_scnCount; ++i)
+        g_scn[i].us = 0;
+    log(fd, "vita-cpu-j3d-0.1ms mat_load=%lu shape_mtx=%lu shape_dl=%lu mat_packets=%lu shape_packets=%lu\n",
+        per(g_slots[0]), per(g_slots[1]), per(g_slots[2]), static_cast<unsigned long>(g_slots[3] / frames),
+        static_cast<unsigned long>(g_slots[4] / frames));
+    std::memset(g_slots, 0, sizeof g_slots);
+    {
+        // The 12 costliest top-level packet kinds (vtable addresses; the ELF names them).
+        bool used[64]{};
+        n = std::snprintf(line, sizeof line, "vita-cpu-packets-0.01ms");
+        for (int k = 0; k < 12; ++k) {
+            int best = -1;
+            for (int i = 0; i < 64; ++i)
+                if (!used[i] && g_vt[i].vt && (best < 0 || g_vt[i].us > g_vt[best].us))
+                    best = i;
+            if (best < 0)
+                break;
+            used[best] = true;
+            n += std::snprintf(line + n, sizeof line - n, " %08lx=%lu/%u",
+                               static_cast<unsigned long>(reinterpret_cast<uintptr_t>(g_vt[best].vt)),
+                               static_cast<unsigned long>(g_vt[best].us / frames / 10), (g_vt[best].count + frames / 2) / frames);
+        }
+        log(fd, "%s\n", line);
+        std::memset(g_vt, 0, sizeof g_vt);
+    }
     std::memset(g_profProc, 0, sizeof g_profProc);
     std::memset(g_profCount, 0, sizeof g_profCount);
     std::memset(g_profSection, 0, sizeof g_profSection);

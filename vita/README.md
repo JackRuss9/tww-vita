@@ -783,3 +783,15 @@ GPU can reject hidden fragments before shading them).
   last draw is taken in one pass (one staging check, the vertex blocks appended,
   one index push) instead of per primitive.
 
+### 01.85
+
+- 01.84 FAST STRIPS: house worker ~49 -> ~44 ms (profiled), ~20 -> ~22 fps;
+  exterior worker ~106 -> ~93 ms, but the exterior stays at ~8 fps: its game
+  thread (~122 ms) limits it. No visible errors.
+- CPU PROFILE now also splits the play scene's own work by named marks
+  (vita-cpu-scene: d_* in its draw, e_* in its execute), J3D material packets
+  into material load, shape matrix loads and shape display lists
+  (vita-cpu-j3d), and the costliest top-level packet kinds by vtable
+  (vita-cpu-packets; the ELF names them). switchwaker-vita-cpu-profile.patch
+  now also covers J3DPacket.cpp, J3DDrawBuffer.cpp and d_s_play.cpp.
+
