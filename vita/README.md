@@ -714,3 +714,11 @@ GPU can reject hidden fragments before shading them).
   thread at ~110 ms. PIXEL stays the default.
 - SHADER TEST gains NO TEXTURES (every sample is a constant, the TEV maths
   stays) and NO FOG, to split the remaining exterior cost.
+
+### 01.78
+
+- 01.77 results (main scene): NO TEXTURES exterior 92 ms (no change), house
+  ~45-52 ms; NO FOG exterior 44 ms (from 91), house 13-16 ms (from 55). Fog is
+  the GPU cost.
+- SHADER TEST gains FOG NO RANGE (fog without the range adjustment) and FOG
+  FIXED Z (fog maths kept, no fragment-position reads), to find which part.

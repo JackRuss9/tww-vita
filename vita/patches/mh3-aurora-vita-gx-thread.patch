@@ -1526,7 +1526,7 @@ index be3fee9..07ffbb5 100644
    };
  }
 diff --git a/aurora-main/lib/gx/shader.cpp b/aurora-main/lib/gx/shader.cpp
-index fe68417..97bb058 100644
+index fe68417..4528bb8 100644
 --- a/aurora-main/lib/gx/shader.cpp
 +++ b/aurora-main/lib/gx/shader.cpp
 @@ -1061,6 +1061,17 @@ static std::string native_float_op(const TevOp& op,std::string_view a,std::strin
@@ -1621,7 +1621,17 @@ index fe68417..97bb058 100644
    }
  
    // in.pos.z is the host NDC z (forward: 0=near/1=far; reversed: 1=near/0=far post-fix), but this
-@@ -1886,7 +1926,15 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1829,6 +1869,9 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+   // identical expression in build_shader_source), which fed both fog density and the GX_ZT_ADD
+   // z-texture path the wrong distance value.
+   std::string fogDepthExpr = UseReversedZ ? "(1.0 - in.pos.z)" : "in.pos.z";
++  // SHADER TEST 6: fog without any fragment-position read (depth fixed at 0.5).
++  if (g_vitaShaderTest == 6)
++    fogDepthExpr = "0.5";
+   std::string fogZCoordExpr =
+       fmt::format("u32(round(clamp({}, 0.0, 1.0) * 16777216.0))", fogDepthExpr);
+   if (usesZTextureDepth) {
+@@ -1886,7 +1929,15 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
          "};";
      uniBufAttrs += "\n    Fog fog;";
  
@@ -1638,7 +1648,21 @@ index fe68417..97bb058 100644
        fragmentFn += fmt::format(
            "\n    // Fog"
            "\n    uint fogZCoord = {};"
-@@ -1945,7 +1993,8 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1901,9 +1952,11 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+           fogZCoordExpr);
+     }
+ 
+-    if (config.fogRangeAdjust) {
++    if (config.fogRangeAdjust && g_vitaShaderTest != 5) { // SHADER TEST 5: no fog range adjust
++      fragmentFn += g_vitaShaderTest == 6 ?
++          "\n    float fogRangeOffset = (2.0 * (160.0 / ubuf.fog.range_base.y)) - 1.0 - ubuf.fog.range_base.x;" :
++          "\n    float fogRangeOffset = (2.0 * (in.pos.x / ubuf.fog.range_base.y)) - 1.0 - ubuf.fog.range_base.x;";
+       fragmentFn +=
+-          "\n    float fogRangeOffset = (2.0 * (in.pos.x / ubuf.fog.range_base.y)) - 1.0 - ubuf.fog.range_base.x;"
+           "\n    float fogRangeFloatIndex = clamp(9.0 - abs(fogRangeOffset) * 9.0, 0.0, 9.0);"
+           "\n    uint fogRangeIndexLower = u32(fogRangeFloatIndex);"
+           "\n    uint fogRangeIndexUpper = min(fogRangeIndexLower + 1u, 9u);"
+@@ -1945,7 +1998,8 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
        break;
      }
  
@@ -1648,7 +1672,7 @@ index fe68417..97bb058 100644
    }
  
    if (info.usedIndTexMtxs.any()) {
-@@ -1968,8 +2017,10 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1968,8 +2022,10 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
    }
  
    if(!nativeFloat) fragmentFn += "\n    prev = tev_overflow_vec4f(prev);";
@@ -1660,7 +1684,7 @@ index fe68417..97bb058 100644
      const auto comp0 = alpha_compare(config.alphaCompare.comp0, config.alphaCompare.ref0, nativeFloat);
      const auto comp1 = alpha_compare(config.alphaCompare.comp1, config.alphaCompare.ref1, nativeFloat);
      AlphaCompareExpr pass;
-@@ -2375,11 +2426,15 @@ void main() {{{4}
+@@ -2375,11 +2431,15 @@ void main() {{{4}
  }
  
  gl::ProgramPtr build_shader(const ShaderConfig& config) noexcept {

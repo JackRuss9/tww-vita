@@ -44,7 +44,7 @@ volatile int g_floatTev = 1;     // read at start-up
 volatile int g_audio = 1;        // read at start-up
 volatile int g_titleSparkle = 1; // live
 volatile int g_skipIntro = 0;    // read at start-up: 1 skips the legend and the prologue
-volatile int g_shaderTest = 0;   // read at start-up, diagnostic: 1 flat grey shading, 2 no alpha test, 3 no texture reads, 4 no fog
+volatile int g_shaderTest = 0;   // read at start-up, diagnostic: 1 flat grey shading, 2 no alpha test, 3 no texture reads, 4 no fog, 5 fog without range adjust, 6 fog without position reads
 volatile int g_gpuTiming = 0;    // live diagnostic: GPU time of each scene (slow)
 volatile int g_fastTex = 1;      // read at start-up: float texture coordinates and fog; 1 PIXEL, 2 VERTEX (slow vertex recompiles)
 volatile int g_cmprBc1 = 1;      // read at start-up: CMPR textures stay compressed (UBC1)
@@ -80,7 +80,7 @@ struct Item {
 };
 const int kOnOff[] = {1, 0};
 const int kGxThread[] = {0, 1, 2};
-const int kShaderTests[] = {0, 1, 2, 3, 4};
+const int kShaderTests[] = {0, 1, 2, 3, 4, 5, 6};
 const int kScales[] = {0, 100, 87, 75, 62, 50, 37};
 const Item kItems[] = {
     {"show_fps", "SHOW FPS", &g_showFps, kOnOff, 2, ON_OFF, 1},
@@ -88,7 +88,7 @@ const Item kItems[] = {
     {"float_tev", "FAST COLOUR MIXING (NEXT START)", &g_floatTev, kOnOff, 2, ON_OFF, 1},
     {"audio", "AUDIO (NEXT START)", &g_audio, kOnOff, 2, ON_OFF, 1},
     {"fast_tex", "FAST TEXCOORDS (NEXT START)", &g_fastTex, kGxThread, 3, FAST_TEX, 1},
-    {"shader_test", "SHADER TEST (NEXT START)", &g_shaderTest, kShaderTests, 5, SHADER_TEST, 0},
+    {"shader_test", "SHADER TEST (NEXT START)", &g_shaderTest, kShaderTests, 7, SHADER_TEST, 0},
     {"gpu_timing", "GPU TIMING (SLOW, LOG)", &g_gpuTiming, kOnOff, 2, ON_OFF, 0},
     {"cmpr_bc1", "CMPR AS DXT1 (NEXT START)", &g_cmprBc1, kOnOff, 2, ON_OFF, 1},
     {"skip_intro", "SKIP INTRO (NEXT START)", &g_skipIntro, kOnOff, 2, ON_OFF, 0},
@@ -250,7 +250,7 @@ void draw_menu(void* address, unsigned stride, unsigned width, unsigned height)
         else if (it.shown == ASPECT)
             std::snprintf(v, sizeof v, "%s", *it.value ? "16:9" : "4:3");
         else if (it.shown == SHADER_TEST)
-            std::snprintf(v, sizeof v, "%s", *it.value == 4 ? "NO FOG" : *it.value == 3 ? "NO TEXTURES" : *it.value == 2 ? "NO ALPHA" : *it.value ? "GREY" : "OFF");
+            std::snprintf(v, sizeof v, "%s", *it.value == 6 ? "FOG FIXED Z" : *it.value == 5 ? "FOG NO RANGE" : *it.value == 4 ? "NO FOG" : *it.value == 3 ? "NO TEXTURES" : *it.value == 2 ? "NO ALPHA" : *it.value ? "GREY" : "OFF");
         else if (it.shown == FAST_TEX)
             std::snprintf(v, sizeof v, "%s", *it.value == 2 ? "VERTEX" : *it.value ? "PIXEL" : "OFF");
         else if (it.shown == GX_MODE)
