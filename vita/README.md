@@ -831,3 +831,11 @@ GPU can reject hidden fragments before shading them).
   rendering the frame before the previous one.
 - Orca's sword tutorial (01.86 log, profile off): ~24-27 fps.
 
+### 01.89
+
+- 01.88 (profile off): exterior game thread ~122 -> ~111 ms (~9 fps) with the
+  attention fix; house ~36 ms (~27 fps, the worker limits it). GX QUEUE 2 changes
+  nothing: the ~10 ms wait moves from wait_previous_frame into a fifo::drain on
+  the game thread each frame (drains=1), a full catch-up with the worker.
+- The wait report now names drain's caller (second address).
+
