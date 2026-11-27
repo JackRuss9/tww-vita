@@ -706,3 +706,11 @@ GPU can reject hidden fragments before shading them).
 - FAST TEXCOORDS now has three values: OFF, PIXEL (default: the fragment shader
   scales the float UV, so vertex programs stay as before and keep their cache)
   and VERTEX (01.75's behaviour: non-dependent reads, long vertex recompiles).
+
+### 01.77
+
+- 01.76 PIXEL results: house main scene 55 ms (VERTEX 44, before 91), exterior
+  91 ms (VERTEX 94, before 120). House ~16 fps; exterior ~8 fps with the game
+  thread at ~110 ms. PIXEL stays the default.
+- SHADER TEST gains NO TEXTURES (every sample is a constant, the TEV maths
+  stays) and NO FOG, to split the remaining exterior cost.

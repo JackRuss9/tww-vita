@@ -1526,7 +1526,7 @@ index be3fee9..07ffbb5 100644
    };
  }
 diff --git a/aurora-main/lib/gx/shader.cpp b/aurora-main/lib/gx/shader.cpp
-index fe68417..c54c7b5 100644
+index fe68417..97bb058 100644
 --- a/aurora-main/lib/gx/shader.cpp
 +++ b/aurora-main/lib/gx/shader.cpp
 @@ -1061,6 +1061,17 @@ static std::string native_float_op(const TevOp& op,std::string_view a,std::strin
@@ -1605,7 +1605,7 @@ index fe68417..c54c7b5 100644
        } else {
          const auto fixedUv = fixed_texcoord_name(static_cast<u32>(textureDependency.texCoordId));
          uvIn = fmt::format("vec2f(tev_s24_fixed_vec2i({0})) / (ubuf.tex{1}_size_bias.xy * 128.0)", fixedUv,
-@@ -1814,6 +1850,8 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1814,11 +1850,15 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
                                    i,textureDependency.texMapId,textureDependency.texCoordId);
        } else fragmentFnPre += fmt::format("\n    vec4 sampled{0} = texture(tex{1}, {2});", i,
                                           textureDependency.texMapId, uvIn);
@@ -1614,7 +1614,14 @@ index fe68417..c54c7b5 100644
      } else {
        fragmentFnPre +=
            fmt::format("\n    vec4 sampled{0} = texture(tex{1}, {2}, ubuf.tex{1}_size_bias.z);", i,
-@@ -1886,7 +1924,15 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+                       textureDependency.texMapId, uvIn);
+     }
++    if (g_vitaShaderTest == 3) // SHADER TEST 3: no texture reads, the TEV maths stays
++      fragmentFnPre += fmt::format("\n    sampled{0} = vec4(0.5, 0.5, 0.5, 1.0);", i);
+   }
+ 
+   // in.pos.z is the host NDC z (forward: 0=near/1=far; reversed: 1=near/0=far post-fix), but this
+@@ -1886,7 +1926,15 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
          "};";
      uniBufAttrs += "\n    Fog fog;";
  
@@ -1631,7 +1638,17 @@ index fe68417..c54c7b5 100644
        fragmentFn += fmt::format(
            "\n    // Fog"
            "\n    uint fogZCoord = {};"
-@@ -1968,8 +2014,10 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1945,7 +1993,8 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+       break;
+     }
+ 
+-    fragmentFn += "\n    prev = vec4f(mix(prev.rgb, ubuf.fog.color.rgb, clamp(fogZ, 0.0, 1.0)), prev.a);";
++    if (g_vitaShaderTest != 4) // SHADER TEST 4: no fog (its maths is then dead code)
++      fragmentFn += "\n    prev = vec4f(mix(prev.rgb, ubuf.fog.color.rgb, clamp(fogZ, 0.0, 1.0)), prev.a);";
+   }
+ 
+   if (info.usedIndTexMtxs.any()) {
+@@ -1968,8 +2017,10 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
    }
  
    if(!nativeFloat) fragmentFn += "\n    prev = tev_overflow_vec4f(prev);";
@@ -1639,11 +1656,11 @@ index fe68417..c54c7b5 100644
 +    fragmentFn += "\n    prev = vec4(0.5, 0.5, 0.5, 1.0); // SHADER TEST 1";
  
 -  if (config.alphaCompare) {
-+  if (config.alphaCompare && g_vitaShaderTest == 0) {
++  if (config.alphaCompare && g_vitaShaderTest != 1 && g_vitaShaderTest != 2) {
      const auto comp0 = alpha_compare(config.alphaCompare.comp0, config.alphaCompare.ref0, nativeFloat);
      const auto comp1 = alpha_compare(config.alphaCompare.comp1, config.alphaCompare.ref1, nativeFloat);
      AlphaCompareExpr pass;
-@@ -2375,11 +2423,15 @@ void main() {{{4}
+@@ -2375,11 +2426,15 @@ void main() {{{4}
  }
  
  gl::ProgramPtr build_shader(const ShaderConfig& config) noexcept {
