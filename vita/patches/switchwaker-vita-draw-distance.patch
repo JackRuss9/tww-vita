@@ -1,0 +1,23 @@
+diff --git a/game/src/m_Do/m_Do_lib.cpp b/game/src/m_Do/m_Do_lib.cpp
+index 7ac53b39..8bca9dee 100644
+--- a/game/src/m_Do/m_Do_lib.cpp
++++ b/game/src/m_Do/m_Do_lib.cpp
+@@ -39,7 +39,18 @@ f32 mDoLib_clipper::mSystemFar;
+ f32 mDoLib_clipper::mFovyRate;
+ 
+ /* 800176BC-80017748       .text setup__14mDoLib_clipperFffff */
++#if defined(__vita__)
++// tww-vita DRAW DISTANCE (live): percent of the stage's cull distance. Actors
++// and models past it are culled, which saves both drawing and GPU time.
++extern "C" int tww_vita_draw_distance;
++int tww_vita_draw_distance = 100;
++#endif
++
+ void mDoLib_clipper::setup(f32 fovY, f32 aspect, f32 n, f32 f) {
++#if defined(__vita__)
++    if (tww_vita_draw_distance > 0 && tww_vita_draw_distance < 100 && f > n)
++        f = n + (f - n) * (f32)tww_vita_draw_distance / 100.0f;
++#endif
+     mClipper.setFovy(fovY);
+     mClipper.setAspect(aspect);
+     mClipper.setNear(n);

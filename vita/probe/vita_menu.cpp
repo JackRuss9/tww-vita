@@ -26,7 +26,8 @@ void aurora_vita_set_shader_test(int mode);
 void aurora_vita_set_fast_texcoords(int enabled);
 void aurora_vita_set_fog(int mode);
 int aurora_vita_shaders_compiling();
-extern int tww_vita_fast_grass_enabled; // d_grass.cpp (switchwaker-vita-fast-grass.patch)
+extern int tww_vita_fast_grass_enabled;
+extern "C" int tww_vita_draw_distance; // m_Do_lib.cpp (switchwaker-vita-draw-distance.patch) // d_grass.cpp (switchwaker-vita-fast-grass.patch)
 unsigned aurora_vita_efb_width();
 unsigned aurora_vita_efb_height();
 void pc_milestone(const char* name);
@@ -84,6 +85,7 @@ const int kOnOff[] = {1, 0};
 const int kGxThread[] = {0, 1, 2};
 const int kShaderTests[] = {0, 1, 2, 3, 4, 5, 6};
 const int kScales[] = {0, 100, 87, 75, 62, 50, 37};
+const int kDistances[] = {100, 75, 50, 35};
 const Item kItems[] = {
     {"show_fps", "SHOW FPS", &g_showFps, kOnOff, 2, ON_OFF, 1},
     {"resolution", "RESOLUTION", &g_resolution, kScales, 7, PERCENT, 0},
@@ -97,6 +99,7 @@ const Item kItems[] = {
     {"skip_intro", "SKIP INTRO (NEXT START)", &g_skipIntro, kOnOff, 2, ON_OFF, 0},
     {"title_sparkle", "TITLE SPARKLE", &g_titleSparkle, kOnOff, 2, ON_OFF, 1},
     {"aspect", "SCREEN (NEXT START)", &g_aspect, kOnOff, 2, ASPECT, 1},
+    {"draw_distance", "DRAW DISTANCE", &tww_vita_draw_distance, kDistances, 4, PERCENT, 100},
     {"fast_grass", "FAST GRASS", &tww_vita_fast_grass_enabled, kOnOff, 2, ON_OFF, 1},
     {"async_shaders", "BACKGROUND SHADERS", &g_asyncShaders, kOnOff, 2, ON_OFF, 1},
     {"gx_thread", "GX THREAD (NEXT START)", &g_gxThread, kGxThread, 3, GX_MODE, 1},
