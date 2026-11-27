@@ -1,0 +1,25 @@
+diff --git a/game/src/m_Do/m_Do_graphic.cpp b/game/src/m_Do/m_Do_graphic.cpp
+index 893d4b00..e71c2bc8 100644
+--- a/game/src/m_Do/m_Do_graphic.cpp
++++ b/game/src/m_Do/m_Do_graphic.cpp
+@@ -159,7 +159,20 @@ void* mDoGph_gInf_c::alloc(u32 size, int align) {
+ }
+ 
+ /* 80007EE4-80007F1C       .text free__13mDoGph_gInf_cFv */
++#if defined(__vita__)
++extern "C" int tww_vita_heap_skip_gx_sync; // JKRHeap.cpp
++#endif
+ void mDoGph_gInf_c::free() {
++#if defined(__vita__)
++    // tww-vita 01.90: the heap freed here was filled two frames ago, and beginRender's
++    // GXDrawDone/GXSetDrawDone has already waited for the GX worker to finish that frame
++    // (GX QUEUE 1 or 2), so freeAll's full catch-up with the worker (~10 ms a frame in
++    // Outset) is not needed.
++    tww_vita_heap_skip_gx_sync = 1;
++    mHeap[mCurrentHeap ^= 1]->freeAll();
++    tww_vita_heap_skip_gx_sync = 0;
++    return;
++#endif
+     mHeap[mCurrentHeap ^= 1]->freeAll();
+ }
+ 

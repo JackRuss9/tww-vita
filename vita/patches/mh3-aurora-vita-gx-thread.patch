@@ -2068,7 +2068,7 @@ index ad6473b..f9ab519 100644
      return;
  
 diff --git a/aurora-main/lib/gxm/renderer.cpp b/aurora-main/lib/gxm/renderer.cpp
-index 3219bb3..f625b18 100644
+index 3219bb3..d4859ed 100644
 --- a/aurora-main/lib/gxm/renderer.cpp
 +++ b/aurora-main/lib/gxm/renderer.cpp
 @@ -1,3 +1,4 @@
@@ -2134,15 +2134,22 @@ index 3219bb3..f625b18 100644
  #endif
      const auto* binary = fragment_binary(m_fragmentHash);
      m_usesDiscard = sceGxmProgramIsDiscardUsed(binary);
-@@ -2223,7 +2252,11 @@ void present(const TexturePtr& source, int32_t x, int32_t y, int32_t width, int3
+@@ -2223,7 +2252,18 @@ void present(const TexturePtr& source, int32_t x, int32_t y, int32_t width, int3
        apply_raster({}, r.device.context());
        r.plain();
        r.presentProgram.bind(blend_info({}, {}));
 -      const float region[4]{-1.f, 1.f, 2.f, -2.f}, depth = 0.f;
 +      // The EFB's GX scratch rows under the shown 480 fall below the viewport.
 +      float shown = 1.f;
-+      if (const auto efb = vi::configured_fb_size(), visible = vi::visible_fb_size(); visible.y != 0 && efb.y > visible.y)
++      if (const auto efb = vi::configured_fb_size(), visible = vi::visible_fb_size(); visible.y != 0 && efb.y > visible.y) {
 +        shown = float(visible.y) / float(efb.y);
++        // tww-vita 01.90: at a scaled EFB the shown height ends inside a texel row, and the
++        // bottom screen row filtered in the scratch row below it (a coloured line under
++        // the letterbox bars). Stop half a texel inside the last whole row.
++        const float rows = shown * float(source->height);
++        if (rows > 2.f)
++          shown = (std::floor(rows) - 0.5f) / float(source->height);
++      }
 +      const float region[4]{-1.f, 1.f, 2.f, -2.f / shown}, depth = 0.f;
        r.presentProgram.set_vertex_uniform("region", region, 4);
        r.presentProgram.set_vertex_uniform("depth", &depth, 1);

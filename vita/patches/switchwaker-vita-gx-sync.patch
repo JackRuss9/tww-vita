@@ -1,8 +1,8 @@
 diff --git a/game/src/JSystem/JKernel/JKRHeap.cpp b/game/src/JSystem/JKernel/JKRHeap.cpp
-index cfff0f36..cbef0d06 100644
+index cfff0f36..8bb65d2a 100644
 --- a/game/src/JSystem/JKernel/JKRHeap.cpp
 +++ b/game/src/JSystem/JKernel/JKRHeap.cpp
-@@ -122,8 +122,17 @@ JKRHeap* JKRHeap::becomeCurrentHeap() {
+@@ -122,8 +122,20 @@ JKRHeap* JKRHeap::becomeCurrentHeap() {
      return prev;
  }
  
@@ -10,6 +10,9 @@ index cfff0f36..cbef0d06 100644
 +// tww-vita GX THREAD: the GX worker may still read this heap's models, arrays
 +// and textures; finish its queued work first (no-op without the worker).
 +extern "C" void tww_vita_gx_sync();
++// Set by mDoGph_gInf_c::free (m_Do_graphic.cpp) around its frame heap's freeAll.
++extern "C" int tww_vita_heap_skip_gx_sync;
++int tww_vita_heap_skip_gx_sync = 0;
 +#endif
 +
  /* 802B0408-802B0434       .text destroy__7JKRHeapFv */
@@ -20,12 +23,13 @@ index cfff0f36..cbef0d06 100644
      do_destroy();
  }
  
-@@ -185,6 +194,9 @@ void JKRHeap::freeAll() {
+@@ -185,6 +197,10 @@ void JKRHeap::freeAll() {
      if (mInitFlag) {
          JUT_WARN(408, "freeAll in heap %x", this);
      }
 +#if defined(__vita__)
-+    tww_vita_gx_sync();
++    if (!tww_vita_heap_skip_gx_sync)
++        tww_vita_gx_sync();
 +#endif
      do_freeAll();
  }
