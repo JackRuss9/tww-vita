@@ -194,7 +194,7 @@ index 9815bd4..1fdd59c 100644
  
    if (z != nullptr) {
 diff --git a/aurora-main/lib/dolphin/gx/GXDispList.cpp b/aurora-main/lib/dolphin/gx/GXDispList.cpp
-index bf22212..04072a3 100644
+index bf22212..485f4b3 100644
 --- a/aurora-main/lib/dolphin/gx/GXDispList.cpp
 +++ b/aurora-main/lib/dolphin/gx/GXDispList.cpp
 @@ -64,6 +64,13 @@ void GXCallDisplayList(const void* data, u32 nbytes) {
@@ -204,7 +204,7 @@ index bf22212..04072a3 100644
 +  // GX THREAD: the list is copied into the FIFO for the worker, as upstream Aurora does.
 +  if (aurora::gx::fifo::threaded()) {
 +    aurora::gx::fifo::write_data(data, nbytes);
-+    aurora::gx::fifo::publish();
++    aurora::gx::fifo::publish_batched();
 +    return;
 +  }
 +
@@ -590,7 +590,7 @@ index e3fca99..7633ec8 100644
    g_gxState.scissorOffsetY = y_off;
  
 diff --git a/aurora-main/lib/dolphin/gx/GXVert.cpp b/aurora-main/lib/dolphin/gx/GXVert.cpp
-index 9a79dad..1f02df5 100644
+index 9a79dad..6cc8c67 100644
 --- a/aurora-main/lib/dolphin/gx/GXVert.cpp
 +++ b/aurora-main/lib/dolphin/gx/GXVert.cpp
 @@ -383,10 +383,11 @@ static int64_t scalar_to_signed_raw(const Scalar& value, u8 bits, u8 frac) {
@@ -628,7 +628,7 @@ index 9a79dad..1f02df5 100644
    if (!aurora::gx::fifo::in_display_list()) {
 -    aurora::gx::fifo::drain();
 +    if (aurora::gx::fifo::threaded())
-+      aurora::gx::fifo::publish();
++      aurora::gx::fifo::publish_batched();
 +    else
 +      aurora::gx::fifo::drain();
    }
@@ -757,7 +757,7 @@ index dbb8aec..ff377e9 100644
    // may expand RGB-only writes only while its target is certified A=1.
    bool preservesTargetAlphaOne = false;
 diff --git a/aurora-main/lib/gx/command_processor.cpp b/aurora-main/lib/gx/command_processor.cpp
-index 665e528..7e8711b 100644
+index 665e528..c71f682 100644
 --- a/aurora-main/lib/gx/command_processor.cpp
 +++ b/aurora-main/lib/gx/command_processor.cpp
 @@ -1,4 +1,5 @@
@@ -929,14 +929,16 @@ index 665e528..7e8711b 100644
    }
  
    return size;
-@@ -2422,6 +2470,67 @@ bool submit_raw_draw(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices, ui
+@@ -2422,6 +2470,69 @@ bool submit_raw_draw(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices, ui
    return true;
  }
  
 +#ifdef __vita__
 +int g_vitaMergeRuns = 1;
++int g_vitaFastArrays = 1;
 +} // namespace aurora::gx::fifo
 +extern "C" void aurora_vita_set_merge_runs(int enabled) { aurora::gx::fifo::g_vitaMergeRuns = enabled; }
++extern "C" void aurora_vita_set_fast_arrays(int enabled) { aurora::gx::fifo::g_vitaFastArrays = enabled; }
 +namespace aurora::gx::fifo {
 +// Returns Stop when the run cannot be taken this way (the caller then does the single
 +// primitive as before); pos is only moved past what was merged.
@@ -997,7 +999,7 @@ index 665e528..7e8711b 100644
  static DrawStep handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndian) {
  
    GXVtxFmt fmt = static_cast<GXVtxFmt>(cmd & CP_VAT_MASK);
-@@ -2474,6 +2583,14 @@ static DrawStep handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool big
+@@ -2474,6 +2585,14 @@ static DrawStep handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool big
      }
    }
  
@@ -1012,7 +1014,33 @@ index 665e528..7e8711b 100644
    if (!admit_draw(prim, fmt, vtxCount, totalVtxBytes, mergeTarget != nullptr)) UNLIKELY {
      return DrawStep::BatchFull;
    }
-@@ -2554,6 +2671,60 @@ static gfx::Range upload_vertex_array(const void* data, uint32_t size) {
+@@ -2543,7 +2662,25 @@ static gfx::Range upload_vertex_array(const void* data, uint32_t size) {
+     uploadsEpoch = gfx::staging_epoch();
+   }
+ 
++#ifdef __vita__
++  // tww-vita 01.93 FAST ARRAYS: hash 3 x 64 bytes (start, middle, end) instead of the whole
++  // array. J3D rebinds the same static arrays draw after draw; skinned arrays rewrite all of
++  // their bytes, so a sample still sees them change.
++  HashType contentHash;
++  if (g_vitaFastArrays && size > 256) {
++    const auto* b = static_cast<const uint8_t*>(data);
++    uint8_t sample[192];
++    std::memcpy(sample, b, 64);
++    std::memcpy(sample + 64, b + (size / 2 & ~3u), 64);
++    std::memcpy(sample + 128, b + size - 64, 64);
++    contentHash = xxh3_hash_s(sample, sizeof sample, reinterpret_cast<uintptr_t>(data) ^ size);
++  } else {
++    contentHash = xxh3_hash_s(data, size, reinterpret_cast<uintptr_t>(data));
++  }
++  const Key key{data, size, contentHash};
++#else
+   const Key key{data, size, xxh3_hash_s(data, size, reinterpret_cast<uintptr_t>(data))};
++#endif
+ 
+   if (const auto it = uploads.find(key); it != uploads.end()) {
+     return it->second;
+@@ -2554,6 +2691,60 @@ static gfx::Range upload_vertex_array(const void* data, uint32_t size) {
    return range;
  }
  
@@ -1073,7 +1101,7 @@ index 665e528..7e8711b 100644
  static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
                                   gfx::Range vertRange, uint16_t usedPnMtxMask,
                                   HashType matrixTopologySignature,
-@@ -2566,6 +2737,8 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
+@@ -2566,6 +2757,8 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
    }
  
    // Callers hold the renderer GPU mutex for the whole drain (process() and submit_raw_draw); taking it again per draw only cost a recursive re-entry.
@@ -1082,7 +1110,7 @@ index 665e528..7e8711b 100644
    const auto& indexTemplate = cached_index_template(prim, vtxCount);
    const u32 numIndices = indexTemplate.indexCount;
    const gfx::Range idxRange = gfx::push_indices(ArrayRef<u16>{
-@@ -2590,12 +2763,23 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
+@@ -2590,12 +2783,23 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
      }
    }
  
@@ -1106,7 +1134,7 @@ index 665e528..7e8711b 100644
  
    const auto pipeline = pipelineState.ref;
  
-@@ -2623,6 +2807,8 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
+@@ -2623,6 +2827,8 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
        build_uniform(info, vertRange.offset, ranges, drawIdentity, interpolationIdentityActive,
                      usedPnMtxMask);
    s_lastDrawRecordedInterpolation = interpolationIdentityActive;
@@ -1115,7 +1143,7 @@ index 665e528..7e8711b 100644
  
    uint32_t instanceCount = 1;
  
-@@ -2674,6 +2860,11 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
+@@ -2674,6 +2880,11 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
        }(),
    });
    g_gxState.stateDirty = false;
@@ -1127,7 +1155,7 @@ index 665e528..7e8711b 100644
  }
  
  std::string read_string(const u8* data, u32& pos, u32 size, bool bigEndian) {
-@@ -2822,6 +3013,8 @@ bool handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
+@@ -2822,6 +3033,8 @@ bool handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
      pos += 8;
    } else if (subCmd == GX_LOAD_AURORA_INVALIDATE_TEX_ALL) {
      invalidate_static_texture_cache();
@@ -1137,7 +1165,7 @@ index 665e528..7e8711b 100644
      auto label = read_string(data, pos, size, bigEndian);
      gfx::push_debug_group(std::move(label));
 diff --git a/aurora-main/lib/gx/fifo.cpp b/aurora-main/lib/gx/fifo.cpp
-index c7fd176..c4bb630 100644
+index c7fd176..b3f3166 100644
 --- a/aurora-main/lib/gx/fifo.cpp
 +++ b/aurora-main/lib/gx/fifo.cpp
 @@ -1,4 +1,6 @@
@@ -1171,7 +1199,7 @@ index c7fd176..c4bb630 100644
  
  namespace aurora::gx::fifo {
  static Module Log("aurora::gx::fifo");
-@@ -28,8 +42,347 @@ uint32_t sDlSize = 0;
+@@ -28,8 +42,373 @@ uint32_t sDlSize = 0;
  uint32_t sDlWritePos = 0;
  } // namespace detail
  
@@ -1404,11 +1432,23 @@ index c7fd176..c4bb630 100644
 +#endif
 +
 +uintptr_t g_vitaRenderThreadCaller = 0; // set by gl::on_render_thread (gxm/renderer.cpp)
++uint32_t sDeferred = 0;     // last command boundary publish_batched() held back
++int g_vitaPublishBatch = 0; // GX BATCH: bytes the game thread gathers before waking the worker
 +void producer_acquire() {
 +  if (!sThreaded || tWorker || sProducerOwns || foreign()) return;
 +  const uintptr_t caller = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
 +  const uintptr_t outer = g_vitaRenderThreadCaller;
 +  g_vitaRenderThreadCaller = 0;
++  // tww-vita GX BATCH: bytes held back by publish_batched() go to the worker first, so
++  // whatever the game thread does with the renderer comes after them, as before.
++  if (sDeferred > sPublished.load(std::memory_order_relaxed) && sDeferred <= detail::sBufferSize) {
++    sPublished.store(sDeferred);
++    sPublishes.fetch_add(1, std::memory_order_relaxed);
++#ifdef __vita__
++    if (sWorkerSleeping.load()) sceKernelSignalSema(sWake, 1);
++#endif
++  }
++  sDeferred = 0;
 +  const uint64_t start = now_us();
 +  std::unique_lock lock{sOwner};
 +  const auto caughtUp = [] { return sProcessed.load(std::memory_order_acquire) == sPublished.load(std::memory_order_acquire); };
@@ -1443,6 +1483,7 @@ index c7fd176..c4bb630 100644
 +  }
 +#endif
 +  sPublished.store(detail::sBufferSize);
++  sDeferred = 0;
 +  sPublishes.fetch_add(1, std::memory_order_relaxed);
 +  if (sProducerOwns) {
 +    sProducerOwns = false;
@@ -1452,7 +1493,20 @@ index c7fd176..c4bb630 100644
 +  if (sWorkerSleeping.load()) sceKernelSignalSema(sWake, 1);
 +#endif
 +}
- 
++
++// tww-vita 01.93 GX BATCH: display lists and immediate draws wake the worker only once
++// g_vitaPublishBatch bytes are waiting (1400 wakes per frame outside before). Frame ends,
++// tasks and renderer hand-overs still publish everything.
++void publish_batched() {
++  if (g_vitaPublishBatch > 0 && sThreaded && !sProducerOwns && !detail::sInDisplayList && !tWorker &&
++      sWorkerStarted && !foreign() &&
++      detail::sBufferSize - sPublished.load(std::memory_order_relaxed) < uint32_t(g_vitaPublishBatch)) {
++    sDeferred = detail::sBufferSize;
++    return;
++  }
++  publish();
++}
++
 +void enqueue_task_fn(std::function<void()>* task) {
 +  {
 +    std::lock_guard lock{sTaskMutex};
@@ -1506,7 +1560,7 @@ index c7fd176..c4bb630 100644
 +  lock.unlock();
 +  try_compact();
 +}
-+
+ 
 +void init() {
 +  // GXInit runs on the game thread.
 +  if (!sGameKnown) {
@@ -1520,7 +1574,7 @@ index c7fd176..c4bb630 100644
    constexpr uint32_t initialCapacity = 64 * 1024;
    reset_cp_register_cache();
    free(detail::sBufferData);
-@@ -42,7 +395,44 @@ void init() {
+@@ -42,7 +421,45 @@ void init() {
    detail::sDlWritePos = 0;
  }
  
@@ -1536,6 +1590,7 @@ index c7fd176..c4bb630 100644
 +  const uint32_t tail = detail::sBufferSize - done;
 +  if (tail) std::memmove(detail::sBufferData, detail::sBufferData + done, tail);
 +  detail::sBufferSize = tail;
++  sDeferred = 0;
 +  sPublished.store(0, std::memory_order_release);
 +  sProcessed.store(0, std::memory_order_release);
 +}
@@ -1565,7 +1620,7 @@ index c7fd176..c4bb630 100644
  
    uint32_t needed = detail::sBufferSize + length;
    uint32_t newCap = std::max(detail::sBufferCapacity * 2, needed);
-@@ -88,6 +478,22 @@ void drain() {
+@@ -88,6 +505,23 @@ void drain() {
    // SEALED, not DONE.
    (void)aurora::wait_for_frame_worker_sealed();
  
@@ -1580,6 +1635,7 @@ index c7fd176..c4bb630 100644
 +    ++sDrainCalls;
 +    process_range(sProcessed.load(std::memory_order_acquire), detail::sBufferSize, nullptr);
 +    detail::sBufferSize = 0;
++    sDeferred = 0;
 +    sPublished.store(0);
 +    sProcessed.store(0);
 +    return;
@@ -1588,7 +1644,7 @@ index c7fd176..c4bb630 100644
    if (detail::sBufferSize == 0) {
      return;
    }
-@@ -119,6 +525,11 @@ void drain() {
+@@ -119,6 +553,12 @@ void drain() {
  const uint8_t* get_buffer_data() { return detail::sBufferData; }
  uint32_t get_buffer_size() { return detail::sBufferSize; }
  void clear_buffer() {
@@ -1597,10 +1653,11 @@ index c7fd176..c4bb630 100644
 +    sPublished.store(0);
 +    sProcessed.store(0);
 +  }
++  sDeferred = 0;
    detail::sBufferSize = 0;
  }
  
-@@ -128,3 +539,27 @@ void clear_buffer() {
+@@ -128,3 +568,28 @@ void clear_buffer() {
  // FIFO drains so far (the timer of 01.42-01.45 cost ~5% of the game thread).
  extern "C" unsigned long long aurora_vita_fifo_drain_us() { return aurora::gx::fifo::sDrainCalls; }
  #endif
@@ -1616,6 +1673,7 @@ index c7fd176..c4bb630 100644
 +  aurora::gx::fifo::set_threaded(mode != 0);
 +  aurora::gx::fifo::set_pipelined(mode == 2);
 +}
++extern "C" void aurora_vita_set_publish_batch(int bytes) { aurora::gx::fifo::g_vitaPublishBatch = bytes < 0 ? 0 : bytes; }
 +extern "C" unsigned aurora_vita_fifo_capacity() { return aurora::gx::fifo::detail::sBufferCapacity; }
 +extern "C" void aurora_vita_set_gx_queue(int frames) { aurora::gx::fifo::g_vitaGxQueue = frames < 1 ? 1 : frames > 2 ? 2 : frames; }
 +extern "C" int aurora_vita_gx_thread() {
@@ -1629,7 +1687,7 @@ index c7fd176..c4bb630 100644
 +}
 +#endif
 diff --git a/aurora-main/lib/gx/fifo.hpp b/aurora-main/lib/gx/fifo.hpp
-index 1ab6169..043bf7b 100644
+index 1ab6169..b60f000 100644
 --- a/aurora-main/lib/gx/fifo.hpp
 +++ b/aurora-main/lib/gx/fifo.hpp
 @@ -1,5 +1,10 @@
@@ -1643,7 +1701,7 @@ index 1ab6169..043bf7b 100644
  #include "../internal.hpp"
  
  #include <cstring>
-@@ -85,6 +90,37 @@ bool in_display_list();
+@@ -85,6 +90,38 @@ bool in_display_list();
  // Drain the internal FIFO buffer through the command processor
  void drain();
  
@@ -1653,6 +1711,7 @@ index 1ab6169..043bf7b 100644
 +void set_threaded(bool enabled);
 +bool threaded();
 +void publish();
++void publish_batched();
 +void producer_acquire();
 +extern uintptr_t g_vitaRenderThreadCaller;
 +bool worker_owns(uintptr_t sp);

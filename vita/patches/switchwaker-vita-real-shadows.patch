@@ -1,0 +1,35 @@
+diff --git a/game/src/d/d_drawlist.cpp b/game/src/d/d_drawlist.cpp
+index a2ebce28..e509cebe 100644
+--- a/game/src/d/d_drawlist.cpp
++++ b/game/src/d/d_drawlist.cpp
+@@ -1664,8 +1664,18 @@ void dDlst_shadowControl_c::draw(Mtx drawMtx) {
+     GXSetAlphaUpdate(0);
+ }
+ 
++#ifdef __vita__
++extern "C" int tww_vita_real_shadows;
++int tww_vita_real_shadows = 1;
++#endif
++
+ /* 800850D4-80085170       .text setReal__21dDlst_shadowControl_cFUlScP8J3DModelP4cXyzffP12dKy_tevstr_c */
+ int dDlst_shadowControl_c::setReal(u32 key, s8 shouldFade, J3DModel* model, cXyz* pos, f32 casterSize, f32 heightAboveGround, dKy_tevstr_c* tevstr) {
++#ifdef __vita__
++    // tww-vita REAL SHADOWS OFF: no shadow image; dComIfGd_setShadow draws the round shadow.
++    if (!tww_vita_real_shadows)
++        return 0;
++#endif
+     if (key != 0) {
+         dDlst_shadowReal_c * real = &mReal[0];
+         for (s32 i = 0; i < (s32)ARRAY_SIZE(mReal); i++, real++) {
+@@ -1688,6 +1698,11 @@ int dDlst_shadowControl_c::setReal(u32 key, s8 shouldFade, J3DModel* model, cXyz
+ 
+ /* 80085170-8008520C       .text setReal2__21dDlst_shadowControl_cFUlScP8J3DModelP4cXyzffP12dKy_tevstr_c */
+ int dDlst_shadowControl_c::setReal2(u32 key, s8 shouldFade, J3DModel* model, cXyz* pos, f32 casterSize, f32 heightAboveGround, dKy_tevstr_c* tevstr) {
++#ifdef __vita__
++    // tww-vita REAL SHADOWS OFF: no shadow image; dComIfGd_setShadow draws the round shadow.
++    if (!tww_vita_real_shadows)
++        return 0;
++#endif
+     if (key != 0) {
+         dDlst_shadowReal_c * real = &mReal[0];
+         for (s32 i = 0; i < (s32)ARRAY_SIZE(mReal); i++, real++) {
