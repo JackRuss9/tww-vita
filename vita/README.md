@@ -722,3 +722,11 @@ GPU can reject hidden fragments before shading them).
   the GPU cost.
 - SHADER TEST gains FOG NO RANGE (fog without the range adjustment) and FOG
   FIXED Z (fog maths kept, no fragment-position reads), to find which part.
+
+### 01.79
+
+- 01.78 results (exterior main scene): FOG FIXED Z ~46 ms, FOG NO RANGE ~51 ms,
+  NO FOG ~44 ms, full fog ~91 ms. The range adjustment (per-pixel screen-x table
+  lookup) is ~40 ms; the depth read itself ~5 ms.
+- FOG (NEXT START): FULL (as GX), FAST (default, no range adjustment: fog is a
+  little lighter at the screen edges), OFF.

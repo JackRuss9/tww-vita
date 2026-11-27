@@ -1526,10 +1526,10 @@ index be3fee9..07ffbb5 100644
    };
  }
 diff --git a/aurora-main/lib/gx/shader.cpp b/aurora-main/lib/gx/shader.cpp
-index fe68417..4528bb8 100644
+index fe68417..7cf95f0 100644
 --- a/aurora-main/lib/gx/shader.cpp
 +++ b/aurora-main/lib/gx/shader.cpp
-@@ -1061,6 +1061,17 @@ static std::string native_float_op(const TevOp& op,std::string_view a,std::strin
+@@ -1061,6 +1061,21 @@ static std::string native_float_op(const TevOp& op,std::string_view a,std::strin
  
  #ifdef TWW_GXM_RUNTIME_SHADERS
  bool g_vitaFloatTev = true;
@@ -1544,10 +1544,14 @@ index fe68417..4528bb8 100644
 +// 1: the UV is scaled in the fragment shader (vertex programs unchanged, so
 +// their slow O1 compiles stay cached); 2: the vertex shader writes it.
 +int g_vitaFastTexcoords = 1;
++// tww-vita FOG (next start): 0 FULL (GX range adjustment), 1 FAST (no range
++// adjustment: its per-pixel table lookup on the screen x was ~40 ms of the
++// exterior's main scene), 2 OFF.
++int g_vitaFog = 1;
  #endif
  
  gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeVertices,
-@@ -1079,6 +1090,12 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1079,6 +1094,12 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
    const bool nativeFloat=nativeVertices && approximateNative;
  #endif
    const bool compact = nativeMeshLayout != nullptr;
@@ -1560,7 +1564,7 @@ index fe68417..4528bb8 100644
    CHECK(!(nativeZeroProjectiveMask & nativeNonzeroProjectiveMask),"Projective Q certificates overlap");
    CHECK(!nativeZeroProjectiveMask || compact,"Zero projective Q requires a compact source certificate");
  
-@@ -1264,6 +1281,7 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1264,6 +1285,7 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
    const int zTexStage = tev_z_texture_stage(config);
    const bool usesZTextureDepth = tev_z_texture_enabled(config);
    std::array<bool, MaxTexCoord> emittedFixedTexCoord{};
@@ -1568,7 +1572,7 @@ index fe68417..4528bb8 100644
    const auto fixed_texcoord_name = [&](u32 texCoordId) {
      if (!emittedFixedTexCoord[texCoordId]) {
        fragmentFnPre += fmt::format(
-@@ -1612,9 +1630,10 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1612,9 +1634,10 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
          "\n    // Indirect stage {0}"
          "\n    ivec2 ind{0}_sample_fixed = {5} >> vec2u({3}u, {4}u);"
          "\n    ivec3 t_IndTexCoord{0} = tev_byte_vec3f(texture(tex{2}, "
@@ -1581,7 +1585,7 @@ index fe68417..4528bb8 100644
    }
  
    const bool usesFixedTexcoordState = shader_uses_fixed_texcoord_state(config);
-@@ -1799,6 +1818,23 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1799,6 +1822,23 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
        // No indirect texturing
        if(nativeVertices) {
          uvIn=fmt::format("tex{}_uv",textureDependency.texCoordId);
@@ -1605,7 +1609,7 @@ index fe68417..4528bb8 100644
        } else {
          const auto fixedUv = fixed_texcoord_name(static_cast<u32>(textureDependency.texCoordId));
          uvIn = fmt::format("vec2f(tev_s24_fixed_vec2i({0})) / (ubuf.tex{1}_size_bias.xy * 128.0)", fixedUv,
-@@ -1814,11 +1850,15 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1814,11 +1854,15 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
                                    i,textureDependency.texMapId,textureDependency.texCoordId);
        } else fragmentFnPre += fmt::format("\n    vec4 sampled{0} = texture(tex{1}, {2});", i,
                                           textureDependency.texMapId, uvIn);
@@ -1621,7 +1625,7 @@ index fe68417..4528bb8 100644
    }
  
    // in.pos.z is the host NDC z (forward: 0=near/1=far; reversed: 1=near/0=far post-fix), but this
-@@ -1829,6 +1869,9 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1829,6 +1873,9 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
    // identical expression in build_shader_source), which fed both fog density and the GX_ZT_ADD
    // z-texture path the wrong distance value.
    std::string fogDepthExpr = UseReversedZ ? "(1.0 - in.pos.z)" : "in.pos.z";
@@ -1631,7 +1635,7 @@ index fe68417..4528bb8 100644
    std::string fogZCoordExpr =
        fmt::format("u32(round(clamp({}, 0.0, 1.0) * 16777216.0))", fogDepthExpr);
    if (usesZTextureDepth) {
-@@ -1886,7 +1929,15 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1886,7 +1933,15 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
          "};";
      uniBufAttrs += "\n    Fog fog;";
  
@@ -1648,12 +1652,12 @@ index fe68417..4528bb8 100644
        fragmentFn += fmt::format(
            "\n    // Fog"
            "\n    uint fogZCoord = {};"
-@@ -1901,9 +1952,11 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1901,9 +1956,11 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
            fogZCoordExpr);
      }
  
 -    if (config.fogRangeAdjust) {
-+    if (config.fogRangeAdjust && g_vitaShaderTest != 5) { // SHADER TEST 5: no fog range adjust
++    if (config.fogRangeAdjust && g_vitaShaderTest != 5 && g_vitaFog == 0) { // SHADER TEST 5: no fog range adjust
 +      fragmentFn += g_vitaShaderTest == 6 ?
 +          "\n    float fogRangeOffset = (2.0 * (160.0 / ubuf.fog.range_base.y)) - 1.0 - ubuf.fog.range_base.x;" :
 +          "\n    float fogRangeOffset = (2.0 * (in.pos.x / ubuf.fog.range_base.y)) - 1.0 - ubuf.fog.range_base.x;";
@@ -1662,17 +1666,17 @@ index fe68417..4528bb8 100644
            "\n    float fogRangeFloatIndex = clamp(9.0 - abs(fogRangeOffset) * 9.0, 0.0, 9.0);"
            "\n    uint fogRangeIndexLower = u32(fogRangeFloatIndex);"
            "\n    uint fogRangeIndexUpper = min(fogRangeIndexLower + 1u, 9u);"
-@@ -1945,7 +1998,8 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1945,7 +2002,8 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
        break;
      }
  
 -    fragmentFn += "\n    prev = vec4f(mix(prev.rgb, ubuf.fog.color.rgb, clamp(fogZ, 0.0, 1.0)), prev.a);";
-+    if (g_vitaShaderTest != 4) // SHADER TEST 4: no fog (its maths is then dead code)
++    if (g_vitaShaderTest != 4 && g_vitaFog != 2) // FOG OFF / SHADER TEST 4: no fog (its maths is then dead code)
 +      fragmentFn += "\n    prev = vec4f(mix(prev.rgb, ubuf.fog.color.rgb, clamp(fogZ, 0.0, 1.0)), prev.a);";
    }
  
    if (info.usedIndTexMtxs.any()) {
-@@ -1968,8 +2022,10 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+@@ -1968,8 +2026,10 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
    }
  
    if(!nativeFloat) fragmentFn += "\n    prev = tev_overflow_vec4f(prev);";
@@ -1684,7 +1688,7 @@ index fe68417..4528bb8 100644
      const auto comp0 = alpha_compare(config.alphaCompare.comp0, config.alphaCompare.ref0, nativeFloat);
      const auto comp1 = alpha_compare(config.alphaCompare.comp1, config.alphaCompare.ref1, nativeFloat);
      AlphaCompareExpr pass;
-@@ -2375,11 +2431,15 @@ void main() {{{4}
+@@ -2375,11 +2435,16 @@ void main() {{{4}
  }
  
  gl::ProgramPtr build_shader(const ShaderConfig& config) noexcept {
@@ -1700,6 +1704,7 @@ index fe68417..4528bb8 100644
  extern "C" void aurora_vita_set_float_tev(int enabled) { aurora::gx::g_vitaFloatTev = enabled != 0; }
 +extern "C" void aurora_vita_set_shader_test(int mode) { aurora::gx::g_vitaShaderTest = mode; }
 +extern "C" void aurora_vita_set_fast_texcoords(int enabled) { aurora::gx::g_vitaFastTexcoords = enabled; }
++extern "C" void aurora_vita_set_fog(int mode) { aurora::gx::g_vitaFog = mode; }
  #endif
 diff --git a/aurora-main/lib/gxm/device.cpp b/aurora-main/lib/gxm/device.cpp
 index 26af41f..71dc086 100644
