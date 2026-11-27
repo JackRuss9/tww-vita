@@ -629,6 +629,22 @@ in the house, and the audio thread busy enough to matter.
 `GXSetDrawDone` -> `drain()`: JUTVideo's frame-end draw-done still waited for
 the whole FIFO. It now waits for the previous frame, like `GXDrawDone`.
 
+## 01.72: CMPR AS DXT1
+
+01.71 in FULL: the frame-end drain is gone, but FULL is still slower than ON
+(house 11.5 vs 13.8 fps, outside ~7.9 vs ~7.4-8): in FULL the worker also
+waits for the GPU (45 ms in the house), in series with its translation. ON
+stays the default.
+
+CMPR AS DXT1 (next start, on by default): GX CMPR textures (DXT1 in 8x8 tiles,
+big-endian colours, reversed index bits) are reordered into GXM's swizzled
+UBC1 instead of being expanded to RGBA8: an eighth of the memory and of the
+GPU's texture traffic, and no expansion on the CPU. Power-of-two sizes (or one
+level); levels under 4x4 are dropped. A transparent texel of a 3-colour block
+is black in DXT1, the midpoint in CMPR, so filtered cut-out edges may darken a
+little. Levels go in whole through `gl::write_texture_packed` /
+`TextureStorage::upload_packed`.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)

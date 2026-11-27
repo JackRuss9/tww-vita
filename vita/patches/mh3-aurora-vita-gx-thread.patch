@@ -590,6 +590,89 @@ index 9a79dad..1f02df5 100644
    }
  }
  
+diff --git a/aurora-main/lib/gfx/texture.cpp b/aurora-main/lib/gfx/texture.cpp
+index 45e5813..28202b8 100644
+--- a/aurora-main/lib/gfx/texture.cpp
++++ b/aurora-main/lib/gfx/texture.cpp
+@@ -1,3 +1,5 @@
++#include "native_texture_decode.hpp"
++#include <bit>
+ #include "common.hpp"
+ 
+ #include "../internal.hpp"
+@@ -70,7 +72,72 @@ uint64_t calc_texture_size(gl::Format format, u32 width, u32 height, u32 mips) n
+   return total;
+ }
+ 
++#ifdef AURORA_GXM
++// tww-vita CMPR AS DXT1: GX's CMPR is DXT1 in 8x8 tiles of four 4x4 blocks,
++// with big-endian colours and the first texel in each row byte's top bits.
++// Reordered into GXM's swizzled UBC1 the GPU samples it compressed (an eighth
++// of RGBA8's memory traffic) and no RGBA8 expansion runs. One difference: a
++// transparent texel of a 3-colour block is black in DXT1, the 1:1 midpoint
++// in CMPR (edges of cut-out textures may darken slightly when filtered).
++static bool g_cmprBc1 = false;
++
++static std::vector<uint8_t> cmpr_level_to_bc1(const uint8_t* src, uint32_t w, uint32_t h) {
++  const uint32_t bw = std::max(w / 4, 1u), bh = std::max(h / 4, 1u);
++  std::vector<uint8_t> out(size_t(std::max(std::bit_ceil(w) / 4, 1u)) * std::max(std::bit_ceil(h) / 4, 1u) * 8);
++  const uint32_t tilesX = (w + 7) / 8, tilesY = (h + 7) / 8;
++
++  for (uint32_t ty = 0; ty < tilesY; ++ty)
++    for (uint32_t tx = 0; tx < tilesX; ++tx)
++      for (uint32_t sub = 0; sub < 4; ++sub, src += 8) {
++        const uint32_t bx = tx * 2 + (sub & 1), by = ty * 2 + (sub >> 1);
++        if (bx >= bw || by >= bh)
++          continue;
++        uint8_t* dst = out.data() + gfx::native_texture_morton(bx, by, std::max(std::bit_ceil(w) / 4, 1u), std::max(std::bit_ceil(h) / 4, 1u)) * 8;
++        dst[0] = src[1];
++        dst[1] = src[0];
++        dst[2] = src[3];
++        dst[3] = src[2];
++        for (int row = 0; row < 4; ++row) {
++          const uint8_t v = src[4 + row];
++          dst[4 + row] = uint8_t((v >> 6) | ((v >> 2) & 0x0c) | ((v << 2) & 0x30) | (v << 6));
++        }
++      }
++  return out;
++}
++
++static size_t cmpr_level_bytes(uint32_t w, uint32_t h) { return size_t((w + 7) / 8) * ((h + 7) / 8) * 32; }
++} // namespace
++
++extern "C" void aurora_vita_set_cmpr_bc1(int enabled) { aurora::gfx::g_cmprBc1 = enabled != 0; }
++
++namespace aurora::gfx {
++#endif
++
+ TextureHandle new_static_texture_2d(uint32_t width, uint32_t height, uint32_t mips, u32 format, ArrayRef<uint8_t> data, bool tlut, const char* label) noexcept {
++#ifdef AURORA_GXM
++  if (g_cmprBc1 && format == GX_TF_CMPR && !tlut && width >= 4 && height >= 4 &&
++      ((std::has_single_bit(width) && std::has_single_bit(height)) || mips <= 1)) {
++    mips = clamp_mip_count(width, height, mips, label);
++    // Levels under 4x4 fall back to the RGBA8 path's last levels: stop there.
++    uint32_t levels = 0;
++    size_t need = 0;
++    while (levels < mips && std::max(width >> levels, 1u) >= 4 && std::max(height >> levels, 1u) >= 4) {
++      need += cmpr_level_bytes(width >> levels, height >> levels);
++      ++levels;
++    }
++    if (levels && need <= data.size()) {
++      auto handle = std::make_shared<TextureRef>(gl::create_texture(width, height, levels, gl::Format::BC1, label), Extent{width, height, 1},
++                                                 gl::Format::BC1, levels, format);
++      const uint8_t* src = data.data();
++      for (uint32_t mip = 0; mip < levels; ++mip) {
++        const uint32_t w = width >> mip, h = height >> mip;
++        gl::write_texture_packed(handle->texture, mip, cmpr_level_to_bc1(src, w, h));
++        src += cmpr_level_bytes(w, h);
++      }
++      return handle;
++    }
++  }
++#endif
+ 
+   mips = clamp_mip_count(width, height, mips, label);
+   auto handle = new_dynamic_texture_2d(width, height, mips, format, label);
 diff --git a/aurora-main/lib/gl/device.cpp b/aurora-main/lib/gl/device.cpp
 index f274f82..e50da77 100644
 --- a/aurora-main/lib/gl/device.cpp
@@ -606,10 +689,19 @@ index f274f82..e50da77 100644
    // Scale the backing targets here while keeping scanout at the native size.
    render_width = std::max(1u, (render_width * g_vitaEfbScalePercent + 99) / 100);
 diff --git a/aurora-main/lib/gl/gl.hpp b/aurora-main/lib/gl/gl.hpp
-index dbb8aec..8f28927 100644
+index dbb8aec..ff377e9 100644
 --- a/aurora-main/lib/gl/gl.hpp
 +++ b/aurora-main/lib/gl/gl.hpp
-@@ -227,6 +227,10 @@ struct ProgramDesc {
+@@ -148,6 +148,8 @@ TexturePtr native_texture_asset(uint32_t asset) noexcept;
+ // the given region. The bytes are copied before returning.
+ void write_texture(const TexturePtr& texture, uint32_t mip, uint32_t x, uint32_t y, uint32_t width, uint32_t height, const void* data, uint32_t bytesPerRow) noexcept;
+ void write_texture(const TexturePtr& texture, uint32_t mip, uint32_t x, uint32_t y, uint32_t width, uint32_t height, std::vector<uint8_t>&& data, uint32_t bytesPerRow) noexcept;
++// GXM: a whole level in the texture's native layout (swizzled BC1).
++void write_texture_packed(const TexturePtr& texture, uint32_t mip, std::vector<uint8_t>&& data) noexcept;
+ 
+ // Render thread only: upload immediately.
+ void upload_texture(const Texture& texture, uint32_t mip, uint32_t x, uint32_t y, uint32_t width, uint32_t height, const void* data, uint32_t bytesPerRow) noexcept;
+@@ -227,6 +229,10 @@ struct ProgramDesc {
    // conversion); blocks name BUFFER indices, vertex attributes bind per draw.
    bool cg = false;
  
@@ -1444,7 +1536,7 @@ index 26af41f..4059bf1 100644
 +  *depthPasses = aurora::gxm::g_vitaDepthPasses.load();
 +}
 diff --git a/aurora-main/lib/gxm/renderer.cpp b/aurora-main/lib/gxm/renderer.cpp
-index 3219bb3..80e7552 100644
+index 3219bb3..10cb4cd 100644
 --- a/aurora-main/lib/gxm/renderer.cpp
 +++ b/aurora-main/lib/gxm/renderer.cpp
 @@ -1,3 +1,4 @@
@@ -1475,7 +1567,28 @@ index 3219bb3..80e7552 100644
  }
  
  // The libgxm context has one owner at a time: the game thread until the
-@@ -1510,6 +1518,9 @@ GLuint Program::get() noexcept {
+@@ -1433,6 +1441,20 @@ void write_texture(const TexturePtr& texture, uint32_t mip, uint32_t x, uint32_t
+   post([texture, mip, x, y, width, height, data = std::move(data), bytesPerRow] { upload_texture(*texture, mip, x, y, width, height, data.data(), bytesPerRow); });
+ }
+ 
++void write_texture_packed(const TexturePtr& texture, uint32_t mip, std::vector<uint8_t>&& data) noexcept {
++  if (!texture || data.empty())
++    return;
++
++  post([texture, mip, data = std::move(data)] {
++    guarded([&] {
++      auto& r = renderer();
++      r.texture(texture->gl()).upload_packed(mip, data.data(), data.size());
++      if (!mip)
++        r.entry(texture->gl()).alpha.invalidate();
++    });
++  });
++}
++
+ void write_texture(const TexturePtr& texture, uint32_t mip, uint32_t x, uint32_t y, uint32_t width, uint32_t height, const void* data, uint32_t bytesPerRow) noexcept {
+   if (!texture || !width || !height)
+     return;
+@@ -1510,6 +1532,9 @@ GLuint Program::get() noexcept {
  #ifdef MH3_DEVELOPMENT
      // Sources for the development compiler, which serves only bank misses.
      register_runtime_shader_sources(m_vertexHash, m_fragmentHash, m_desc.vertex, m_desc.fragment, m_desc.origin.empty() ? m_desc.label : m_desc.origin + "; " + m_desc.label, m_desc.cg);
@@ -1485,7 +1598,7 @@ index 3219bb3..80e7552 100644
  #endif
      const auto* binary = fragment_binary(m_fragmentHash);
      m_usesDiscard = sceGxmProgramIsDiscardUsed(binary);
-@@ -2223,7 +2234,11 @@ void present(const TexturePtr& source, int32_t x, int32_t y, int32_t width, int3
+@@ -2223,7 +2248,11 @@ void present(const TexturePtr& source, int32_t x, int32_t y, int32_t width, int3
        apply_raster({}, r.device.context());
        r.plain();
        r.presentProgram.bind(blend_info({}, {}));
@@ -2145,3 +2258,37 @@ index 4bf050c..b2e95bb 100644
  // Only after all patched programs and the GXM device have been destroyed.
  void clear_runtime_shaders() noexcept;
  } // namespace aurora::gxm
+diff --git a/aurora-main/lib/gxm/texture.cpp b/aurora-main/lib/gxm/texture.cpp
+index 2297ff1..607ff99 100644
+--- a/aurora-main/lib/gxm/texture.cpp
++++ b/aurora-main/lib/gxm/texture.cpp
+@@ -384,6 +384,16 @@ SceGxmOutputRegisterFormat TextureStorage::output_format() const noexcept {
+   return format == gl::Format::R32F || format == gl::Format::R16I ? SCE_GXM_OUTPUT_REGISTER_FORMAT_FLOAT : SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4;
+ }
+ 
++void TextureStorage::upload_packed(uint32_t mip, const void* source, size_t bytes) {
++  const auto& level = m_levels.at(mip);
++  const size_t end = mip + 1 < m_levels.size() ? m_levels[mip + 1].offset : m_imageBytes;
++
++  if (!source || bytes > end - level.offset)
++    AURORA_THROW(std::runtime_error("Native packed upload exceeds its level"));
++  // Only fresh static textures take packed uploads: no GPU use to wait for.
++  std::memcpy(static_cast<char*>(m_data) + level.offset, source, bytes);
++}
++
+ void TextureStorage::upload(uint32_t mip, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const void* source, uint32_t sourcePitch) {
+   if (!w || !h)
+     return;
+diff --git a/aurora-main/lib/gxm/texture.hpp b/aurora-main/lib/gxm/texture.hpp
+index e2a0e6b..4bbfa62 100644
+--- a/aurora-main/lib/gxm/texture.hpp
++++ b/aurora-main/lib/gxm/texture.hpp
+@@ -55,6 +55,8 @@ public:
+   TextureStorage(const TextureStorage&) = delete;
+   TextureStorage& operator=(const TextureStorage&) = delete;
+   void upload(uint32_t mip, uint32_t x, uint32_t y, uint32_t width, uint32_t height, const void* source, uint32_t sourcePitch);
++  // A whole level already in the storage's own layout (swizzled block formats).
++  void upload_packed(uint32_t mip, const void* source, size_t bytes);
+   const SceGxmTexture& sampled() const noexcept { return m_sampled; }
+   const SceGxmColorSurface* color_surface() const;
+ 
