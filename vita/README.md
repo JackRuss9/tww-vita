@@ -772,3 +772,14 @@ GPU can reject hidden fragments before shading them).
 - The worker profile now times one GX command in eight, by kind (merged and
   unmerged draws, BP, CP, XF, indexed XF), and counts every command.
 
+### 01.84
+
+- 01.83 sampled worker profile (the timer costs ~0.85 us per timed command, taken
+  out here): house ~4,000 merged primitives (~2 us each, ~8 ms), ~400 unmerged
+  draws (~44 us each, ~17 ms), ~18,800 BP writes (~2 ms), ~3,400 XF loads (~2 ms),
+  render ~5.4 ms. Exterior: ~11,000 merged (~22 ms), ~840 unmerged (~37 ms),
+  ~30,000 BP, ~6,500 XF, render ~10.7 ms.
+- FAST STRIPS (live, default on): a run of the same draw command merging into the
+  last draw is taken in one pass (one staging check, the vertex blocks appended,
+  one index push) instead of per primitive.
+

@@ -757,7 +757,7 @@ index dbb8aec..ff377e9 100644
    // may expand RGB-only writes only while its target is certified A=1.
    bool preservesTargetAlphaOne = false;
 diff --git a/aurora-main/lib/gx/command_processor.cpp b/aurora-main/lib/gx/command_processor.cpp
-index 665e528..2ad34ac 100644
+index 665e528..7e8711b 100644
 --- a/aurora-main/lib/gx/command_processor.cpp
 +++ b/aurora-main/lib/gx/command_processor.cpp
 @@ -1,4 +1,5 @@
@@ -929,7 +929,90 @@ index 665e528..2ad34ac 100644
    }
  
    return size;
-@@ -2554,6 +2602,60 @@ static gfx::Range upload_vertex_array(const void* data, uint32_t size) {
+@@ -2422,6 +2470,67 @@ bool submit_raw_draw(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices, ui
+   return true;
+ }
+ 
++#ifdef __vita__
++int g_vitaMergeRuns = 1;
++} // namespace aurora::gx::fifo
++extern "C" void aurora_vita_set_merge_runs(int enabled) { aurora::gx::fifo::g_vitaMergeRuns = enabled; }
++namespace aurora::gx::fifo {
++// Returns Stop when the run cannot be taken this way (the caller then does the single
++// primitive as before); pos is only moved past what was merged.
++static DrawStep handle_merged_run(u8 cmd, GXPrimitive prim, u16 firstCount, u32 vtxSize, DrawData* lastDraw,
++                                  const u8* data, u32& pos, u32 size, bool bigEndian) {
++  if (s_lastDrawRecordedInterpolation) return DrawStep::Stop;
++  // pos is at the first primitive's vertices; gather the following primitives of the same command.
++  struct Prim { u32 offset; u16 count; };
++  static std::vector<Prim> run;
++  run.clear();
++  run.push_back({pos, firstCount});
++  u64 verts = uint64_t(lastDraw->vtxCount) + firstCount;
++  u32 vertBytes = firstCount * vtxSize;
++  u32 indexCount = cached_index_template(prim, firstCount).indexCount;
++  u32 next = pos + vertBytes;
++  while (next + 3 <= size && data[next] == cmd) {
++    const u16 count = read_u16(data + next + 1, bigEndian);
++    const u32 bytes = count * vtxSize;
++    if (next + 3 + bytes > size || !has_complete_primitive(prim, count) || verts + count > 65536u) break;
++    run.push_back({next + 3, count});
++    verts += count;
++    vertBytes += bytes;
++    indexCount += cached_index_template(prim, count).indexCount;
++    next += 3 + bytes;
++  }
++  if (run.size() < 2) return DrawStep::Stop;
++  gfx::StagingSizes demand{vertBytes, 0, indexCount * sizeof(u16), 0};
++  if (!gfx::staging_has_space(demand)) return DrawStep::Stop;
++
++  if (handle_draw_idx_buf.size() < indexCount) handle_draw_idx_buf.resize(indexCount);
++  u16* dst = handle_draw_idx_buf.data();
++  u32 base = lastDraw->vtxCount;
++  gfx::Range vertTotal{};
++  for (size_t i = 0; i < run.size(); ++i) {
++    const auto& prm = run[i];
++    const gfx::Range r = gfx::push_verts(data + prm.offset, prm.count * vtxSize);
++    if (i == 0) vertTotal = r; else vertTotal.size += r.size;
++    const auto& tpl = cached_index_template(prim, prm.count);
++    const u16* src = tpl.indices.data();
++    for (u32 k = 0, n = tpl.indexCount; k < n; ++k) dst[k] = static_cast<u16>(src[k] + base);
++    dst += tpl.indexCount;
++    base += prm.count;
++  }
++  const gfx::Range idxRange = gfx::push_indices(ArrayRef<u16>{handle_draw_idx_buf.data(), indexCount});
++  CHECK(lastDraw->vertRange.offset + lastDraw->vertRange.size == vertTotal.offset, "Non-consecutive vertex run");
++  CHECK(lastDraw->idxRange.offset + lastDraw->idxRange.size == idxRange.offset, "Non-consecutive index run");
++  lastDraw->vertRange.size += vertTotal.size;
++  lastDraw->idxRange.size += idxRange.size;
++  lastDraw->vtxCount = static_cast<u32>(verts);
++  lastDraw->indexCount += indexCount;
++  lastDraw->capture.primitives += static_cast<u32>(run.size());
++  gfx::g_mergedDrawCallCount += static_cast<u32>(run.size());
++  pos = next;
++  return DrawStep::Next;
++}
++#endif
++
+ static DrawStep handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool bigEndian) {
+ 
+   GXVtxFmt fmt = static_cast<GXVtxFmt>(cmd & CP_VAT_MASK);
+@@ -2474,6 +2583,14 @@ static DrawStep handle_draw(u8 cmd, const u8* data, u32& pos, u32 size, bool big
+     }
+   }
+ 
++#ifdef __vita__
++  // tww-vita: J3D shapes send runs of the same draw command (one per strip). A run that
++  // merges into the last draw is taken in one pass: one staging check, one index push.
++  if (mergeTarget != nullptr && g_vitaMergeRuns) {
++    const DrawStep step = handle_merged_run(cmd, prim, vtxCount, vtxSize, mergeTarget, data, pos, size, bigEndian);
++    if (step != DrawStep::Stop) return step;
++  }
++#endif
+   if (!admit_draw(prim, fmt, vtxCount, totalVtxBytes, mergeTarget != nullptr)) UNLIKELY {
+     return DrawStep::BatchFull;
+   }
+@@ -2554,6 +2671,60 @@ static gfx::Range upload_vertex_array(const void* data, uint32_t size) {
    return range;
  }
  
@@ -990,7 +1073,7 @@ index 665e528..2ad34ac 100644
  static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
                                   gfx::Range vertRange, uint16_t usedPnMtxMask,
                                   HashType matrixTopologySignature,
-@@ -2566,6 +2668,8 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
+@@ -2566,6 +2737,8 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
    }
  
    // Callers hold the renderer GPU mutex for the whole drain (process() and submit_raw_draw); taking it again per draw only cost a recursive re-entry.
@@ -999,7 +1082,7 @@ index 665e528..2ad34ac 100644
    const auto& indexTemplate = cached_index_template(prim, vtxCount);
    const u32 numIndices = indexTemplate.indexCount;
    const gfx::Range idxRange = gfx::push_indices(ArrayRef<u16>{
-@@ -2590,12 +2694,23 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
+@@ -2590,12 +2763,23 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
      }
    }
  
@@ -1023,7 +1106,7 @@ index 665e528..2ad34ac 100644
  
    const auto pipeline = pipelineState.ref;
  
-@@ -2623,6 +2738,8 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
+@@ -2623,6 +2807,8 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
        build_uniform(info, vertRange.offset, ranges, drawIdentity, interpolationIdentityActive,
                      usedPnMtxMask);
    s_lastDrawRecordedInterpolation = interpolationIdentityActive;
@@ -1032,7 +1115,7 @@ index 665e528..2ad34ac 100644
  
    uint32_t instanceCount = 1;
  
-@@ -2674,6 +2791,11 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
+@@ -2674,6 +2860,11 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount,
        }(),
    });
    g_gxState.stateDirty = false;
@@ -1044,7 +1127,7 @@ index 665e528..2ad34ac 100644
  }
  
  std::string read_string(const u8* data, u32& pos, u32 size, bool bigEndian) {
-@@ -2822,6 +2944,8 @@ bool handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
+@@ -2822,6 +3013,8 @@ bool handle_aurora(const u8* data, u32& pos, u32 size, bool bigEndian) {
      pos += 8;
    } else if (subCmd == GX_LOAD_AURORA_INVALIDATE_TEX_ALL) {
      invalidate_static_texture_cache();
