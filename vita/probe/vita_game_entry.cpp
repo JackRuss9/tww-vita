@@ -43,8 +43,9 @@ void thread_start(OSThread *, void *heap)
     JKRHeap::sCurrentHeap = static_cast<JKRHeap *>(heap);
     // The game's own threads (audio, DVD, decompression, card) may run on any core:
     // they would otherwise inherit the game thread's core 0. Pinned to one core
-    // together (01.60) the audio threads' DSP boot hung.
-    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_ALL);
+    // together (01.60) the audio threads' DSP boot hung. Cores 0 and 2 (01.70):
+    // core 1 is the GX worker's alone.
+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0 | SCE_KERNEL_CPU_MASK_USER_2);
 }
 
 void logv(SceUID log, const char *format, va_list arguments)

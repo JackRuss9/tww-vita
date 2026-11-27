@@ -605,6 +605,21 @@ limit outside (~100-140 ms a frame for ~800 draws) and close to it inside.
 loads/stores, EFB-to-texture copies, all per frame times ten) to the 10 s
 lines, and ships with a profiling build of the same version.
 
+## 01.70: the worker's core, and where the game waits for it
+
+01.69 measurements (house, Omasao): ~54 ms of CPU a frame whatever the
+resolution (18.5 fps at 37-50%); above that the GPU sets the pace and scales
+with pixels (14 fps at 62%, 10 at 75%, 6.3 at 100%), with 8 GPU scenes and 2
+EFB copies a frame. Outside the worker alone takes ~107 ms. The profile shows
+the game thread waiting in GXDrawDone for the worker for nearly half its time
+in the house, and the audio thread busy enough to matter.
+
+- Game threads (audio included) and the DSP/AI threads run on cores 0 and 2;
+  core 1 is the GX worker's alone.
+- `wait-stack` lines: the call stacks (6 return addresses, with the runtime
+  address of `producer_acquire` to relocate them) where the game thread waits
+  over 0.3 ms for the worker, summed per 10 s.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)

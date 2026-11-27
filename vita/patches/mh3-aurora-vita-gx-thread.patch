@@ -796,10 +796,17 @@ index 665e528..2859c07 100644
      auto label = read_string(data, pos, size, bigEndian);
      gfx::push_debug_group(std::move(label));
 diff --git a/aurora-main/lib/gx/fifo.cpp b/aurora-main/lib/gx/fifo.cpp
-index c7fd176..1961034 100644
+index c7fd176..45817bd 100644
 --- a/aurora-main/lib/gx/fifo.cpp
 +++ b/aurora-main/lib/gx/fifo.cpp
-@@ -6,11 +6,23 @@
+@@ -1,4 +1,6 @@
+ #ifdef TWW_GXM_RUNTIME_SHADERS
++#include <unwind-arm-common.h> // the toolchain ships no unwind.h
++#include <algorithm>
+ #include <aurora/vita_host_alloc.hpp>
+ #endif
+ #include "fifo.hpp"
+@@ -6,11 +8,23 @@
  #include "command_processor.hpp"
  #include "../gfx/common.hpp"
  #include "../internal.hpp"
@@ -823,7 +830,7 @@ index c7fd176..1961034 100644
  
  namespace aurora::gx::fifo {
  static Module Log("aurora::gx::fifo");
-@@ -28,8 +40,270 @@ uint32_t sDlSize = 0;
+@@ -28,8 +42,331 @@ uint32_t sDlSize = 0;
  uint32_t sDlWritePos = 0;
  } // namespace detail
  
@@ -997,7 +1004,63 @@ index c7fd176..1961034 100644
 +void set_pipelined(bool enabled) { sPipelined = enabled; }
 +bool pipelined() { return sThreaded && sPipelined; }
 +bool threaded() { return sThreaded; }
++
++#ifdef __vita__
++// Where the game thread waits for the worker: the call stacks of waits over
++// 0.3 ms, summed by stack, logged every 10 s (aurora_vita_log_waits).
++namespace {
++struct WaitStack {
++  uintptr_t pc[6]{};
++  uint64_t us = 0;
++  uint32_t count = 0;
++};
++WaitStack sWaitStacks[32];
++struct UnwindState {
++  uintptr_t* pc;
++  int n, skip;
++};
++_Unwind_Reason_Code unwind_one(_Unwind_Context* ctx, void* arg) {
++  auto* st = static_cast<UnwindState*>(arg);
++  if (st->skip > 0) {
++    --st->skip;
++    return _URC_NO_REASON;
++  }
++  if (st->n >= 6)
++    return _URC_END_OF_STACK;
++  st->pc[st->n++] = _Unwind_GetGR(ctx, 15) & ~1u;
++  return _URC_NO_REASON;
++}
++void note_wait(uint64_t us) {
++  uintptr_t pc[6]{};
++  UnwindState st{pc, 0, 1};
++  _Unwind_Backtrace(unwind_one, &st);
++  for (auto& w : sWaitStacks) {
++    if (w.count == 0)
++      std::copy(pc, pc + 6, w.pc);
++    if (std::equal(pc, pc + 6, w.pc)) {
++      w.us += us;
++      ++w.count;
++      return;
++    }
++  }
++}
++} // namespace
  
++extern "C" void aurora_vita_log_waits(unsigned frames) {
++  if (frames == 0)
++    return;
++  std::sort(std::begin(sWaitStacks), std::end(sWaitStacks), [](const WaitStack& a, const WaitStack& b) { return a.us > b.us; });
++  Log.warn("wait-stacks ref=0x{:x} (producer_acquire)", reinterpret_cast<uintptr_t>(&producer_acquire));
++  for (int i = 0; i < 6 && sWaitStacks[i].count; ++i) {
++    const auto& w = sWaitStacks[i];
++    Log.warn("wait-stack {:.1f}ms/frame {} waits: 0x{:x} 0x{:x} 0x{:x} 0x{:x} 0x{:x} 0x{:x}", double(w.us) / 1000.0 / frames,
++             w.count, w.pc[0], w.pc[1], w.pc[2], w.pc[3], w.pc[4], w.pc[5]);
++  }
++  for (auto& w : sWaitStacks)
++    w = WaitStack{};
++}
++#endif
++
 +void producer_acquire() {
 +  if (!sThreaded || tWorker || sProducerOwns || foreign()) return;
 +  const uint64_t start = now_us();
@@ -1013,7 +1076,12 @@ index c7fd176..1961034 100644
 +  }
 +  lock.release();
 +  sProducerOwns = true;
-+  sProducerWaitUs.fetch_add(now_us() - start, std::memory_order_relaxed);
++  const uint64_t waited = now_us() - start;
++  sProducerWaitUs.fetch_add(waited, std::memory_order_relaxed);
++#ifdef __vita__
++  if (waited >= 300)
++    note_wait(waited);
++#endif
 +}
 +
 +bool worker_owns(uintptr_t) { return tWorker && sInWorker; }
@@ -1095,7 +1163,7 @@ index c7fd176..1961034 100644
    constexpr uint32_t initialCapacity = 64 * 1024;
    reset_cp_register_cache();
    free(detail::sBufferData);
-@@ -43,6 +317,8 @@ void init() {
+@@ -43,6 +380,8 @@ void init() {
  }
  
  void write_data_grow(const void* data, uint32_t length) {
@@ -1104,7 +1172,7 @@ index c7fd176..1961034 100644
  
    uint32_t needed = detail::sBufferSize + length;
    uint32_t newCap = std::max(detail::sBufferCapacity * 2, needed);
-@@ -88,6 +364,18 @@ void drain() {
+@@ -88,6 +427,18 @@ void drain() {
    // SEALED, not DONE.
    (void)aurora::wait_for_frame_worker_sealed();
  
@@ -1123,7 +1191,7 @@ index c7fd176..1961034 100644
    if (detail::sBufferSize == 0) {
      return;
    }
-@@ -119,6 +407,11 @@ void drain() {
+@@ -119,6 +470,11 @@ void drain() {
  const uint8_t* get_buffer_data() { return detail::sBufferData; }
  uint32_t get_buffer_size() { return detail::sBufferSize; }
  void clear_buffer() {
@@ -1135,7 +1203,7 @@ index c7fd176..1961034 100644
    detail::sBufferSize = 0;
  }
  
-@@ -128,3 +421,25 @@ void clear_buffer() {
+@@ -128,3 +484,25 @@ void clear_buffer() {
  // FIFO drains so far (the timer of 01.42-01.45 cost ~5% of the game thread).
  extern "C" unsigned long long aurora_vita_fifo_drain_us() { return aurora::gx::fifo::sDrainCalls; }
  #endif

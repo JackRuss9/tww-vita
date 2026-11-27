@@ -194,6 +194,7 @@ static void start_watchdog()
 extern "C" void aurora_vita_scene_totals(unsigned long long *scenes, unsigned long long *pixels,
                                          unsigned long long *depthPasses);
 extern "C" unsigned long long aurora_vita_tex_copies();
+extern "C" void aurora_vita_log_waits(unsigned frames);
 
 extern "C" void pc_frame_end()
 {
@@ -279,6 +280,7 @@ extern "C" void pc_frame_end()
             previous_depth = depth;
             previous_copies = copies;
         }
+        aurora_vita_log_waits(submitted);
         for (unsigned i = 0; i < 7; ++i)
             previous_phase[i] = phase[i];
         previous_drain_us = drain_us;

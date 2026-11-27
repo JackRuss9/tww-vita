@@ -481,7 +481,7 @@ index 937ebeb3..a96db80e 100644
      if (aram == nullptr) {
          Fatal("ARStartDMA(type %u, main 0x%08x, aram 0x%08x, length 0x%x): the ARAM range is not "
 diff --git a/native/sdk/src/audio/AI.cpp b/native/sdk/src/audio/AI.cpp
-index 0f7bcdbf..66cf2208 100644
+index 0f7bcdbf..97c02991 100644
 --- a/native/sdk/src/audio/AI.cpp
 +++ b/native/sdk/src/audio/AI.cpp
 @@ -76,6 +76,9 @@
@@ -526,13 +526,13 @@ index 0f7bcdbf..66cf2208 100644
 +#if defined(__vita__)
 +    // tww-vita: any core. Pinned to one core with the game's audio threads (01.60) the
 +    // DSP boot hung: a thread waiting on another one of the same core never let it run.
-+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_ALL);
++    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0 | SCE_KERNEL_CPU_MASK_USER_2); // not core 1: the GX worker's
 +#endif
      u32 hz;
      u32 dumpInitCount = 0; // AIInit's count the dump was opened for
      {
 diff --git a/native/sdk/src/audio/DSP.cpp b/native/sdk/src/audio/DSP.cpp
-index 5dd3f8a3..efe4fa7b 100644
+index 5dd3f8a3..dca89958 100644
 --- a/native/sdk/src/audio/DSP.cpp
 +++ b/native/sdk/src/audio/DSP.cpp
 @@ -52,6 +52,9 @@
@@ -586,7 +586,7 @@ index 5dd3f8a3..efe4fa7b 100644
 +#if defined(__vita__)
 +    // tww-vita: any core. Pinned to one core with the game's audio threads (01.60) the
 +    // DSP boot hung: a thread waiting on another one of the same core never let it run.
-+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_ALL);
++    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0 | SCE_KERNEL_CPU_MASK_USER_2); // not core 1: the GX worker's
 +#endif
      {
          std::lock_guard<std::mutex> os(Lock());
