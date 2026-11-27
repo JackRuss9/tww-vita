@@ -620,6 +620,15 @@ in the house, and the audio thread busy enough to matter.
   address of `producer_acquire` to relocate them) where the game thread waits
   over 0.3 ms for the worker, summed per 10 s.
 
+## 01.71: GX THREAD FULL without the frame-end drain
+
+01.70 results (62%): with core 1 to itself the worker got faster (house
+43 -> 33 ms, outside 107 -> 77 ms a frame). The house is now GPU-bound
+(~26 ms staging waits, 13.8 fps) and outside the game thread is the limit
+(~110 ms, 7.4 fps). In FULL the wait stacks put 48 ms a frame (house) in
+`GXSetDrawDone` -> `drain()`: JUTVideo's frame-end draw-done still waited for
+the whole FIFO. It now waits for the previous frame, like `GXDrawDone`.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)

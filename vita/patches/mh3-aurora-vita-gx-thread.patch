@@ -462,16 +462,28 @@ index df0105f..79266b0 100644
    }
  }
 diff --git a/aurora-main/lib/dolphin/gx/GXManage.cpp b/aurora-main/lib/dolphin/gx/GXManage.cpp
-index e9084f1..b906a78 100644
+index e9084f1..6d400f3 100644
 --- a/aurora-main/lib/dolphin/gx/GXManage.cpp
 +++ b/aurora-main/lib/dolphin/gx/GXManage.cpp
-@@ -262,7 +262,12 @@ GXFifoObj* GXInit(void* base, u32 size) {
+@@ -262,13 +262,23 @@ GXFifoObj* GXInit(void* base, u32 size) {
  }
  
  void GXDrawDone() {
 -  aurora::gx::fifo::drain();
 +  // GX THREAD FULL: wait for the previous frame only; heap teardown and RAM
 +  // readbacks still wait for everything (tww_vita_gx_sync, efb flushes).
++  if (aurora::gx::fifo::pipelined())
++    aurora::gx::fifo::wait_previous_frame();
++  else
++    aurora::gx::fifo::drain();
+   if (DrawDoneCB != nullptr)
+     DrawDoneCB();
+ }
+ 
+ void GXSetDrawDone() {
+-  aurora::gx::fifo::drain();
++  // The same frame-end wait as GXDrawDone (JUTVideo::drawDoneStart); in
++  // GX THREAD FULL it drained everything, ~48 ms a frame in a house (01.70).
 +  if (aurora::gx::fifo::pipelined())
 +    aurora::gx::fifo::wait_previous_frame();
 +  else
