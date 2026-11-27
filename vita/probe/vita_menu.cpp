@@ -29,8 +29,9 @@ int aurora_vita_shaders_compiling();
 extern int tww_vita_fast_grass_enabled;
 extern "C" int tww_vita_grass_density; // d_grass.cpp (switchwaker-vita-fast-grass.patch)
 extern "C" int tww_vita_draw_distance; // m_Do_lib.cpp (switchwaker-vita-draw-distance.patch)
-extern "C" int tww_vita_cpu_profile;
-extern "C" void aurora_vita_set_merge_runs(int enabled); // vita_runtime_hooks.cpp, f_pc_manager.cpp (switchwaker-vita-cpu-profile.patch)
+extern "C" int tww_vita_cpu_profile; // vita_runtime_hooks.cpp, f_pc_manager.cpp (switchwaker-vita-cpu-profile.patch)
+extern "C" void aurora_vita_set_merge_runs(int enabled);
+extern "C" void aurora_vita_set_gx_queue(int frames);
 unsigned aurora_vita_efb_width();
 unsigned aurora_vita_efb_height();
 void pc_milestone(const char* name);
@@ -56,8 +57,9 @@ volatile int g_fastTex = 1;      // read at start-up: float texture coordinates 
 volatile int g_cmprBc1 = 1;      // read at start-up: CMPR textures stay compressed (UBC1)
 volatile int g_aspect = 1;       // read at start-up: 0 4:3, 1 16:9
 volatile int g_asyncShaders = 1; // live: 1 new shaders compile in the background
-volatile int g_gxThread = 2;
-volatile int g_mergeRuns = 1;   // live: Aurora takes runs of strips in one pass     // read at start-up: 0 off, 1 on, 2 full
+volatile int g_gxThread = 2;     // read at start-up: 0 off, 1 on, 2 full
+volatile int g_mergeRuns = 1;    // live: Aurora takes runs of strips in one pass
+volatile int g_gxQueue = 1;      // live: frames the GX worker may lag behind (GX THREAD FULL)
 int g_appliedResolution = -1;
 
 // RESOLUTION AUTO: lowers the render size only while the game waits for the
@@ -75,7 +77,7 @@ struct AutoRes {
     uint64_t blockedUntil = 0;
 } g_auto;
 
-enum Shown { ON_OFF, PERCENT, GX_MODE, ASPECT, SHADER_TEST, FAST_TEX, FOG_MODE };
+enum Shown { ON_OFF, PERCENT, GX_MODE, ASPECT, SHADER_TEST, FAST_TEX, FOG_MODE, FRAMES };
 struct Item {
     const char* key;
     const char* label;
@@ -91,6 +93,7 @@ const int kShaderTests[] = {0, 1, 2, 3, 4, 5, 6};
 const int kScales[] = {0, 100, 87, 75, 62, 50, 37};
 const int kDistances[] = {100, 75, 50, 35};
 const int kDensities[] = {100, 50, 25};
+const int kQueue[] = {1, 2};
 const Item kItems[] = {
     {"show_fps", "SHOW FPS", &g_showFps, kOnOff, 2, ON_OFF, 1},
     {"resolution", "RESOLUTION", &g_resolution, kScales, 7, PERCENT, 0},
@@ -109,6 +112,7 @@ const Item kItems[] = {
     {"grass_density", "GRASS DENSITY", &tww_vita_grass_density, kDensities, 3, PERCENT, 100},
     {"async_shaders", "BACKGROUND SHADERS", &g_asyncShaders, kOnOff, 2, ON_OFF, 1},
     {"gx_thread", "GX THREAD (NEXT START)", &g_gxThread, kGxThread, 3, GX_MODE, 2},
+    {"gx_queue", "GX QUEUE", &g_gxQueue, kQueue, 2, FRAMES, 1},
     {"cpu_profile", "CPU PROFILE (LOG)", &tww_vita_cpu_profile, kOnOff, 2, ON_OFF, 0},
     {"merge_runs", "FAST STRIPS", &g_mergeRuns, kOnOff, 2, ON_OFF, 1},
 };
@@ -151,6 +155,8 @@ void step(const Item& it, int dir)
         aurora_vita_set_gpu_timing(g_gpuTiming);
     if (it.value == &g_mergeRuns)
         aurora_vita_set_merge_runs(g_mergeRuns);
+    if (it.value == &g_gxQueue)
+        aurora_vita_set_gx_queue(g_gxQueue);
     save();
 }
 
@@ -271,6 +277,8 @@ void draw_menu(void* address, unsigned stride, unsigned width, unsigned height)
             std::snprintf(v, sizeof v, "%s", *it.value == 2 ? "OFF" : *it.value ? "FAST" : "FULL");
         else if (it.shown == FAST_TEX)
             std::snprintf(v, sizeof v, "%s", *it.value == 2 ? "VERTEX" : *it.value ? "PIXEL" : "OFF");
+        else if (it.shown == FRAMES)
+            std::snprintf(v, sizeof v, "%d FRAME%s", *it.value, *it.value == 1 ? "" : "S");
         else if (it.shown == GX_MODE)
             std::snprintf(v, sizeof v, "%s", *it.value == 2 ? "FULL" : *it.value ? "ON" : "OFF");
         else if (*it.value == 0)
@@ -332,9 +340,10 @@ extern "C" void tww_vita_settings_load()
     aurora_vita_set_fast_texcoords(g_fastTex);
     aurora_vita_set_fog(g_fog);
     aurora_vita_set_merge_runs(g_mergeRuns);
+    aurora_vita_set_gx_queue(g_gxQueue);
     g_appliedResolution = g_resolution ? g_resolution : g_autoPercent;
     aurora_vita_overlay_hook = draw_menu;
-    pc::writef(2, "vita-settings resolution=%d audio=%d aspect=%s float_tev=%d gx_thread=%d async_shaders=%d skip_intro=%d cmpr_bc1=%d fog=%d fast_tex=%d shader_test=%d show_fps=%d fast_strips=%d\n", g_resolution, g_audio, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_asyncShaders, g_skipIntro, g_cmprBc1, g_fog, g_fastTex, g_shaderTest, g_showFps, g_mergeRuns);
+    pc::writef(2, "vita-settings resolution=%d audio=%d aspect=%s float_tev=%d gx_thread=%d async_shaders=%d skip_intro=%d cmpr_bc1=%d fog=%d fast_tex=%d shader_test=%d show_fps=%d fast_strips=%d gx_queue=%d\n", g_resolution, g_audio, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_asyncShaders, g_skipIntro, g_cmprBc1, g_fog, g_fastTex, g_shaderTest, g_showFps, g_mergeRuns, g_gxQueue);
 }
 
 // Each frame's wait for a free GPU slot (game thread, after admission).

@@ -1137,7 +1137,7 @@ index 665e528..7e8711b 100644
      auto label = read_string(data, pos, size, bigEndian);
      gfx::push_debug_group(std::move(label));
 diff --git a/aurora-main/lib/gx/fifo.cpp b/aurora-main/lib/gx/fifo.cpp
-index c7fd176..ea47978 100644
+index c7fd176..2c2da78 100644
 --- a/aurora-main/lib/gx/fifo.cpp
 +++ b/aurora-main/lib/gx/fifo.cpp
 @@ -1,4 +1,6 @@
@@ -1171,7 +1171,7 @@ index c7fd176..ea47978 100644
  
  namespace aurora::gx::fifo {
  static Module Log("aurora::gx::fifo");
-@@ -28,8 +42,336 @@ uint32_t sDlSize = 0;
+@@ -28,8 +42,341 @@ uint32_t sDlSize = 0;
  uint32_t sDlWritePos = 0;
  } // namespace detail
  
@@ -1481,6 +1481,7 @@ index c7fd176..ea47978 100644
 +
 +// Waits until every frame ended so far has been rendered on the worker; the
 +// frame being recorded now may still be in flight.
++int g_vitaGxQueue = 1;
 +void wait_previous_frame() {
 +  if (!pipelined() || tWorker || foreign()) return;
 +  publish();
@@ -1488,7 +1489,11 @@ index c7fd176..ea47978 100644
 +    sProducerOwns = false;
 +    sOwner.unlock();
 +  }
-+  const uint32_t target = sFramesSubmitted.load();
++  // tww-vita GX QUEUE: with 2 the worker may still be rendering the frame before the
++  // previous one (one more frame of latency, no wait while the game runs ahead).
++  const uint32_t submitted = sFramesSubmitted.load();
++  const uint32_t behind = g_vitaGxQueue > 1 ? uint32_t(g_vitaGxQueue - 1) : 0u;
++  const uint32_t target = submitted > behind ? submitted - behind : 0u;
 +  if (sFramesDone.load() >= target) return;
 +  const uint64_t start = now_us();
 +  std::unique_lock lock{sOwner};
@@ -1509,7 +1514,7 @@ index c7fd176..ea47978 100644
    constexpr uint32_t initialCapacity = 64 * 1024;
    reset_cp_register_cache();
    free(detail::sBufferData);
-@@ -43,6 +385,8 @@ void init() {
+@@ -43,6 +390,8 @@ void init() {
  }
  
  void write_data_grow(const void* data, uint32_t length) {
@@ -1518,7 +1523,7 @@ index c7fd176..ea47978 100644
  
    uint32_t needed = detail::sBufferSize + length;
    uint32_t newCap = std::max(detail::sBufferCapacity * 2, needed);
-@@ -88,6 +432,18 @@ void drain() {
+@@ -88,6 +437,18 @@ void drain() {
    // SEALED, not DONE.
    (void)aurora::wait_for_frame_worker_sealed();
  
@@ -1537,7 +1542,7 @@ index c7fd176..ea47978 100644
    if (detail::sBufferSize == 0) {
      return;
    }
-@@ -119,6 +475,11 @@ void drain() {
+@@ -119,6 +480,11 @@ void drain() {
  const uint8_t* get_buffer_data() { return detail::sBufferData; }
  uint32_t get_buffer_size() { return detail::sBufferSize; }
  void clear_buffer() {
@@ -1549,7 +1554,7 @@ index c7fd176..ea47978 100644
    detail::sBufferSize = 0;
  }
  
-@@ -128,3 +489,25 @@ void clear_buffer() {
+@@ -128,3 +494,26 @@ void clear_buffer() {
  // FIFO drains so far (the timer of 01.42-01.45 cost ~5% of the game thread).
  extern "C" unsigned long long aurora_vita_fifo_drain_us() { return aurora::gx::fifo::sDrainCalls; }
  #endif
@@ -1565,6 +1570,7 @@ index c7fd176..ea47978 100644
 +  aurora::gx::fifo::set_threaded(mode != 0);
 +  aurora::gx::fifo::set_pipelined(mode == 2);
 +}
++extern "C" void aurora_vita_set_gx_queue(int frames) { aurora::gx::fifo::g_vitaGxQueue = frames < 1 ? 1 : frames > 2 ? 2 : frames; }
 +extern "C" int aurora_vita_gx_thread() {
 +  return aurora::gx::fifo::pipelined() ? 2 : aurora::gx::fifo::threaded() ? 1 : 0;
 +}

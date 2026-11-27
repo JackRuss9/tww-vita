@@ -96,10 +96,64 @@ index 9a9c526b..89460d08 100644
      j3dSys.setMatPacket(this);
  
 diff --git a/game/src/d/d_attention.cpp b/game/src/d/d_attention.cpp
-index aa96d1bc..f87d3fbf 100644
+index aa96d1bc..d4ca44fc 100644
 --- a/game/src/d/d_attention.cpp
 +++ b/game/src/d/d_attention.cpp
-@@ -516,11 +516,29 @@ void dAttention_c::sortList() {
+@@ -323,6 +323,10 @@ s32 check_distace(cXyz* playerPos, s16 angle, cXyz* actorPos, f32 maxDistXZBase,
+ }
+ 
+ /* 8009DE44-8009E03C       .text calcWeight__12dAttention_cFiP10fopAc_ac_cfssPUl */
++#if defined(__vita__)
++static fopAc_ac_c* s_vitaGrab;
++static bool s_vitaGrabValid;
++#endif
+ f32 dAttention_c::calcWeight(int listType, fopAc_ac_c* actor, f32 distance, s16 angle, s16 invAngle, u32* attnType) {
+     int i;
+     int num;
+@@ -336,7 +340,13 @@ f32 dAttention_c::calcWeight(int listType, fopAc_ac_c* actor, f32 distance, s16
+ 
+     daPy_py_c* player = daPy_getPlayerActorClass();
+     if (player != NULL) {
++#if defined(__vita__)
++        // tww-vita 01.88: makeList looks the grabbed actor up once (s_vitaGrab); the search
++        // walks every process, and this ran it twice per actor (~7 ms a frame in Outset).
++        if (actor == (s_vitaGrabValid ? s_vitaGrab : fopAcM_SearchByID(player->getGrabActorID()))) {
++#else
+         if (actor == fopAcM_SearchByID(player->getGrabActorID())) {
++#endif
+             return 0.0f;
+         }
+     }
+@@ -458,7 +468,15 @@ int select_attention(fopAc_ac_c* pActor, void* i_attention) {
+ 
+ /* 8009E2F8-8009E33C       .text makeList__12dAttention_cFv */
+ s32 dAttention_c::makeList() {
++#if defined(__vita__)
++    daPy_py_c* player = daPy_getPlayerActorClass();
++    s_vitaGrab = player != NULL ? (fopAc_ac_c*)fopAcM_SearchByID(player->getGrabActorID()) : NULL;
++    s_vitaGrabValid = player != NULL;
++    fopAcIt_Executor((fopAcIt_ExecutorFunc)select_attention, this);
++    s_vitaGrabValid = false;
++#else
+     fopAcIt_Executor((fopAcIt_ExecutorFunc)select_attention, this);
++#endif
+     return mLockonCount + mActionCount;
+ }
+ 
+@@ -468,6 +486,12 @@ int dAttention_c::SelectAttention(fopAc_ac_c* ac) {
+         return 0;
+ 
+     mFlagMask = mpPlayer->attention_info.flags;
++#if defined(__vita__)
++    // Both lists' weights need a type bit the player and the actor share (calcWeight), so an
++    // actor with none gets 0 in both and is never listed: skip its distances and angles.
++    if ((mFlagMask & ac->attention_info.flags) == 0)
++        return 0;
++#endif
+ 
+     cSGlobe globe1(ac->attention_info.position - mpPlayer->attention_info.position);
+     cSAngle angle1;
+@@ -516,11 +540,29 @@ void dAttention_c::sortList() {
  }
  
  /* 8009E5C4-8009E684       .text stockAttention__12dAttention_cFUl */
@@ -129,7 +183,7 @@ index aa96d1bc..f87d3fbf 100644
  
      if (pTarget != mLockOnList[0].getActor()) {
          if (pTarget != NULL) {
-@@ -844,6 +862,12 @@ void dAttention_c::judgementStatusHd(u32 interactMask) {
+@@ -844,6 +886,12 @@ void dAttention_c::judgementStatusHd(u32 interactMask) {
  }
  
  /* 8009F1D4-8009F460       .text Run__12dAttention_cFUl */
@@ -142,7 +196,7 @@ index aa96d1bc..f87d3fbf 100644
  bool dAttention_c::Run(u32 interactMask) {
      bool var = dComIfGs_getOptAttentionType() == 0;
      if (chkFlag(AttnFlag_00000080)) {
-@@ -863,11 +887,13 @@ bool dAttention_c::Run(u32 interactMask) {
+@@ -863,11 +911,13 @@ bool dAttention_c::Run(u32 interactMask) {
          freeAttention();
      } else {
          judgementButton();
@@ -156,7 +210,7 @@ index aa96d1bc..f87d3fbf 100644
  
          if (chkFlag(AttnFlag_10000000)) {
              if (!mDoCPd_L_LOCK_BUTTON(mPadNo)) {
-@@ -887,8 +913,11 @@ bool dAttention_c::Run(u32 interactMask) {
+@@ -887,8 +937,11 @@ bool dAttention_c::Run(u32 interactMask) {
          }
      }
      field_0x019 = mLockOnState;
@@ -168,7 +222,7 @@ index aa96d1bc..f87d3fbf 100644
      runDebugDisp();
      if (mLockOnState == LockState_LOCK) {
          dComIfGp_onCameraAttentionStatus(mPadNo, dCamAttnStts_00000001_e);
-@@ -896,10 +925,14 @@ bool dAttention_c::Run(u32 interactMask) {
+@@ -896,10 +949,14 @@ bool dAttention_c::Run(u32 interactMask) {
          dComIfGp_offCameraAttentionStatus(mPadNo, dCamAttnStts_00000001_e);
      }
  

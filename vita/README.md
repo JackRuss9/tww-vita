@@ -819,3 +819,15 @@ GPU can reject hidden fragments before shading them).
   waits of 20 us and more.
 - CPU PROFILE marks inside dAttention_c::stockAttention (s_*).
 
+### 01.88
+
+- 01.87: the attention list (s_make_list) is the ~7 ms: dAttention_c::calcWeight
+  ran fopAcM_SearchByID (a walk over every process) for the grabbed actor twice
+  per actor. makeList now looks it up once, and SelectAttention skips an actor
+  that shares no attention type bit with the player (its weights are 0 in both
+  lists). Same results; d_attention.cpp joins switchwaker-vita-cpu-profile.patch.
+- The game thread's waits are GXSetDrawDone/GXDrawDone (wait_previous_frame)
+  and fifo::drain. GX QUEUE (live, 1 or 2 frames): with 2 the worker may still be
+  rendering the frame before the previous one.
+- Orca's sword tutorial (01.86 log, profile off): ~24-27 fps.
+
