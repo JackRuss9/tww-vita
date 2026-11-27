@@ -884,3 +884,9 @@ GPU can reject hidden fragments before shading them).
   refuses real (projected) shadows, so dComIfGd_setShadow draws the round one.
 - The settings menu rows are 17 px so the 23 rows fit the screen; the settings
   log line adds gx_batch, fast_arrays, real_shadows and grass.
+
+### 01.94
+
+- The settings menu scrolls as sms-vita's does: 18 rows on the screen (20 px
+  again), "X-Y OF N" at the top right, L/R a page up or down. 01.93's 17 px rows
+  are gone.

@@ -129,6 +129,7 @@ constexpr int kCount = int(sizeof kItems / sizeof kItems[0]);
 
 volatile bool g_open;
 volatile int g_selected;
+volatile int g_top;  // the first row shown
 uint32_t g_prev;
 bool g_waitRelease;  // after closing: buttons stay away from the game until let go
 
@@ -214,7 +215,8 @@ const uint8_t* glyph(char c)
     return kFont[0].rows;
 }
 
-constexpr int kScale = 2, kCellW = 6 * kScale, kLineH = 17;  // 01.93: 23 rows fit 544 lines
+constexpr int kScale = 2, kCellW = 6 * kScale, kLineH = 10 * kScale;
+constexpr int kRowsShown = 18;  // rows on the screen at once; the list scrolls past them (as in sms-vita)
 
 struct Canvas {
     volatile uint32_t* pixels;
@@ -263,16 +265,24 @@ void draw_menu(void* address, unsigned stride, unsigned width, unsigned height)
         return;
     }
     Canvas c{static_cast<volatile uint32_t*>(address), stride, width, height, 0};
-    const int x0 = 40, y0 = 14, pad = 12, valueCol = 34 * kCellW;
-    const int w = 47 * kCellW + 2 * pad, h = (kCount + 5) * kLineH + 2 * pad;
+    const int shown = kCount < kRowsShown ? kCount : kRowsShown;
+    const int top = g_top;
+    const int x0 = 40, y0 = 30, pad = 14, valueCol = 34 * kCellW;
+    const int w = 47 * kCellW + 2 * pad, h = (shown + 5) * kLineH + 2 * pad;
     c.color = 0xff301010;
     c.rect(x0, y0, w, h);
     c.color = 0xff1ac0f2;
     c.text(x0 + pad, y0 + pad, "SETTINGS");
+    if (shown < kCount) {  // where the shown rows are in the list
+        char where[32];
+        std::snprintf(where, sizeof where, "%d-%d OF %d", top + 1, top + shown, kCount);
+        c.color = 0xffb3b3b3;
+        c.text(x0 + w - pad - int(std::strlen(where)) * kCellW, y0 + pad, where);
+    }
     const int selected = g_selected;
-    for (int i = 0; i < kCount; ++i) {
+    for (int i = top; i < top + shown; ++i) {
         const Item& it = kItems[i];
-        const int y = y0 + pad + (i + 1) * kLineH + kLineH / 2;
+        const int y = y0 + pad + (i - top + 1) * kLineH + kLineH / 2;
         if (i == selected) {
             c.color = 0xff994d33;
             c.rect(x0 + pad / 2, y - 3, w - pad, kLineH);
@@ -306,8 +316,9 @@ void draw_menu(void* address, unsigned stride, unsigned width, unsigned height)
     char info[48];
     std::snprintf(info, sizeof info, "RENDER %uX%u", aurora_vita_efb_width(), aurora_vita_efb_height());
     c.color = 0xffb3b3b3;
-    c.text(x0 + pad, y0 + pad + (kCount + 2) * kLineH, info);
-    c.text(x0 + pad, y0 + pad + (kCount + 3) * kLineH + kLineH / 2, "CROSS/RIGHT: CHANGE  LEFT: BACK  CIRCLE: CLOSE");
+    c.text(x0 + pad, y0 + pad + (shown + 2) * kLineH, info);
+    c.text(x0 + pad, y0 + pad + (shown + 3) * kLineH + kLineH / 2, "CROSS/RIGHT: CHANGE  LEFT: BACK  CIRCLE: CLOSE");
+    c.text(x0 + pad, y0 + pad + (shown + 4) * kLineH + kLineH / 2, "L/R: PAGE UP/DOWN");
 }
 } // namespace
 
@@ -471,6 +482,17 @@ extern "C" bool tww_vita_menu_pad(uint32_t buttons)
         selected = (selected + kCount - 1) % kCount;
     if (pressed & SCE_CTRL_DOWN)
         selected = (selected + 1) % kCount;
+    if (pressed & SCE_CTRL_LTRIGGER)  // a page up or down
+        selected = selected >= kRowsShown ? selected - kRowsShown : 0;
+    if (pressed & SCE_CTRL_RTRIGGER)
+        selected = selected + kRowsShown < kCount ? selected + kRowsShown : kCount - 1;
+    // keep the selected row on the screen
+    int top = g_top;
+    if (selected < top)
+        top = selected;
+    if (selected >= top + kRowsShown)
+        top = selected - kRowsShown + 1;
+    g_top = top;
     g_selected = selected;
     if (pressed & (SCE_CTRL_CROSS | SCE_CTRL_RIGHT))
         step(kItems[selected], 1);
