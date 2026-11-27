@@ -195,6 +195,7 @@ extern "C" void aurora_vita_scene_totals(unsigned long long *scenes, unsigned lo
                                          unsigned long long *depthPasses);
 extern "C" unsigned long long aurora_vita_tex_copies();
 extern "C" void aurora_vita_log_waits(unsigned frames);
+extern "C" void aurora_vita_log_gpu_scenes();
 
 extern "C" void pc_frame_end()
 {
@@ -281,6 +282,7 @@ extern "C" void pc_frame_end()
             previous_copies = copies;
         }
         aurora_vita_log_waits(submitted);
+        aurora_vita_log_gpu_scenes();
         for (unsigned i = 0; i < 7; ++i)
             previous_phase[i] = phase[i];
         previous_drain_us = drain_us;

@@ -645,6 +645,16 @@ is black in DXT1, the midpoint in CMPR, so filtered cut-out edges may darken a
 little. Levels go in whole through `gl::write_texture_packed` /
 `TextureStorage::upload_packed`.
 
+## 01.73: GPU TIMING
+
+01.72's CMPR AS DXT1 changed nothing measurable (house 13.5 fps, staging wait
+27 ms as before; outside 7.4 fps): the GPU is not limited by texture reads.
+With three staging slots the CPU runs ahead of the GPU, so the ~74 ms a frame
+in the house (62%) is GPU time; it grows with pixels (~0.23 ms per thousand
+EFB pixels, ~23 ms fixed). GPU TIMING (live, off by default, slow) finishes
+every scene at its end and logs, per place in the frame,
+`vita-gpu-scene N: ms avg, kpixels, draws`.
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)
