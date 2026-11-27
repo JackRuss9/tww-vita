@@ -807,3 +807,15 @@ GPU can reject hidden fragments before shading them).
 - GRASS DENSITY (live): 100, 50 or 25 % of the tufts.
 - CPU PROFILE marks inside dAttention_c::Run (a_*).
 
+### 01.87
+
+- 01.86 grass: the packet ~17-20 -> ~12.5-14 ms at 100 %, ~6.5-9.5 ms at 50 %,
+  ~3.5 ms at 25 %; exterior ~8.5 -> ~9 fps (the game thread stays ~108 ms).
+  dAttention_c's judgementStatusHd (a_status) is ~7 ms of the exterior frame.
+  The painter's "pre" (~11 ms in the house and outside) matches the game
+  thread's wait for the worker (game_wait).
+- Wait report: the callers of producer_acquire and of gl::on_render_thread
+  (__builtin_return_address; the unwinder stopped at producer_acquire), for
+  waits of 20 us and more.
+- CPU PROFILE marks inside dAttention_c::stockAttention (s_*).
+
