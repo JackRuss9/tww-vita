@@ -22,6 +22,7 @@ void aurora_vita_set_gx_thread(int enabled);
 void aurora_vita_set_async_shaders(int enabled);
 void aurora_vita_set_cmpr_bc1(int enabled);
 void aurora_vita_set_gpu_timing(int enabled);
+void aurora_vita_set_shader_test(int mode);
 int aurora_vita_shaders_compiling();
 extern int tww_vita_fast_grass_enabled; // d_grass.cpp (switchwaker-vita-fast-grass.patch)
 unsigned aurora_vita_efb_width();
@@ -42,6 +43,7 @@ volatile int g_floatTev = 1;     // read at start-up
 volatile int g_audio = 1;        // read at start-up
 volatile int g_titleSparkle = 1; // live
 volatile int g_skipIntro = 0;    // read at start-up: 1 skips the legend and the prologue
+volatile int g_shaderTest = 0;   // read at start-up, diagnostic: 1 flat grey shading, 2 no alpha test
 volatile int g_gpuTiming = 0;    // live diagnostic: GPU time of each scene (slow)
 volatile int g_cmprBc1 = 1;      // read at start-up: CMPR textures stay compressed (UBC1)
 volatile int g_aspect = 1;       // read at start-up: 0 4:3, 1 16:9
@@ -64,7 +66,7 @@ struct AutoRes {
     uint64_t blockedUntil = 0;
 } g_auto;
 
-enum Shown { ON_OFF, PERCENT, GX_MODE, ASPECT };
+enum Shown { ON_OFF, PERCENT, GX_MODE, ASPECT, SHADER_TEST };
 struct Item {
     const char* key;
     const char* label;
@@ -82,6 +84,7 @@ const Item kItems[] = {
     {"resolution", "RESOLUTION", &g_resolution, kScales, 7, PERCENT, 0},
     {"float_tev", "FAST COLOUR MIXING (NEXT START)", &g_floatTev, kOnOff, 2, ON_OFF, 1},
     {"audio", "AUDIO (NEXT START)", &g_audio, kOnOff, 2, ON_OFF, 1},
+    {"shader_test", "SHADER TEST (NEXT START)", &g_shaderTest, kGxThread, 3, SHADER_TEST, 0},
     {"gpu_timing", "GPU TIMING (SLOW, LOG)", &g_gpuTiming, kOnOff, 2, ON_OFF, 0},
     {"cmpr_bc1", "CMPR AS DXT1 (NEXT START)", &g_cmprBc1, kOnOff, 2, ON_OFF, 1},
     {"skip_intro", "SKIP INTRO (NEXT START)", &g_skipIntro, kOnOff, 2, ON_OFF, 0},
@@ -242,6 +245,8 @@ void draw_menu(void* address, unsigned stride, unsigned width, unsigned height)
             std::snprintf(v, sizeof v, "%s", *it.value ? "ON" : "OFF");
         else if (it.shown == ASPECT)
             std::snprintf(v, sizeof v, "%s", *it.value ? "16:9" : "4:3");
+        else if (it.shown == SHADER_TEST)
+            std::snprintf(v, sizeof v, "%s", *it.value == 2 ? "NO ALPHA" : *it.value ? "GREY" : "OFF");
         else if (it.shown == GX_MODE)
             std::snprintf(v, sizeof v, "%s", *it.value == 2 ? "FULL" : *it.value ? "ON" : "OFF");
         else if (*it.value == 0)
@@ -299,6 +304,7 @@ extern "C" void tww_vita_settings_load()
     aurora_vita_set_async_shaders(g_asyncShaders);
     aurora_vita_set_cmpr_bc1(g_cmprBc1);
     aurora_vita_set_gpu_timing(g_gpuTiming);
+    aurora_vita_set_shader_test(g_shaderTest);
     g_appliedResolution = g_resolution ? g_resolution : g_autoPercent;
     aurora_vita_overlay_hook = draw_menu;
     pc::writef(2, "vita-settings resolution=%d audio=%d aspect=%s float_tev=%d gx_thread=%d async_shaders=%d skip_intro=%d cmpr_bc1=%d show_fps=%d\n", g_resolution, g_audio, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_asyncShaders, g_skipIntro, g_cmprBc1, g_showFps);

@@ -655,6 +655,17 @@ EFB pixels, ~23 ms fixed). GPU TIMING (live, off by default, slow) finishes
 every scene at its end and logs, per place in the frame,
 `vita-gpu-scene N: ms avg, kpixels, draws`.
 
+## 01.74: SHADER TEST
+
+01.73's GPU TIMING (62%, each scene finished on its own): one scene takes
+nearly all the GPU time, the main 3D pass, 91 ms with ~270 draws in the house
+and 120 ms with ~700 draws outside; the other scenes (copies, palette
+conversions, the 2D pass, the display blit) add ~15 ms together. SHADER TEST
+(next start, diagnostic) tells how much of that is fragment shading: GREY
+makes every GX fragment program output flat grey (the TEV, textures and alpha
+test compile away), NO ALPHA skips only the alpha test (no discard, so the
+GPU can reject hidden fragments before shading them).
+
 ## Integration points
 
 - Use [SwitchWaker at `1080514`](https://github.com/centollOS/SwitchWaker/tree/108051434f2f67437947e78015b3dd409be6e1c6)

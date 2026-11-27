@@ -1489,10 +1489,33 @@ index be3fee9..7110517 100644
    }
  }
 diff --git a/aurora-main/lib/gx/shader.cpp b/aurora-main/lib/gx/shader.cpp
-index fe68417..8182ba5 100644
+index fe68417..eda7c73 100644
 --- a/aurora-main/lib/gx/shader.cpp
 +++ b/aurora-main/lib/gx/shader.cpp
-@@ -2375,7 +2375,9 @@ void main() {{{4}
+@@ -1061,6 +1061,10 @@ static std::string native_float_op(const TevOp& op,std::string_view a,std::strin
+ 
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+ bool g_vitaFloatTev = true;
++// tww-vita SHADER TEST (next start, diagnostic): 1 every GX fragment program
++// outputs flat grey (no TEV, no textures, no alpha test), 2 alpha tests are
++// skipped (cut-outs draw as solid). Bounds what shading and discard cost.
++int g_vitaShaderTest = 0;
+ #endif
+ 
+ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeVertices,
+@@ -1968,8 +1972,10 @@ gl::ProgramDesc build_shader_description(const ShaderConfig& config,bool nativeV
+   }
+ 
+   if(!nativeFloat) fragmentFn += "\n    prev = tev_overflow_vec4f(prev);";
++  if (g_vitaShaderTest == 1)
++    fragmentFn += "\n    prev = vec4(0.5, 0.5, 0.5, 1.0); // SHADER TEST 1";
+ 
+-  if (config.alphaCompare) {
++  if (config.alphaCompare && g_vitaShaderTest == 0) {
+     const auto comp0 = alpha_compare(config.alphaCompare.comp0, config.alphaCompare.ref0, nativeFloat);
+     const auto comp1 = alpha_compare(config.alphaCompare.comp1, config.alphaCompare.ref1, nativeFloat);
+     AlphaCompareExpr pass;
+@@ -2375,11 +2381,14 @@ void main() {{{4}
  }
  
  gl::ProgramPtr build_shader(const ShaderConfig& config) noexcept {
@@ -1503,6 +1526,11 @@ index fe68417..8182ba5 100644
  }
  } // namespace aurora::gx
  
+ #ifdef TWW_GXM_RUNTIME_SHADERS
+ // Set before aurora_initialize: pipelines built afterwards use the choice.
+ extern "C" void aurora_vita_set_float_tev(int enabled) { aurora::gx::g_vitaFloatTev = enabled != 0; }
++extern "C" void aurora_vita_set_shader_test(int mode) { aurora::gx::g_vitaShaderTest = mode; }
+ #endif
 diff --git a/aurora-main/lib/gxm/device.cpp b/aurora-main/lib/gxm/device.cpp
 index 26af41f..71dc086 100644
 --- a/aurora-main/lib/gxm/device.cpp
