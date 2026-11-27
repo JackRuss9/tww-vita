@@ -795,3 +795,15 @@ GPU can reject hidden fragments before shading them).
   (vita-cpu-packets; the ELF names them). switchwaker-vita-cpu-profile.patch
   now also covers J3DPacket.cpp, J3DDrawBuffer.cpp and d_s_play.cpp.
 
+### 01.86
+
+- 01.85 exterior painter by packet kind (vtables named from the ELF; runtime
+  text is the ELF's + 0x1b000): dGrass_packet_c ~17-20 ms, J3DMatPacket ~14 ms
+  (~90 per frame; ~10 ms of it the shape display lists), dKankyo_wave ~2 ms,
+  vrkumo ~1 ms, dTree ~1.5 ms. Play scene: dAttention_c::Run ~7 ms, grass
+  execute ~2 ms and draw-list ~2 ms. House without profiling: ~27 fps.
+- FAST GRASS keeps the tufts' own primitives (strips, fans) instead of expanding
+  them into triangle lists: about half the vertices to transform and send.
+- GRASS DENSITY (live): 100, 50 or 25 % of the tufts.
+- CPU PROFILE marks inside dAttention_c::Run (a_*).
+

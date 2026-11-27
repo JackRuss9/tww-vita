@@ -27,6 +27,7 @@ void aurora_vita_set_fast_texcoords(int enabled);
 void aurora_vita_set_fog(int mode);
 int aurora_vita_shaders_compiling();
 extern int tww_vita_fast_grass_enabled;
+extern "C" int tww_vita_grass_density; // d_grass.cpp (switchwaker-vita-fast-grass.patch)
 extern "C" int tww_vita_draw_distance; // m_Do_lib.cpp (switchwaker-vita-draw-distance.patch)
 extern "C" int tww_vita_cpu_profile;
 extern "C" void aurora_vita_set_merge_runs(int enabled); // vita_runtime_hooks.cpp, f_pc_manager.cpp (switchwaker-vita-cpu-profile.patch)
@@ -89,6 +90,7 @@ const int kGxThread[] = {0, 1, 2};
 const int kShaderTests[] = {0, 1, 2, 3, 4, 5, 6};
 const int kScales[] = {0, 100, 87, 75, 62, 50, 37};
 const int kDistances[] = {100, 75, 50, 35};
+const int kDensities[] = {100, 50, 25};
 const Item kItems[] = {
     {"show_fps", "SHOW FPS", &g_showFps, kOnOff, 2, ON_OFF, 1},
     {"resolution", "RESOLUTION", &g_resolution, kScales, 7, PERCENT, 0},
@@ -104,6 +106,7 @@ const Item kItems[] = {
     {"aspect", "SCREEN (NEXT START)", &g_aspect, kOnOff, 2, ASPECT, 1},
     {"draw_distance", "DRAW DISTANCE", &tww_vita_draw_distance, kDistances, 4, PERCENT, 100},
     {"fast_grass", "FAST GRASS", &tww_vita_fast_grass_enabled, kOnOff, 2, ON_OFF, 1},
+    {"grass_density", "GRASS DENSITY", &tww_vita_grass_density, kDensities, 3, PERCENT, 100},
     {"async_shaders", "BACKGROUND SHADERS", &g_asyncShaders, kOnOff, 2, ON_OFF, 1},
     {"gx_thread", "GX THREAD (NEXT START)", &g_gxThread, kGxThread, 3, GX_MODE, 2},
     {"cpu_profile", "CPU PROFILE (LOG)", &tww_vita_cpu_profile, kOnOff, 2, ON_OFF, 0},

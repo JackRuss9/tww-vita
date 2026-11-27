@@ -95,6 +95,64 @@ index 9a9c526b..89460d08 100644
      j3dSys.setTexture(mpTexture);
      j3dSys.setMatPacket(this);
  
+diff --git a/game/src/d/d_attention.cpp b/game/src/d/d_attention.cpp
+index aa96d1bc..0322d8ab 100644
+--- a/game/src/d/d_attention.cpp
++++ b/game/src/d/d_attention.cpp
+@@ -844,6 +844,12 @@ void dAttention_c::judgementStatusHd(u32 interactMask) {
+ }
+ 
+ /* 8009F1D4-8009F460       .text Run__12dAttention_cFUl */
++#if defined(__vita__)
++extern "C" void tww_vita_scn_mark(const char* name); // CPU PROFILE (vita_runtime_hooks.cpp)
++#define VITA_ATT_MARK(n) tww_vita_scn_mark(n)
++#else
++#define VITA_ATT_MARK(n) ((void)0)
++#endif
+ bool dAttention_c::Run(u32 interactMask) {
+     bool var = dComIfGs_getOptAttentionType() == 0;
+     if (chkFlag(AttnFlag_00000080)) {
+@@ -863,11 +869,13 @@ bool dAttention_c::Run(u32 interactMask) {
+         freeAttention();
+     } else {
+         judgementButton();
++        VITA_ATT_MARK("a_button");
+         if (var) {
+             judgementStatusHd(interactMask);
+         } else {
+             judgementStatusSw(interactMask);
+         }
++        VITA_ATT_MARK("a_status");
+ 
+         if (chkFlag(AttnFlag_10000000)) {
+             if (!mDoCPd_L_LOCK_BUTTON(mPadNo)) {
+@@ -887,8 +895,11 @@ bool dAttention_c::Run(u32 interactMask) {
+         }
+     }
+     field_0x019 = mLockOnState;
++    VITA_ATT_MARK("a_lock");
+     runSoundProc();
++    VITA_ATT_MARK("a_sound");
+     runDrawProc();
++    VITA_ATT_MARK("a_draw");
+     runDebugDisp();
+     if (mLockOnState == LockState_LOCK) {
+         dComIfGp_onCameraAttentionStatus(mPadNo, dCamAttnStts_00000001_e);
+@@ -896,10 +907,14 @@ bool dAttention_c::Run(u32 interactMask) {
+         dComIfGp_offCameraAttentionStatus(mPadNo, dCamAttnStts_00000001_e);
+     }
+ 
++    VITA_ATT_MARK("a_other");
+     mHint.proc();
++    VITA_ATT_MARK("a_hint");
+     mCatch.proc();
++    VITA_ATT_MARK("a_catch");
+     mLook[0].proc();
+     mLook[1].proc();
++    VITA_ATT_MARK("a_look");
+     return true;
+ }
+ 
 diff --git a/game/src/d/d_s_play.cpp b/game/src/d/d_s_play.cpp
 index 59fabc4a..cfdf1df1 100644
 --- a/game/src/d/d_s_play.cpp
