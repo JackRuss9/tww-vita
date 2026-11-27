@@ -46,7 +46,7 @@ volatile int g_titleSparkle = 1; // live
 volatile int g_skipIntro = 0;    // read at start-up: 1 skips the legend and the prologue
 volatile int g_shaderTest = 0;   // read at start-up, diagnostic: 1 flat grey shading, 2 no alpha test
 volatile int g_gpuTiming = 0;    // live diagnostic: GPU time of each scene (slow)
-volatile int g_fastTex = 1;      // read at start-up: float texture coordinates and fog (FAST TEXCOORDS)
+volatile int g_fastTex = 1;      // read at start-up: float texture coordinates and fog; 1 PIXEL, 2 VERTEX (slow vertex recompiles)
 volatile int g_cmprBc1 = 1;      // read at start-up: CMPR textures stay compressed (UBC1)
 volatile int g_aspect = 1;       // read at start-up: 0 4:3, 1 16:9
 volatile int g_asyncShaders = 1; // live: 1 new shaders compile in the background
@@ -68,7 +68,7 @@ struct AutoRes {
     uint64_t blockedUntil = 0;
 } g_auto;
 
-enum Shown { ON_OFF, PERCENT, GX_MODE, ASPECT, SHADER_TEST };
+enum Shown { ON_OFF, PERCENT, GX_MODE, ASPECT, SHADER_TEST, FAST_TEX };
 struct Item {
     const char* key;
     const char* label;
@@ -86,7 +86,7 @@ const Item kItems[] = {
     {"resolution", "RESOLUTION", &g_resolution, kScales, 7, PERCENT, 0},
     {"float_tev", "FAST COLOUR MIXING (NEXT START)", &g_floatTev, kOnOff, 2, ON_OFF, 1},
     {"audio", "AUDIO (NEXT START)", &g_audio, kOnOff, 2, ON_OFF, 1},
-    {"fast_tex", "FAST TEXCOORDS (NEXT START)", &g_fastTex, kOnOff, 2, ON_OFF, 1},
+    {"fast_tex", "FAST TEXCOORDS (NEXT START)", &g_fastTex, kGxThread, 3, FAST_TEX, 1},
     {"shader_test", "SHADER TEST (NEXT START)", &g_shaderTest, kGxThread, 3, SHADER_TEST, 0},
     {"gpu_timing", "GPU TIMING (SLOW, LOG)", &g_gpuTiming, kOnOff, 2, ON_OFF, 0},
     {"cmpr_bc1", "CMPR AS DXT1 (NEXT START)", &g_cmprBc1, kOnOff, 2, ON_OFF, 1},
@@ -250,6 +250,8 @@ void draw_menu(void* address, unsigned stride, unsigned width, unsigned height)
             std::snprintf(v, sizeof v, "%s", *it.value ? "16:9" : "4:3");
         else if (it.shown == SHADER_TEST)
             std::snprintf(v, sizeof v, "%s", *it.value == 2 ? "NO ALPHA" : *it.value ? "GREY" : "OFF");
+        else if (it.shown == FAST_TEX)
+            std::snprintf(v, sizeof v, "%s", *it.value == 2 ? "VERTEX" : *it.value ? "PIXEL" : "OFF");
         else if (it.shown == GX_MODE)
             std::snprintf(v, sizeof v, "%s", *it.value == 2 ? "FULL" : *it.value ? "ON" : "OFF");
         else if (*it.value == 0)

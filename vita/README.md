@@ -696,3 +696,13 @@ GPU can reject hidden fragments before shading them).
   SGX). The vertex shader writes the normalised UV, so the fragment sample is a
   non-dependent read; the LOD bias moves to the GXM sampler (1/8 steps) and fog
   depth is computed in floats. Indirect stages keep the exact path.
+
+### 01.76
+
+- 01.75 results: house main scene 91 -> 44 ms, exterior ~120 -> ~94 ms (673
+  draws). But every GX vertex program changed, and vertex programs compile at
+  O1 without fast math (the O3 compiler faults on them): 10-37 s each, so
+  SHADERS stayed on for a long time.
+- FAST TEXCOORDS now has three values: OFF, PIXEL (default: the fragment shader
+  scales the float UV, so vertex programs stay as before and keep their cache)
+  and VERTEX (01.75's behaviour: non-dependent reads, long vertex recompiles).
