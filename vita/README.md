@@ -860,3 +860,13 @@ GPU can reject hidden fragments before shading them).
   publish past 1 MB (try-lock, no wait), and in write_data_grow before it would
   grow. The gx-thread line logs the FIFO capacity (fifo_kb).
 
+### 01.92
+
+- 01.91 was slower outside (~6-7 fps, game thread 140-178 ms): its compaction in
+  write_data_grow kept the FIFO at 64 KB and waited for the worker every time it
+  filled (30-50 ms a frame), and moving the buffer inside GXBegin/GXEnd broke
+  immediate-mode draws (GXEnd "not evenly divisible" warnings: GXBegin keeps a
+  FIFO offset). Compaction now happens only at the frame start
+  (GXDrawDone/GXSetDrawDone), with a try-lock; past 8 MB of capacity it waits
+  for the worker there once.
+
