@@ -27,7 +27,8 @@ void aurora_vita_set_fast_texcoords(int enabled);
 void aurora_vita_set_fog(int mode);
 int aurora_vita_shaders_compiling();
 extern int tww_vita_fast_grass_enabled;
-extern "C" int tww_vita_draw_distance; // m_Do_lib.cpp (switchwaker-vita-draw-distance.patch) // d_grass.cpp (switchwaker-vita-fast-grass.patch)
+extern "C" int tww_vita_draw_distance; // m_Do_lib.cpp (switchwaker-vita-draw-distance.patch)
+extern "C" int tww_vita_cpu_profile; // vita_runtime_hooks.cpp, f_pc_manager.cpp (switchwaker-vita-cpu-profile.patch)
 unsigned aurora_vita_efb_width();
 unsigned aurora_vita_efb_height();
 void pc_milestone(const char* name);
@@ -53,7 +54,7 @@ volatile int g_fastTex = 1;      // read at start-up: float texture coordinates 
 volatile int g_cmprBc1 = 1;      // read at start-up: CMPR textures stay compressed (UBC1)
 volatile int g_aspect = 1;       // read at start-up: 0 4:3, 1 16:9
 volatile int g_asyncShaders = 1; // live: 1 new shaders compile in the background
-volatile int g_gxThread = 1;     // read at start-up: 0 off, 1 on, 2 full
+volatile int g_gxThread = 2;     // read at start-up: 0 off, 1 on, 2 full
 int g_appliedResolution = -1;
 
 // RESOLUTION AUTO: lowers the render size only while the game waits for the
@@ -102,7 +103,8 @@ const Item kItems[] = {
     {"draw_distance", "DRAW DISTANCE", &tww_vita_draw_distance, kDistances, 4, PERCENT, 100},
     {"fast_grass", "FAST GRASS", &tww_vita_fast_grass_enabled, kOnOff, 2, ON_OFF, 1},
     {"async_shaders", "BACKGROUND SHADERS", &g_asyncShaders, kOnOff, 2, ON_OFF, 1},
-    {"gx_thread", "GX THREAD (NEXT START)", &g_gxThread, kGxThread, 3, GX_MODE, 1},
+    {"gx_thread", "GX THREAD (NEXT START)", &g_gxThread, kGxThread, 3, GX_MODE, 2},
+    {"cpu_profile", "CPU PROFILE (LOG)", &tww_vita_cpu_profile, kOnOff, 2, ON_OFF, 0},
 };
 constexpr int kCount = int(sizeof kItems / sizeof kItems[0]);
 

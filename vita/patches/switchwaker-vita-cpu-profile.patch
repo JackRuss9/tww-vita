@@ -1,0 +1,85 @@
+diff --git a/game/src/f_pc/f_pc_manager.cpp b/game/src/f_pc/f_pc_manager.cpp
+index 8bad81c5..7fe0d507 100644
+--- a/game/src/f_pc/f_pc_manager.cpp
++++ b/game/src/f_pc/f_pc_manager.cpp
+@@ -41,8 +41,38 @@
+ #endif
+ #include "assets/font_data.h"
+ 
++#if defined(__vita__)
++// CPU PROFILE (vita_menu.cpp): each process's own time in its execute and draw calls, by
++// process name, with the time of nested processes taken out (vita_runtime_hooks.cpp reports it).
++extern "C" int tww_vita_cpu_profile;
++extern "C" unsigned long long tww_vita_prof_now(void);
++extern "C" void tww_vita_prof_proc(int name, int draw, unsigned long long us);
++static int s_vitaProfDepth;
++static unsigned long long s_vitaProfChild[32];
++static BOOL vita_prof_call(void* i_proc, int draw) {
++    base_process_class* proc = (base_process_class*)i_proc;
++    const int depth = s_vitaProfDepth;
++    if (!tww_vita_cpu_profile || depth >= 32)
++        return draw ? fpcDw_Execute(proc) : fpcEx_Execute(proc);
++    s_vitaProfChild[depth] = 0;
++    s_vitaProfDepth = depth + 1;
++    const unsigned long long start = tww_vita_prof_now();
++    const BOOL result = draw ? fpcDw_Execute(proc) : fpcEx_Execute(proc);
++    const unsigned long long total = tww_vita_prof_now() - start;
++    s_vitaProfDepth = depth;
++    if (depth > 0)
++        s_vitaProfChild[depth - 1] += total;
++    const unsigned long long child = s_vitaProfChild[depth];
++    tww_vita_prof_proc(proc->mProcName, draw, total > child ? total - child : 0);
++    return result;
++}
++#endif
++
+ /* 8003E318-8003E338       .text fpcM_Draw__FPv */
+ BOOL fpcM_Draw(void* i_proc) {
++#if defined(__vita__)
++    return vita_prof_call(i_proc, 1);
++#endif
+     return fpcDw_Execute((base_process_class*)i_proc);
+ }
+ 
+@@ -53,6 +83,9 @@ BOOL fpcM_DrawIterater(fpcM_DrawIteraterFunc i_drawIterFunc) {
+ 
+ /* 8003E370-8003E390       .text fpcM_Execute__FPv */
+ BOOL fpcM_Execute(void* i_proc) {
++#if defined(__vita__)
++    return vita_prof_call(i_proc, 0);
++#endif
+     return fpcEx_Execute((base_process_class*)i_proc);
+ }
+ 
+@@ -291,7 +324,14 @@ void fpcM_Management(fpcM_ManagementFunc callBack1, fpcM_ManagementFunc callBack
+     if (callBack1 != NULL)
+         callBack1();
+ 
++#if defined(__vita__)
++    const unsigned long long vitaExecStart = tww_vita_prof_now();
++#endif
+     fpcEx_Handler((fpcLnIt_QueueFunc)fpcM_Execute);
++#if defined(__vita__)
++    const unsigned long long vitaDrawStart = tww_vita_prof_now();
++    tww_vita_prof_proc(-1, 0, vitaDrawStart - vitaExecStart);
++#endif
+ #if TARGET_PC
+     // COS_FPS60_TEST (game_hooks.h, docs/FPS60_PLAN.md step A): paint A is presented here, after
+     // the logic, which ran while Aurora's GX worker translated it (presented right after the paint,
+@@ -305,9 +345,16 @@ void fpcM_Management(fpcM_ManagementFunc callBack1, fpcM_ManagementFunc callBack
+     pc_fps60_models_draw_begin();
+ #endif
+     fpcDw_Handler((fpcDw_HandlerFuncFunc)fpcM_DrawIterater, (fpcDw_HandlerFunc)fpcM_Draw);
++#if defined(__vita__)
++    const unsigned long long vitaCb2Start = tww_vita_prof_now();
++    tww_vita_prof_proc(-1, 1, vitaCb2Start - vitaDrawStart);
++#endif
+ 
+     if (callBack2 != NULL)
+         callBack2();
++#if defined(__vita__)
++    tww_vita_prof_proc(-2, 1, tww_vita_prof_now() - vitaCb2Start);
++#endif
+ #if TARGET_PC
+     pc_fps60_models_draw_end();
+     // Step E: the draw pass's time for paint B's budget guard (and its test delay).

@@ -10,6 +10,8 @@
 #include <psp2/kernel/threadmgr.h>
 #include <psp2/kernel/processmgr.h>
 #include <sys/time.h>
+#include <cstdio>
+#include <cstring>
 
 
 extern "C" OSTime OSGetSystemTime()
@@ -164,7 +166,93 @@ extern "C" void pc_dynres_3d_end() {}
 extern "C" int pc_dof_enabled() { return 0; }
 extern "C" {
 int pc_gpu_groups_level = 0;
-void pc_gpu_group(const char *) {}
+// CPU PROFILE (vita_menu.cpp): the painter's time between its PC_GPU_GROUP markers, and each
+// game process's own execute and draw time (f_pc_manager.cpp), reported every 10 s.
+int tww_vita_cpu_profile = 0;
+unsigned long long tww_vita_prof_now(void) { return sceKernelGetProcessTimeWide(); }
+namespace {
+constexpr int kProfNames = 1024;
+unsigned long long g_profProc[2][kProfNames];
+unsigned int g_profCount[2][kProfNames];
+unsigned long long g_profSection[3];  // execute pass, draw pass, after-draw callback
+struct Bucket { const char *name; unsigned long long us; };
+Bucket g_buckets[40];
+int g_bucketCount;
+const char *g_bucketName;
+unsigned long long g_bucketStart;
+void bucket_close(unsigned long long now)
+{
+    if (!g_bucketName)
+        return;
+    int i = 0;
+    while (i < g_bucketCount && g_buckets[i].name != g_bucketName)
+        ++i;
+    if (i == g_bucketCount) {
+        if (g_bucketCount == 40)
+            return;
+        g_buckets[g_bucketCount++] = {g_bucketName, 0};
+    }
+    g_buckets[i].us += now - g_bucketStart;
+}
+}
+void tww_vita_prof_proc(int name, int draw, unsigned long long us)
+{
+    if (name < 0) {
+        g_profSection[name == -2 ? 2 : draw] += us;
+        return;
+    }
+    if (name >= kProfNames)
+        name = kProfNames - 1;
+    g_profProc[draw][name] += us;
+    ++g_profCount[draw][name];
+}
+void pc_gpu_group(const char *name)
+{
+    if (!tww_vita_cpu_profile || !g_bucketName)
+        return;
+    const unsigned long long now = sceKernelGetProcessTimeWide();
+    bucket_close(now);
+    g_bucketName = name;
+    g_bucketStart = now;
+}
+// Called by the 10 s report in vita_gxm_frames.cpp: per-frame 0.1 ms figures, then reset.
+void tww_vita_prof_report(int fd, unsigned int frames,
+                          void (*log)(int, const char *, ...))
+{
+    if (!tww_vita_cpu_profile || frames == 0)
+        return;
+    const auto per = [&](unsigned long long us) { return static_cast<unsigned long>(us / frames / 100); };
+    log(fd, "vita-cpu-0.1ms execute=%lu draw_pass=%lu after_draw_cb=%lu\n", per(g_profSection[0]),
+        per(g_profSection[1]), per(g_profSection[2]));
+    char line[512];
+    int n = std::snprintf(line, sizeof line, "vita-cpu-painter-0.1ms");
+    for (int i = 0; i < g_bucketCount && n < 480; ++i)
+        n += std::snprintf(line + n, sizeof line - n, " %s=%lu", g_buckets[i].name, per(g_buckets[i].us));
+    log(fd, "%s\n", line);
+    for (int draw = 0; draw < 2; ++draw) {
+        // The 14 costliest process names (hex, d_procname.h), time per frame and calls per frame.
+        bool used[kProfNames]{};
+        n = std::snprintf(line, sizeof line, "vita-cpu-%s-0.01ms", draw ? "draw" : "exec");
+        for (int k = 0; k < 14; ++k) {
+            int best = -1;
+            for (int i = 0; i < kProfNames; ++i)
+                if (!used[i] && g_profProc[draw][i] && (best < 0 || g_profProc[draw][i] > g_profProc[draw][best]))
+                    best = i;
+            if (best < 0)
+                break;
+            used[best] = true;
+            n += std::snprintf(line + n, sizeof line - n, " %x=%lu/%u", best,
+                               static_cast<unsigned long>(g_profProc[draw][best] / frames / 10),
+                               (g_profCount[draw][best] + frames / 2) / frames);
+        }
+        log(fd, "%s\n", line);
+    }
+    std::memset(g_profProc, 0, sizeof g_profProc);
+    std::memset(g_profCount, 0, sizeof g_profCount);
+    std::memset(g_profSection, 0, sizeof g_profSection);
+    for (int i = 0; i < g_bucketCount; ++i)
+        g_buckets[i].us = 0;
+}
 void pc_gpu_group_packet(const void *) {}
 // Per-phase times for the periodic report in vita_gxm_frames.cpp.
 static uint64_t perf_start_us[PC_PERF_PHASES];
@@ -180,6 +268,10 @@ void pc_perf_begin(int phase)
 {
     if (phase >= 0 && phase < PC_PERF_PHASES)
         perf_start_us[phase] = sceKernelGetProcessTimeWide();
+    if (phase == PC_PERF_PAINTER && tww_vita_cpu_profile) {
+        g_bucketName = "pre";
+        g_bucketStart = perf_start_us[phase];
+    }
     static bool game_logged;
     static bool painter_logged;
     if (phase == PC_PERF_GAME && !game_logged) {
@@ -195,6 +287,10 @@ void pc_perf_end(int phase)
 {
     if (phase >= 0 && phase < PC_PERF_PHASES && perf_start_us[phase] != 0)
         perf_total_us[phase] += sceKernelGetProcessTimeWide() - perf_start_us[phase];
+    if (phase == PC_PERF_PAINTER && g_bucketName) {
+        bucket_close(sceKernelGetProcessTimeWide());
+        g_bucketName = nullptr;
+    }
     static bool game_logged;
     static bool painter_logged;
     if (phase == PC_PERF_GAME && !game_logged) {

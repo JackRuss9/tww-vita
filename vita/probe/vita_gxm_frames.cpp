@@ -196,6 +196,7 @@ extern "C" void aurora_vita_scene_totals(unsigned long long *scenes, unsigned lo
 extern "C" unsigned long long aurora_vita_tex_copies();
 extern "C" void aurora_vita_log_waits(unsigned frames);
 extern "C" void aurora_vita_log_gpu_scenes();
+extern "C" void tww_vita_prof_report(int fd, unsigned int frames, void (*log)(int, const char *, ...));
 
 extern "C" void pc_frame_end()
 {
@@ -263,6 +264,7 @@ extern "C" void pc_frame_end()
             previous_wait = wait;
             previous_publishes = publishes;
         }
+        tww_vita_prof_report(boot_log, submitted, probe_log);
         {
             // GPU passes per frame: scenes (each a full tile-memory load/store of
             // its target), their size in thousands of pixels, depth loads and
