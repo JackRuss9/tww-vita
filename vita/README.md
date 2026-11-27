@@ -750,3 +750,15 @@ GPU can reject hidden fragments before shading them).
   log gets the execute and draw passes' time, the painter split by its
   PC_GPU_GROUP buckets, and the 14 costliest process names (d_procname.h, hex)
   in execute and draw, each process's own time with nested processes taken out.
+
+### 01.82
+
+- 01.81 CPU PROFILE, exterior (game ~122 ms): painter ~61 ms (opa list ~27,
+  "pre" ~11 = the wait for the GX worker, 2D ~6, xlu_bg ~4), execute ~39 ms
+  (PLAY_SCENE ~7.4, PLAYER ~4.3, 8 KAMOME ~3.5, BRIDGE ~3, KB, KYEFF, DK, CAMERA,
+  ~10 NPCs ~1 ms each), draw pass ~22 ms (PLAY_SCENE ~8: collision, grass, trees,
+  particles; PLAYER ~2, BRIDGE ~2). House: game ~40 ms with ~11 ms of it waiting
+  for the worker (~40 ms, ~100 us per draw): the worker limits the house.
+- CPU PROFILE also splits the GX worker (vita-worker line): draw decode and its
+  parts, the GXM render and the present.
+

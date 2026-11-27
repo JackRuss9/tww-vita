@@ -195,6 +195,8 @@ void bucket_close(unsigned long long now)
     g_buckets[i].us += now - g_bucketStart;
 }
 }
+void aurora_vita_worker_prof(unsigned long long *out, unsigned count);
+void aurora_vita_set_worker_prof(int enabled);
 void tww_vita_prof_proc(int name, int draw, unsigned long long us)
 {
     if (name < 0) {
@@ -247,6 +249,14 @@ void tww_vita_prof_report(int fd, unsigned int frames,
         }
         log(fd, "%s\n", line);
     }
+    // The GX worker (Aurora command_processor.cpp / aurora.cpp): draw decode in all, and of
+    // that the index/vertex arrays, pipeline, textures, bind groups, uniforms and draw record;
+    // then the frame's GXM render and its present.
+    unsigned long long w[10];
+    aurora_vita_worker_prof(w, 10);
+    log(fd, "vita-worker-0.1ms draws=%lu arrays=%lu pipeline=%lu textures=%lu bind_groups=%lu uniforms=%lu record=%lu render=%lu present=%lu draw_calls=%lu\n",
+        per(w[0]), per(w[1]), per(w[2]), per(w[3]), per(w[4]), per(w[5]), per(w[6]), per(w[7]), per(w[8]),
+        static_cast<unsigned long>(w[9] / frames));
     std::memset(g_profProc, 0, sizeof g_profProc);
     std::memset(g_profCount, 0, sizeof g_profCount);
     std::memset(g_profSection, 0, sizeof g_profSection);
@@ -268,6 +278,8 @@ void pc_perf_begin(int phase)
 {
     if (phase >= 0 && phase < PC_PERF_PHASES)
         perf_start_us[phase] = sceKernelGetProcessTimeWide();
+    if (phase == PC_PERF_PAINTER)
+        aurora_vita_set_worker_prof(tww_vita_cpu_profile);
     if (phase == PC_PERF_PAINTER && tww_vita_cpu_profile) {
         g_bucketName = "pre";
         g_bucketStart = perf_start_us[phase];
