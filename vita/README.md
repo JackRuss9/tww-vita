@@ -850,3 +850,13 @@ GPU can reject hidden fragments before shading them).
   bottom screen row filtered in the scratch row below (a coloured line under the
   letterbox bars); sampling now stops half a texel inside the last whole row.
 
+### 01.91
+
+- 01.90 crashed outside (psp2dmp: data abort in write_data_grow's memcpy, a
+  32 MB -> 64 MB realloc that failed): only fifo::drain emptied the FIFO, and the
+  per-frame drain was the one 01.90 removed (drains=0), so the buffer grew without
+  end. The FIFO is now compacted (processed bytes dropped, unpublished tail moved
+  to the front) whenever the worker is idle: at GXDrawDone/GXSetDrawDone, at
+  publish past 1 MB (try-lock, no wait), and in write_data_grow before it would
+  grow. The gx-thread line logs the FIFO capacity (fifo_kb).
+

@@ -196,6 +196,7 @@ extern "C" void aurora_vita_scene_totals(unsigned long long *scenes, unsigned lo
 extern "C" unsigned long long aurora_vita_tex_copies();
 extern "C" void aurora_vita_log_waits(unsigned frames);
 extern "C" void aurora_vita_log_gpu_scenes();
+extern "C" unsigned aurora_vita_fifo_capacity();
 extern "C" void tww_vita_prof_report(int fd, unsigned int frames, void (*log)(int, const char *, ...));
 
 extern "C" void pc_frame_end()
@@ -256,10 +257,11 @@ extern "C" void pc_frame_end()
             static unsigned long long previous_worker, previous_wait, previous_publishes;
             unsigned long long worker, wait, publishes;
             aurora_vita_gx_thread_totals(&worker, &wait, &publishes);
-            probe_log(boot_log, "vita-gx-thread-0.1ms worker=%lu game_wait=%lu publishes=%lu\n",
+            probe_log(boot_log, "vita-gx-thread-0.1ms worker=%lu game_wait=%lu publishes=%lu fifo_kb=%u\n",
                       static_cast<unsigned long>((worker - previous_worker) / submitted / 100),
                       static_cast<unsigned long>((wait - previous_wait) / submitted / 100),
-                      static_cast<unsigned long>((publishes - previous_publishes) / submitted));
+                      static_cast<unsigned long>((publishes - previous_publishes) / submitted),
+                      aurora_vita_fifo_capacity() / 1024u);
             previous_worker = worker;
             previous_wait = wait;
             previous_publishes = publishes;

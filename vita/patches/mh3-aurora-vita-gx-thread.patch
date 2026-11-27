@@ -1137,7 +1137,7 @@ index 665e528..7e8711b 100644
      auto label = read_string(data, pos, size, bigEndian);
      gfx::push_debug_group(std::move(label));
 diff --git a/aurora-main/lib/gx/fifo.cpp b/aurora-main/lib/gx/fifo.cpp
-index c7fd176..a846bff 100644
+index c7fd176..8fb4978 100644
 --- a/aurora-main/lib/gx/fifo.cpp
 +++ b/aurora-main/lib/gx/fifo.cpp
 @@ -1,4 +1,6 @@
@@ -1171,7 +1171,7 @@ index c7fd176..a846bff 100644
  
  namespace aurora::gx::fifo {
  static Module Log("aurora::gx::fifo");
-@@ -28,8 +42,341 @@ uint32_t sDlSize = 0;
+@@ -28,8 +42,349 @@ uint32_t sDlSize = 0;
  uint32_t sDlWritePos = 0;
  } // namespace detail
  
@@ -1224,7 +1224,7 @@ index c7fd176..a846bff 100644
 +  }
 +  return range;
 +}
-+
+ 
 +#ifdef __vita__
 +SceUID sWorkerThid = -1;
 +// If the kernel gave no stack range for the worker, fall back to its thread id.
@@ -1387,7 +1387,7 @@ index c7fd176..a846bff 100644
 +  }
 +}
 +} // namespace
- 
++
 +extern "C" void aurora_vita_log_waits(unsigned frames) {
 +  if (frames == 0)
 +    return;
@@ -1432,6 +1432,7 @@ index c7fd176..a846bff 100644
 +
 +bool worker_owns(uintptr_t) { return tWorker && sInWorker; }
 +
++static void try_compact();
 +void publish() {
 +  if (!sThreaded || detail::sInDisplayList || tWorker || foreign()) return;
 +  if (detail::sBufferSize == sPublished.load(std::memory_order_relaxed)) return;
@@ -1441,6 +1442,8 @@ index c7fd176..a846bff 100644
 +    if (!sThreaded) { drain(); return; }
 +  }
 +#endif
++  // 01.91: past 1 MB, empty the processed part whenever the worker is idle.
++  if (detail::sBufferSize > (1u << 20)) try_compact();
 +  sPublished.store(detail::sBufferSize);
 +  sPublishes.fetch_add(1, std::memory_order_relaxed);
 +  if (sProducerOwns) {
@@ -1494,11 +1497,16 @@ index c7fd176..a846bff 100644
 +  const uint32_t submitted = sFramesSubmitted.load();
 +  const uint32_t behind = g_vitaGxQueue > 1 ? uint32_t(g_vitaGxQueue - 1) : 0u;
 +  const uint32_t target = submitted > behind ? submitted - behind : 0u;
-+  if (sFramesDone.load() >= target) return;
++  if (sFramesDone.load() >= target) {
++    try_compact();
++    return;
++  }
 +  const uint64_t start = now_us();
 +  std::unique_lock lock{sOwner};
 +  sIdle.wait(lock, [target] { return sFramesDone.load() >= target; });
 +  sProducerWaitUs.fetch_add(now_us() - start, std::memory_order_relaxed);
++  lock.unlock();
++  try_compact();
 +}
 +
 +void init() {
@@ -1514,16 +1522,48 @@ index c7fd176..a846bff 100644
    constexpr uint32_t initialCapacity = 64 * 1024;
    reset_cp_register_cache();
    free(detail::sBufferData);
-@@ -43,6 +390,8 @@ void init() {
+@@ -42,7 +397,40 @@ void init() {
+   detail::sDlWritePos = 0;
  }
  
++// tww-vita 01.91: only drain() emptied the FIFO, and 01.90 took the per-frame drain away,
++// so the buffer grew without end (64 MB realloc failure, crash in write_data_grow). With the
++// renderer owned and the worker caught up, the processed bytes are dropped and the
++// unpublished tail moves to the front.
++static void compact_owned() {
++  const uint32_t done = sPublished.load(std::memory_order_acquire);
++  if (done == 0 || sProcessed.load(std::memory_order_acquire) != done) return;
++  const uint32_t tail = detail::sBufferSize - done;
++  if (tail) std::memmove(detail::sBufferData, detail::sBufferData + done, tail);
++  detail::sBufferSize = tail;
++  sPublished.store(0, std::memory_order_release);
++  sProcessed.store(0, std::memory_order_release);
++}
++
++// Compacts when the worker is idle and caught up, without waiting for it.
++static void try_compact() {
++  if (!sThreaded || tWorker || foreign() || detail::sInDisplayList) return;
++  if (sProducerOwns) {
++    compact_owned();
++    return;
++  }
++  std::unique_lock lock{sOwner, std::try_to_lock};
++  if (lock.owns_lock()) compact_owned();
++}
++
  void write_data_grow(const void* data, uint32_t length) {
 +  // The worker may be reading published bytes: own the buffer before moving it.
 +  producer_acquire();
++  compact_owned();
++  if (detail::sBufferSize + length <= detail::sBufferCapacity) {
++    std::memcpy(detail::sBufferData + detail::sBufferSize, data, length);
++    detail::sBufferSize += length;
++    return;
++  }
  
    uint32_t needed = detail::sBufferSize + length;
    uint32_t newCap = std::max(detail::sBufferCapacity * 2, needed);
-@@ -88,6 +437,22 @@ void drain() {
+@@ -88,6 +476,22 @@ void drain() {
    // SEALED, not DONE.
    (void)aurora::wait_for_frame_worker_sealed();
  
@@ -1546,7 +1586,7 @@ index c7fd176..a846bff 100644
    if (detail::sBufferSize == 0) {
      return;
    }
-@@ -119,6 +484,11 @@ void drain() {
+@@ -119,6 +523,11 @@ void drain() {
  const uint8_t* get_buffer_data() { return detail::sBufferData; }
  uint32_t get_buffer_size() { return detail::sBufferSize; }
  void clear_buffer() {
@@ -1558,7 +1598,7 @@ index c7fd176..a846bff 100644
    detail::sBufferSize = 0;
  }
  
-@@ -128,3 +498,26 @@ void clear_buffer() {
+@@ -128,3 +537,27 @@ void clear_buffer() {
  // FIFO drains so far (the timer of 01.42-01.45 cost ~5% of the game thread).
  extern "C" unsigned long long aurora_vita_fifo_drain_us() { return aurora::gx::fifo::sDrainCalls; }
  #endif
@@ -1574,6 +1614,7 @@ index c7fd176..a846bff 100644
 +  aurora::gx::fifo::set_threaded(mode != 0);
 +  aurora::gx::fifo::set_pipelined(mode == 2);
 +}
++extern "C" unsigned aurora_vita_fifo_capacity() { return aurora::gx::fifo::detail::sBufferCapacity; }
 +extern "C" void aurora_vita_set_gx_queue(int frames) { aurora::gx::fifo::g_vitaGxQueue = frames < 1 ? 1 : frames > 2 ? 2 : frames; }
 +extern "C" int aurora_vita_gx_thread() {
 +  return aurora::gx::fifo::pipelined() ? 2 : aurora::gx::fifo::threaded() ? 1 : 0;
