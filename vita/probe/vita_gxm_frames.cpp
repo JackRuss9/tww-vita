@@ -199,6 +199,7 @@ extern "C" unsigned long long aurora_vita_tex_copies();
 extern "C" void aurora_vita_log_waits(unsigned frames);
 extern "C" void aurora_vita_log_gpu_scenes();
 extern "C" unsigned aurora_vita_fifo_capacity();
+extern "C" unsigned aurora_vita_fifo_forced();
 extern "C" void tww_vita_prof_report(int fd, unsigned int frames, void (*log)(int, const char *, ...));
 
 extern "C" void pc_frame_end()
@@ -257,16 +258,19 @@ extern "C" void pc_frame_end()
         if (aurora_vita_gx_thread()) {
             // Worker busy time, the game thread's waits for it, and hand-offs per frame.
             static unsigned long long previous_worker, previous_wait, previous_publishes;
+            static unsigned previous_forced;
             unsigned long long worker, wait, publishes;
             aurora_vita_gx_thread_totals(&worker, &wait, &publishes);
-            probe_log(boot_log, "vita-gx-thread-0.1ms worker=%lu game_wait=%lu publishes=%lu fifo_kb=%u\n",
+            probe_log(boot_log, "vita-gx-thread-0.1ms worker=%lu game_wait=%lu publishes=%lu fifo_kb=%u forced_waits=%u\n",
                       static_cast<unsigned long>((worker - previous_worker) / submitted / 100),
                       static_cast<unsigned long>((wait - previous_wait) / submitted / 100),
                       static_cast<unsigned long>((publishes - previous_publishes) / submitted),
-                      aurora_vita_fifo_capacity() / 1024u);
+                      aurora_vita_fifo_capacity() / 1024u,
+                      aurora_vita_fifo_forced() - previous_forced);
             previous_worker = worker;
             previous_wait = wait;
             previous_publishes = publishes;
+            previous_forced = aurora_vita_fifo_forced();
         }
         tww_vita_prof_report(boot_log, submitted, probe_log);
         {

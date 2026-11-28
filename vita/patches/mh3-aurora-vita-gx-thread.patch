@@ -1165,7 +1165,7 @@ index 665e528..c71f682 100644
      auto label = read_string(data, pos, size, bigEndian);
      gfx::push_debug_group(std::move(label));
 diff --git a/aurora-main/lib/gx/fifo.cpp b/aurora-main/lib/gx/fifo.cpp
-index c7fd176..b3f3166 100644
+index c7fd176..506c3eb 100644
 --- a/aurora-main/lib/gx/fifo.cpp
 +++ b/aurora-main/lib/gx/fifo.cpp
 @@ -1,4 +1,6 @@
@@ -1574,7 +1574,7 @@ index c7fd176..b3f3166 100644
    constexpr uint32_t initialCapacity = 64 * 1024;
    reset_cp_register_cache();
    free(detail::sBufferData);
-@@ -42,7 +421,45 @@ void init() {
+@@ -42,7 +421,50 @@ void init() {
    detail::sDlWritePos = 0;
  }
  
@@ -1596,6 +1596,7 @@ index c7fd176..b3f3166 100644
 +}
 +
 +// Compacts when the worker is idle and caught up, without waiting for it.
++unsigned g_vitaForcedCompactions = 0;
 +static void try_compact() {
 +  if (!sThreaded || tWorker || foreign() || detail::sInDisplayList) return;
 +  if (sProducerOwns) {
@@ -1607,10 +1608,14 @@ index c7fd176..b3f3166 100644
 +    compact_owned();
 +    return;
 +  }
-+  // The worker is busy: let the buffer grow, up to 8 MB, then wait for it here once.
-+  if (detail::sBufferCapacity >= (8u << 20)) {
++  // The worker is busy: let the buffer fill. Wait for it here only once 3/4 of the
++  // buffer (at least 6 MB) is in use. 01.95 tested the capacity instead, which never
++  // shrinks: once it reached 8 MB the game waited for the worker every frame
++  // (10-26 ms a frame with CORE LAYOUT MH3).
++  if (detail::sBufferCapacity >= (8u << 20) && detail::sBufferSize >= detail::sBufferCapacity / 4 * 3) {
 +    producer_acquire();
 +    compact_owned();
++    ++g_vitaForcedCompactions;
 +  }
 +}
 +
@@ -1620,7 +1625,7 @@ index c7fd176..b3f3166 100644
  
    uint32_t needed = detail::sBufferSize + length;
    uint32_t newCap = std::max(detail::sBufferCapacity * 2, needed);
-@@ -88,6 +505,23 @@ void drain() {
+@@ -88,6 +510,23 @@ void drain() {
    // SEALED, not DONE.
    (void)aurora::wait_for_frame_worker_sealed();
  
@@ -1644,7 +1649,7 @@ index c7fd176..b3f3166 100644
    if (detail::sBufferSize == 0) {
      return;
    }
-@@ -119,6 +553,12 @@ void drain() {
+@@ -119,6 +558,12 @@ void drain() {
  const uint8_t* get_buffer_data() { return detail::sBufferData; }
  uint32_t get_buffer_size() { return detail::sBufferSize; }
  void clear_buffer() {
@@ -1657,7 +1662,7 @@ index c7fd176..b3f3166 100644
    detail::sBufferSize = 0;
  }
  
-@@ -128,3 +568,28 @@ void clear_buffer() {
+@@ -128,3 +573,29 @@ void clear_buffer() {
  // FIFO drains so far (the timer of 01.42-01.45 cost ~5% of the game thread).
  extern "C" unsigned long long aurora_vita_fifo_drain_us() { return aurora::gx::fifo::sDrainCalls; }
  #endif
@@ -1674,6 +1679,7 @@ index c7fd176..b3f3166 100644
 +  aurora::gx::fifo::set_pipelined(mode == 2);
 +}
 +extern "C" void aurora_vita_set_publish_batch(int bytes) { aurora::gx::fifo::g_vitaPublishBatch = bytes < 0 ? 0 : bytes; }
++extern "C" unsigned aurora_vita_fifo_forced() { return aurora::gx::fifo::g_vitaForcedCompactions; }
 +extern "C" unsigned aurora_vita_fifo_capacity() { return aurora::gx::fifo::detail::sBufferCapacity; }
 +extern "C" void aurora_vita_set_gx_queue(int frames) { aurora::gx::fifo::g_vitaGxQueue = frames < 1 ? 1 : frames > 2 ? 2 : frames; }
 +extern "C" int aurora_vita_gx_thread() {

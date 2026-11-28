@@ -912,3 +912,15 @@ unmerged draws ~40 ms, merged 13, render 8).
   frames; a start that finds it uses CLASSIC once (`vita-cores ... fallback`).
 - `vita-cores layout=... core3=... helper_mask=...` in the log; the menu shows
   MH3 3 CORES or MH3 4 CORES.
+
+### 01.96: the frame-start wait for the worker
+
+01.95 results (outside on Outset, 62%, CORE LAYOUT MH3 with CapUnlocker: 4
+cores): ~14 fps where 01.94 had ~10, ~11 fps where 01.94 had ~8.5 (draws
+~900). FAST ARRAYS ON and OFF measured the same. But a new wait appeared:
+10-26 ms a frame in try_compact. The game thread now keeps the worker busy, so
+the FIFO reached 8 MB, and try_compact tested the capacity (which never
+shrinks): from then on every frame waited for the worker to finish.
+
+- try_compact waits for the worker only once 3/4 of the buffer (at least 6 MB)
+  is in use; the gx-thread line counts these waits (`forced_waits`, per 10 s).
