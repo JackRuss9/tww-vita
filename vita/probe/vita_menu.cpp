@@ -34,6 +34,7 @@ extern "C" void aurora_vita_set_merge_runs(int enabled);
 extern "C" void aurora_vita_set_gx_queue(int frames);
 extern "C" void aurora_vita_set_publish_batch(int bytes);
 extern "C" void aurora_vita_set_fast_arrays(int enabled);
+extern "C" void tww_vita_pgo_dump(const char* why); // vita_pgo.cpp
 extern "C" int tww_vita_core_layout; // vita_cores.cpp
 extern "C" int tww_vita_core3;
 extern "C" int tww_vita_real_shadows; // d_drawlist.cpp (switchwaker-vita-real-shadows.patch)
@@ -480,6 +481,7 @@ extern "C" bool tww_vita_menu_pad(uint32_t buttons)
     if (pressed & SCE_CTRL_CIRCLE) {
         g_open = false;
         g_waitRelease = true;
+        tww_vita_pgo_dump("menu");  // PGO training build only
         return true;
     }
     int selected = g_selected;

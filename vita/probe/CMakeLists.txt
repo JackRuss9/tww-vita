@@ -8,6 +8,25 @@ if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
 endif()
 
 project(tww_vita_probe LANGUAGES C CXX)
+
+# PGO (01.97): "generate" builds the training VPK, whose counters vita_pgo.cpp writes
+# to ux0:data/tww/pgo.stream; "use" builds with the profile that `gcov-tool
+# merge-stream` restored under TWW_VITA_PGO_DIR. -fprofile-prefix-path keeps the
+# profile's file names relative to the build directory, so the training build and
+# the release build may live in different directories.
+set(TWW_VITA_PGO "" CACHE STRING "PGO: empty, generate or use")
+set(TWW_VITA_PGO_DIR "" CACHE PATH "PGO profile directory")
+if(TWW_VITA_PGO STREQUAL "generate")
+  # Edge counters only (-fprofile-arcs, not -fprofile-generate): VitaSDK's libgcov is
+  # built without a libc and lacks the value and time profilers.
+  add_compile_options(-fprofile-arcs "-fprofile-dir=${TWW_VITA_PGO_DIR}" -fprofile-info-section=gcov_info
+    -fprofile-update=single "-fprofile-prefix-path=${CMAKE_BINARY_DIR}")
+  add_compile_definitions(TWW_VITA_PGO_GENERATE=1)
+  link_libraries(gcov)
+elseif(TWW_VITA_PGO STREQUAL "use")
+  add_compile_options("-fprofile-use=${TWW_VITA_PGO_DIR}" "-fprofile-prefix-path=${CMAKE_BINARY_DIR}"
+    -fprofile-partial-training -Wno-missing-profile -Wno-coverage-mismatch)
+endif()
 if(NOT VITA)
   message(FATAL_ERROR "This target requires the VitaSDK toolchain")
 endif()
@@ -41,7 +60,7 @@ target_include_directories(switchwaker_assets PUBLIC
   "${TWW_SWITCHWAKER_ASSETS}/include"
   "${TWW_AURORA_DIR}/include")
 
-set(TWW_VITA_GAME_VERSION 01.96)
+set(TWW_VITA_GAME_VERSION 01.97)
 set(sw_game "${TWW_SWITCHWAKER_DIR}/game")
 set(sw_native "${TWW_SWITCHWAKER_DIR}/native")
 set(aurora_os "${TWW_AURORA_DIR}/lib/dolphin/os")
@@ -146,7 +165,7 @@ if(TWW_BUILD_GAME_OBJECTS)
 
   add_library(tww_vita_sdk STATIC ${runtime_sdk_sources})
   target_sources(tww_vita_sdk PRIVATE
-    vita_pad.cpp vita_menu.cpp vita_runtime_hooks.cpp vita_cores.cpp
+    vita_pad.cpp vita_menu.cpp vita_runtime_hooks.cpp vita_cores.cpp vita_pgo.cpp
     $<$<BOOL:${TWW_VITA_PROFILE}>:${CMAKE_CURRENT_SOURCE_DIR}/vita_prof.cpp>
     "${aurora_os}/OSCache.cpp"
     "${sw_game}/src/dolphin/pad/Padclamp.c"

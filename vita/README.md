@@ -924,3 +924,28 @@ shrinks): from then on every frame waited for the worker to finish.
 
 - try_compact waits for the worker only once 3/4 of the buffer (at least 6 MB)
   is in use; the gx-thread line counts these waits (`forced_waits`, per 10 s).
+
+### 01.97-pgo: the PGO training build
+
+01.96 results (100% resolution, everything else default): no forced waits
+(`forced_waits=0`); outside on Outset ~10.8 fps (game thread and worker both
+~91 ms: the worker sets the pace), the house ~19.8 fps (~13 ms of GPU staging
+waits at 100%).
+
+The training build counts how often every branch of the game and of Aurora runs;
+the release builds that follow are compiled with those counts (GCC PGO).
+
+- `-DTWW_VITA_PGO=generate -DTWW_VITA_PGO_DIR=<dir>` on the game build, and on
+  the Aurora build `-fprofile-arcs -fprofile-dir=<dir> -fprofile-info-section=gcov_info
+  -fprofile-update=single -fprofile-prefix-path=<build dir>` in CMAKE_C/CXX_FLAGS,
+  `-lgcov` in CMAKE_C/CXX_STANDARD_LIBRARIES, BUILD_SHARED_LIBS=OFF and
+  ZSTD_LEGACY_SUPPORT=OFF (its HUFv05/v06 decoders leave R_ARM_BASE_PREL
+  relocations that vita-elf-create rejects). Edge counters only: VitaSDK's libgcov
+  is built without a libc and lacks the value and time profilers.
+- vita_pgo.cpp writes every object's counters (the gcov_info section) as one
+  stream, ux0:data/tww/pgo.stream, every 3600 frames and whenever the settings
+  menu closes (`vita-pgo dump ...` in the log).
+- On the build machine: `arm-vita-eabi-gcov-tool merge-stream pgo.stream`
+  writes the .gcda files under <dir>; then `-DTWW_VITA_PGO=use` (game) and
+  `-fprofile-use=<dir> -fprofile-prefix-path=<build dir> -fprofile-partial-training
+  -Wno-missing-profile -Wno-coverage-mismatch` (Aurora) build the release.

@@ -25,6 +25,7 @@ extern "C" void aurora_vita_gx_thread_totals(unsigned long long* workerUs, unsig
                                              unsigned long long* publishes);
 extern "C" void tww_vita_settings_frame();
 extern "C" void tww_vita_cores_frame();
+extern "C" void tww_vita_pgo_frame();
 extern "C" void tww_vita_autores_note(uint64_t now_us, uint64_t wait_us);
 
 namespace {
@@ -118,6 +119,7 @@ extern "C" int tww_vita_gxm_init(SceUID log, int argc, char **argv)
 extern "C" void pc_frame_begin()
 {
     tww_vita_cores_frame();
+    tww_vita_pgo_frame();
     aurora::VitaHostAllocScope host_alloc;
     const uint64_t admission_start_us = sceKernelGetSystemTimeWide();
     // The game must only submit GX work once GXM admits the frame.
