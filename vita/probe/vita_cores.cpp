@@ -10,8 +10,7 @@
 // pinned to one (01.60) the DSP boot hung, a thread waiting on another one of the
 // same core never let it run.
 //
-// A start in MH3 writes ux0:data/tww/cores_pending and removes it once a game frame
-// has been played for a while; if a start finds the file, the last one did not get
+// A start in MH3 writes ux0:data/tww/cores_pending and removes it after 120 frames; if a start finds the file, the last one did not get
 // that far, and this start uses CLASSIC (logged as vita-cores fallback).
 
 #include <psp2/io/fcntl.h>
@@ -69,10 +68,12 @@ extern "C" void tww_vita_cores_setup()
                fallback ? " (fallback: the last MH3 start did not reach the game)" : "");
 }
 
-// Every presented frame; after ~20 s of frames the start counts as good.
+// Every presented frame; 120 frames (the DSP boot hang came before the first one)
+// make the start count as good. 01.95-01.97 waited 600, and a start closed before
+// that (a quick look at the title screen) made the next one fall back to CLASSIC.
 extern "C" void tww_vita_cores_frame()
 {
-    if (!g_pending || ++g_frames < 600)
+    if (!g_pending || ++g_frames < 120)
         return;
     g_pending = false;
     sceIoRemove(kPending);

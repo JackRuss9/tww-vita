@@ -24,8 +24,9 @@ if(TWW_VITA_PGO STREQUAL "generate")
   add_compile_definitions(TWW_VITA_PGO_GENERATE=1)
   link_libraries(gcov)
 elseif(TWW_VITA_PGO STREQUAL "use")
+  # The training build has edge counters only: no value profile to use.
   add_compile_options("-fprofile-use=${TWW_VITA_PGO_DIR}" "-fprofile-prefix-path=${CMAKE_BINARY_DIR}"
-    -fprofile-partial-training -Wno-missing-profile -Wno-coverage-mismatch)
+    -fprofile-partial-training -fno-profile-values -fno-vpt -Wno-missing-profile -Wno-coverage-mismatch)
 endif()
 if(NOT VITA)
   message(FATAL_ERROR "This target requires the VitaSDK toolchain")
@@ -60,7 +61,7 @@ target_include_directories(switchwaker_assets PUBLIC
   "${TWW_SWITCHWAKER_ASSETS}/include"
   "${TWW_AURORA_DIR}/include")
 
-set(TWW_VITA_GAME_VERSION 01.97)
+set(TWW_VITA_GAME_VERSION 01.98)
 set(sw_game "${TWW_SWITCHWAKER_DIR}/game")
 set(sw_native "${TWW_SWITCHWAKER_DIR}/native")
 set(aurora_os "${TWW_AURORA_DIR}/lib/dolphin/os")

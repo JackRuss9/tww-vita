@@ -949,3 +949,18 @@ the release builds that follow are compiled with those counts (GCC PGO).
   writes the .gcda files under <dir>; then `-DTWW_VITA_PGO=use` (game) and
   `-fprofile-use=<dir> -fprofile-prefix-path=<build dir> -fprofile-partial-training
   -Wno-missing-profile -Wno-coverage-mismatch` (Aurora) build the release.
+
+### 01.98: the first PGO release
+
+The profile comes from the 01.97-pgo training build (vita/pgo/pgo-01.97.stream,
+2.6 MB): from the sword to the shield (Outset, the forest, Tetra's rescue,
+the houses and the shop), ~45 minutes. `gcov-tool merge-stream` restored 959
+game and 258 Aurora .gcda files; every object found its profile.
+
+- The game and Aurora are built with `-fprofile-use=<dir> -fprofile-prefix-path=<build dir>
+  -fprofile-partial-training -fno-profile-values -fno-vpt` (no value profile in an
+  edge-only training run). Code not run in training keeps its normal -O3
+  optimization. .text grows from 11.8 to 13.5 MB (hot code inlined and laid out).
+- CORE LAYOUT counts a start as good after 120 frames instead of 600: 01.97's log
+  fell back to CLASSIC because the start before it was closed early.
+- To rebuild with a newer profile: repeat the training build and replace the stream.
