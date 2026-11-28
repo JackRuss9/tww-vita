@@ -890,3 +890,25 @@ GPU can reject hidden fragments before shading them).
 - The settings menu scrolls as sms-vita's does: 18 rows on the screen (20 px
   again), "X-Y OF N" at the top right, L/R a page up or down. 01.93's 17 px rows
   are gone.
+
+### 01.95: CORE LAYOUT
+
+01.94 results (outside on Outset, 62%): ~8.5 fps, game thread 113-117 ms.
+GX BATCH cut publishes from ~1380 to ~57 a frame with no change in fps (the
+wakes were cheap); REAL SHADOWS OFF ~+0.3 fps (GPU scenes 100 -> 59, copies
+30 -> 10); GRASS 50% no change there; DRAW DISTANCE 35 ~10.3 fps (draws 860 ->
+620). Profile at DRAW DISTANCE 35: actor logic (execute) ~31 ms, draw pass ~19
+ms, painter ~49 ms (~11.5 of it waiting for the worker); worker ~78 ms (634
+unmerged draws ~40 ms, merged 13, render 8).
+
+- CORE LAYOUT (next start, default MH3; vita_cores.cpp): MH3 lays the threads
+  out as Monster Hunter Tri's port does: the game thread alone on core 0, the
+  GX worker alone on core 1, the helper threads (the game's own threads through
+  the thread_start hook, the DSP and AI threads) on cores 2 and 3 when
+  CapUnlocker opens core 3, else on cores 1 and 2. Helpers always get two
+  cores (01.62: on one core the DSP boot hung). CLASSIC is the 01.94 layout
+  (helpers on cores 0 and 2).
+- A start in MH3 writes ux0:data/tww/cores_pending and removes it after 600
+  frames; a start that finds it uses CLASSIC once (`vita-cores ... fallback`).
+- `vita-cores layout=... core3=... helper_mask=...` in the log; the menu shows
+  MH3 3 CORES or MH3 4 CORES.

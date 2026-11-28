@@ -36,6 +36,8 @@ constexpr char DiscPath[] = "ux0:data/tww/WindWaker.ciso";
 SceUID game_log = -1;
 
 
+extern "C" unsigned tww_vita_helper_cpu_mask();
+
 void *thread_launch(OSThread *) { return JKRHeap::getCurrentHeap(); }
 
 void thread_start(OSThread *, void *heap)
@@ -45,7 +47,8 @@ void thread_start(OSThread *, void *heap)
     // they would otherwise inherit the game thread's core 0. Pinned to one core
     // together (01.60) the audio threads' DSP boot hung. Cores 0 and 2 (01.70):
     // core 1 is the GX worker's alone.
-    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0 | SCE_KERNEL_CPU_MASK_USER_2);
+    // 01.95: the helper cores of CORE LAYOUT (vita_cores.cpp).
+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), int(tww_vita_helper_cpu_mask()));
 }
 
 void logv(SceUID log, const char *format, va_list arguments)
@@ -126,6 +129,7 @@ extern "C" void probe_scheduler_diagnostic(const char *message, bool fatal)
 
 extern "C" void tww_vita_settings_load();
 extern "C" void tww_vita_aspect_setup();
+extern "C" void tww_vita_cores_setup();
 extern "C" bool tww_vita_audio_muted();
 extern "C" bool tww_vita_skip_intro();
 
@@ -133,6 +137,7 @@ extern "C" void pc_harness_init(int, char **)
 {
     // Settings first: COS_ASPECT must be set before the game reads it.
     tww_vita_settings_load();
+    tww_vita_cores_setup();  // before any helper thread starts
     tww_vita_aspect_setup();
     pc::gConfig.audio = !tww_vita_audio_muted();
     pc::gConfig.disc = DiscPath;

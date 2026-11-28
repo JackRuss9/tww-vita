@@ -34,6 +34,8 @@ extern "C" void aurora_vita_set_merge_runs(int enabled);
 extern "C" void aurora_vita_set_gx_queue(int frames);
 extern "C" void aurora_vita_set_publish_batch(int bytes);
 extern "C" void aurora_vita_set_fast_arrays(int enabled);
+extern "C" int tww_vita_core_layout; // vita_cores.cpp
+extern "C" int tww_vita_core3;
 extern "C" int tww_vita_real_shadows; // d_drawlist.cpp (switchwaker-vita-real-shadows.patch)
 unsigned aurora_vita_efb_width();
 unsigned aurora_vita_efb_height();
@@ -82,7 +84,7 @@ struct AutoRes {
     uint64_t blockedUntil = 0;
 } g_auto;
 
-enum Shown { ON_OFF, PERCENT, GX_MODE, ASPECT, SHADER_TEST, FAST_TEX, FOG_MODE, FRAMES, KBYTES };
+enum Shown { ON_OFF, PERCENT, GX_MODE, ASPECT, SHADER_TEST, FAST_TEX, FOG_MODE, FRAMES, KBYTES, CORES };
 struct Item {
     const char* key;
     const char* label;
@@ -117,6 +119,7 @@ const Item kItems[] = {
     {"fast_grass", "FAST GRASS", &tww_vita_fast_grass_enabled, kOnOff, 2, ON_OFF, 1},
     {"grass_density", "GRASS DENSITY", &tww_vita_grass_density, kDensities, 3, PERCENT, 100},
     {"async_shaders", "BACKGROUND SHADERS", &g_asyncShaders, kOnOff, 2, ON_OFF, 1},
+    {"core_layout", "CORE LAYOUT (NEXT START)", &tww_vita_core_layout, kOnOff, 2, CORES, 1},
     {"gx_thread", "GX THREAD (NEXT START)", &g_gxThread, kGxThread, 3, GX_MODE, 2},
     {"gx_queue", "GX QUEUE", &g_gxQueue, kQueue, 2, FRAMES, 1},
     {"cpu_profile", "CPU PROFILE (LOG)", &tww_vita_cpu_profile, kOnOff, 2, ON_OFF, 0},
@@ -138,7 +141,7 @@ void save()
     const SceUID file = sceIoOpen(kFile, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
     if (file < 0)
         return;
-    char text[512];
+    char text[1024];
     int length = std::snprintf(text, sizeof text,
         "# SwitchWaker Vita settings. The in-game menu (D-pad right + Square) writes this file.\n");
     for (const Item& it : kItems)
@@ -300,6 +303,8 @@ void draw_menu(void* address, unsigned stride, unsigned width, unsigned height)
             std::snprintf(v, sizeof v, "%s", *it.value == 2 ? "OFF" : *it.value ? "FAST" : "FULL");
         else if (it.shown == FAST_TEX)
             std::snprintf(v, sizeof v, "%s", *it.value == 2 ? "VERTEX" : *it.value ? "PIXEL" : "OFF");
+        else if (it.shown == CORES)
+            std::snprintf(v, sizeof v, "%s", *it.value ? (tww_vita_core3 ? "MH3 4 CORES" : "MH3 3 CORES") : "CLASSIC");
         else if (it.shown == KBYTES)
             std::snprintf(v, sizeof v, *it.value ? "%d KB" : "OFF", *it.value);
         else if (it.shown == FRAMES)
@@ -371,7 +376,7 @@ extern "C" void tww_vita_settings_load()
     aurora_vita_set_fast_arrays(g_fastArrays);
     g_appliedResolution = g_resolution ? g_resolution : g_autoPercent;
     aurora_vita_overlay_hook = draw_menu;
-    pc::writef(2, "vita-settings resolution=%d audio=%d aspect=%s float_tev=%d gx_thread=%d async_shaders=%d skip_intro=%d cmpr_bc1=%d fog=%d fast_tex=%d shader_test=%d show_fps=%d fast_strips=%d gx_queue=%d gx_batch=%d fast_arrays=%d real_shadows=%d grass=%d\n", g_resolution, g_audio, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_asyncShaders, g_skipIntro, g_cmprBc1, g_fog, g_fastTex, g_shaderTest, g_showFps, g_mergeRuns, g_gxQueue, g_gxBatch, g_fastArrays, tww_vita_real_shadows, tww_vita_grass_density);
+    pc::writef(2, "vita-settings resolution=%d audio=%d aspect=%s float_tev=%d gx_thread=%d async_shaders=%d skip_intro=%d cmpr_bc1=%d fog=%d fast_tex=%d shader_test=%d show_fps=%d fast_strips=%d gx_queue=%d gx_batch=%d fast_arrays=%d real_shadows=%d grass=%d core_layout=%d\n", g_resolution, g_audio, g_aspect ? "16:9" : "4:3", g_floatTev, g_gxThread, g_asyncShaders, g_skipIntro, g_cmprBc1, g_fog, g_fastTex, g_shaderTest, g_showFps, g_mergeRuns, g_gxQueue, g_gxBatch, g_fastArrays, tww_vita_real_shadows, tww_vita_grass_density, tww_vita_core_layout);
 }
 
 // Each frame's wait for a free GPU slot (game thread, after admission).

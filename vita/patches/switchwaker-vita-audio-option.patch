@@ -481,20 +481,23 @@ index 937ebeb3..a96db80e 100644
      if (aram == nullptr) {
          Fatal("ARStartDMA(type %u, main 0x%08x, aram 0x%08x, length 0x%x): the ARAM range is not "
 diff --git a/native/sdk/src/audio/AI.cpp b/native/sdk/src/audio/AI.cpp
-index 0f7bcdbf..97c02991 100644
+index 0f7bcdbf..95444cee 100644
 --- a/native/sdk/src/audio/AI.cpp
 +++ b/native/sdk/src/audio/AI.cpp
-@@ -76,6 +76,9 @@
+@@ -76,6 +76,12 @@
  #include <SDL3/SDL_init.h>
  
  #include <pthread.h>
++#if defined(__vita__)
++extern "C" unsigned tww_vita_helper_cpu_mask();
++#endif
 +#if defined(__vita__)
 +#include <psp2/kernel/threadmgr.h>
 +#endif
  
  #include <chrono>
  #include <cstdint>
-@@ -91,6 +94,15 @@ namespace aurora {
+@@ -91,6 +97,15 @@ namespace aurora {
  extern AuroraConfig g_config;
  } // namespace aurora
  
@@ -510,7 +513,7 @@ index 0f7bcdbf..97c02991 100644
  using namespace cos_sdk::os;
  
  namespace {
-@@ -249,7 +261,7 @@ void PlayOutput(const std::vector<s16>& frames, u32 hz) {
+@@ -249,7 +264,7 @@ void PlayOutput(const std::vector<s16>& frames, u32 hz) {
  }
  
  const u8* Mem1Range(uintptr_t address, u32 size) {
@@ -519,33 +522,37 @@ index 0f7bcdbf..97c02991 100644
      if (OSBaseAddress != 0 && u64(address) + size <= mem1Size) {
          return static_cast<const u8*>(OSPhysicalToCached(u32(address)));
      }
-@@ -293,6 +305,11 @@ void StepLocked(std::vector<s16>& out) {
+@@ -293,6 +308,12 @@ void StepLocked(std::vector<s16>& out) {
  }
  
  void* DmaThreadMain(void*) {
 +#if defined(__vita__)
 +    // tww-vita: any core. Pinned to one core with the game's audio threads (01.60) the
 +    // DSP boot hung: a thread waiting on another one of the same core never let it run.
-+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0 | SCE_KERNEL_CPU_MASK_USER_2); // not core 1: the GX worker's
++    // 01.95: the helper cores of CORE LAYOUT (vita_cores.cpp), always two of them.
++    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), int(tww_vita_helper_cpu_mask()));
 +#endif
      u32 hz;
      u32 dumpInitCount = 0; // AIInit's count the dump was opened for
      {
 diff --git a/native/sdk/src/audio/DSP.cpp b/native/sdk/src/audio/DSP.cpp
-index 5dd3f8a3..dca89958 100644
+index 5dd3f8a3..00c4c1db 100644
 --- a/native/sdk/src/audio/DSP.cpp
 +++ b/native/sdk/src/audio/DSP.cpp
-@@ -52,6 +52,9 @@
+@@ -52,6 +52,12 @@
  #include "cos_sdk/host_alloc.h"
  
  #include <pthread.h>
++#if defined(__vita__)
++extern "C" unsigned tww_vita_helper_cpu_mask();
++#endif
 +#if defined(__vita__)
 +#include <psp2/kernel/threadmgr.h>
 +#endif
  
  #include <atomic>
  #include <chrono>
-@@ -67,6 +70,15 @@ namespace aurora {
+@@ -67,6 +73,15 @@ namespace aurora {
  extern AuroraConfig g_config;
  } // namespace aurora
  
@@ -561,7 +568,7 @@ index 5dd3f8a3..dca89958 100644
  using namespace cos_sdk::os;
  
  extern "C" {
-@@ -137,7 +149,7 @@ HostThread sIntThreadHost;
+@@ -137,7 +152,7 @@ HostThread sIntThreadHost;
  // ---- the emulated DSP's view of the host ------------------------------------------------------
  
  std::uint8_t* GuestPointer(std::uint32_t address, std::uint32_t size) {
@@ -570,7 +577,7 @@ index 5dd3f8a3..dca89958 100644
      if (OSBaseAddress != 0 && u64(address) + size <= mem1Size) {
          return static_cast<std::uint8_t*>(OSPhysicalToCached(address));
      }
-@@ -184,7 +196,7 @@ void EnsureDspLocked() {
+@@ -184,7 +199,7 @@ void EnsureDspLocked() {
                static_cast<void*>(host.aram), host.aramSize);
      }
      Log("DSP: Dolphin's DSPHLE created (ARAM 0x%x bytes, MEM1 0x%x bytes)", host.aramSize,
@@ -579,14 +586,15 @@ index 5dd3f8a3..dca89958 100644
  }
  
  u16 ReadControlLocked() {
-@@ -215,6 +227,11 @@ unsigned IntGapUs() {
+@@ -215,6 +230,12 @@ unsigned IntGapUs() {
  }
  
  void* InterruptThreadMain(void*) {
 +#if defined(__vita__)
 +    // tww-vita: any core. Pinned to one core with the game's audio threads (01.60) the
 +    // DSP boot hung: a thread waiting on another one of the same core never let it run.
-+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0 | SCE_KERNEL_CPU_MASK_USER_2); // not core 1: the GX worker's
++    // 01.95: the helper cores of CORE LAYOUT (vita_cores.cpp), always two of them.
++    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), int(tww_vita_helper_cpu_mask()));
 +#endif
      {
          std::lock_guard<std::mutex> os(Lock());

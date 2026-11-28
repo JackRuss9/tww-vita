@@ -41,7 +41,7 @@ target_include_directories(switchwaker_assets PUBLIC
   "${TWW_SWITCHWAKER_ASSETS}/include"
   "${TWW_AURORA_DIR}/include")
 
-set(TWW_VITA_GAME_VERSION 01.94)
+set(TWW_VITA_GAME_VERSION 01.95)
 set(sw_game "${TWW_SWITCHWAKER_DIR}/game")
 set(sw_native "${TWW_SWITCHWAKER_DIR}/native")
 set(aurora_os "${TWW_AURORA_DIR}/lib/dolphin/os")
@@ -146,7 +146,7 @@ if(TWW_BUILD_GAME_OBJECTS)
 
   add_library(tww_vita_sdk STATIC ${runtime_sdk_sources})
   target_sources(tww_vita_sdk PRIVATE
-    vita_pad.cpp vita_menu.cpp vita_runtime_hooks.cpp
+    vita_pad.cpp vita_menu.cpp vita_runtime_hooks.cpp vita_cores.cpp
     $<$<BOOL:${TWW_VITA_PROFILE}>:${CMAKE_CURRENT_SOURCE_DIR}/vita_prof.cpp>
     "${aurora_os}/OSCache.cpp"
     "${sw_game}/src/dolphin/pad/Padclamp.c"
